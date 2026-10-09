@@ -89,11 +89,13 @@
   backdrop-filter: blur(var(--blur-veil));
   opacity: 0;
   pointer-events: none;
+  /* It leaves softly, and arrives at once: the moment the page is under the header, nothing shows through. */
   transition: opacity var(--motion-base) var(--ease-out);
 }
 
 .header[data-scrolled]::before {
   opacity: 1;
+  transition-duration: var(--motion-instant);
 }
 
 .header-actions {
@@ -117,11 +119,6 @@
 }
 
 /* The mark is a picture of its own size: it is never stretched or squeezed, and holds its place before it has loaded. */
-.wordmark picture {
-  display: flex;
-  flex: none;
-}
-
 .mark {
   display: block;
   flex: none;
@@ -342,23 +339,102 @@
   text-wrap: pretty;
 }
 
+/* A page with one thing to say. It opens as Track order and Rewards do: a tag with its rule, a large title, a line. */
 .notice-page {
+  position: relative;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-32);
+  width: 100%;
+  max-width: var(--order-width);
+  padding-top: var(--space-32);
+}
+
+/* The same soft light as behind the other single-purpose pages. */
+.notice-page::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc(var(--space-48) * -1) 0;
+  background: radial-gradient(closest-side, var(--glow-faint), transparent);
+  pointer-events: none;
+}
+
+.notice-head {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.notice-tag {
+  display: grid;
+  gap: var(--space-12);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.notice-tag::before {
+  content: "";
+  width: var(--rule-width);
+  height: var(--rule-height);
+  background: var(--accent);
+}
+
+.notice-title {
+  font-size: var(--text-32);
+  line-height: var(--line-32);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+
+.notice-lead {
+  max-width: var(--prose-width);
+  font-size: var(--text-16);
+  line-height: var(--line-relaxed);
+  text-wrap: pretty;
+}
+
+@media (min-width: 768px) {
+  .notice-page {
+    gap: var(--space-48);
+    padding-top: var(--space-64);
+  }
+
+  .notice-title {
+    font-size: var(--text-48);
+    line-height: var(--line-48);
+  }
+}
+
+/* On the swap page a notice stands where the card would: in the card's own frame, at its width. */
+.notice-card {
   display: grid;
   justify-items: start;
   gap: var(--space-12);
   width: 100%;
   max-width: var(--card-width);
-  padding: var(--space-32) 0;
+  padding: var(--space-24);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-16);
+  background: var(--card-tint);
+  -webkit-backdrop-filter: blur(var(--blur-card));
+  backdrop-filter: blur(var(--blur-card));
+  box-shadow: var(--shadow-raised);
 }
 
-.notice-page h1 {
+.notice-card-title {
   font-size: var(--text-20);
   line-height: var(--line-20);
   font-weight: var(--weight-600);
+  letter-spacing: var(--tracking-tight);
 }
 
-.notice-page-body {
+.notice-card-body {
   max-width: var(--prose-width);
+  text-wrap: pretty;
 }
 
 /* The foot of every page: the name and one line on the left, the links on the right, a hairline above. */

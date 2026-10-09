@@ -95,9 +95,10 @@ svg {
   outline-offset: var(--focus-offset);
 }
 
+/* Selected text: a quiet neutral tint. The accent is for what the site wants pressed, never for where the keyboard happens to be. */
 ::selection {
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--border-strong);
+  color: var(--text);
 }
 
 .mono {

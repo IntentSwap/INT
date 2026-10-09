@@ -106,10 +106,9 @@ describe("the logo on the site", () => {
     // (Drawn outside a browser, a picture comes with a hint to fetch it early; the page itself is drawn in the browser, which adds none.)
     const drawn = (element: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(element).replace(/<link rel="preload"[^>]*>/g, "");
     expect(drawn(createElement(Mark))).toBe('<img class="mark" src="/brand/logo-28.webp" srcSet="/brand/logo-28.webp 1x, /brand/logo-56.webp 2x, /brand/logo-84.webp 3x" width="28" height="28" alt="IntentSwap" decoding="async"/>');
-    // 24 px on a phone, 28 from 768 px: each with the three files for its own height.
+    // The same 28 px at every width: at 24 it was the faintest thing in a phone's header.
     expect(drawn(createElement(Wordmark))).toBe(
-      '<a class="wordmark" href="/" aria-label="IntentSwap, home"><picture><source media="(min-width: 768px)" srcSet="/brand/logo-28.webp 1x, /brand/logo-56.webp 2x, /brand/logo-84.webp 3x" width="28" height="28"/>' +
-        '<img class="mark" src="/brand/logo-24.webp" srcSet="/brand/logo-24.webp 1x, /brand/logo-48.webp 2x, /brand/logo-72.webp 3x" width="24" height="24" alt="IntentSwap" decoding="async"/></picture><span class="wordmark-text">IntentSwap</span></a>',
+      '<a class="wordmark" href="/" aria-label="IntentSwap, home"><img class="mark" src="/brand/logo-28.webp" srcSet="/brand/logo-28.webp 1x, /brand/logo-56.webp 2x, /brand/logo-84.webp 3x" width="28" height="28" alt="IntentSwap" decoding="async"/><span class="wordmark-text">IntentSwap</span></a>',
     );
   });
 

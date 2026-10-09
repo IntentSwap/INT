@@ -136,13 +136,19 @@ function Fees() {
                 <tr>
                   <th scope="row">IntentSwap fee</th>
                   <td className="mono">
-                    {displayBps(quote.fees.appBps)} · {displayAmount(BigInt(quote.fees.appAmount), from.decimals).text} {from.symbol}
+                    <span className="docs-part">{displayBps(quote.fees.appBps)} ·</span>{" "}
+                    <span className="docs-part">
+                      {displayAmount(BigInt(quote.fees.appAmount), from.decimals).text} {from.symbol}
+                    </span>
                   </td>
                 </tr>
                 <tr>
                   <th scope="row">Provider fee</th>
                   <td className="mono">
-                    {displayBps(quote.fees.providerBps)} · {displayAmount(BigInt(quote.fees.providerAmount), from.decimals).text} {from.symbol}
+                    <span className="docs-part">{displayBps(quote.fees.providerBps)} ·</span>{" "}
+                    <span className="docs-part">
+                      {displayAmount(BigInt(quote.fees.providerAmount), from.decimals).text} {from.symbol}
+                    </span>
                   </td>
                 </tr>
                 {quote.withdrawFee !== null ? (

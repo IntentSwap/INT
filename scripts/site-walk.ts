@@ -732,6 +732,9 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
           await page.keyboard.press("Escape");
           await menu.waitFor({ state: "detached" });
         }
+        // The pointer is parked well away first, so the three marks are photographed at rest.
+        await page.mouse.move(8, 400);
+        await page.waitForTimeout(250);
         await page.screenshot({ path: path.join(out, `header-${width}-${theme}.png`), clip: { x: 0, y: 0, width, height: 80 } });
         shots += 1;
         // The footer has the same three, and no status line: no "Service is running" and no dot.

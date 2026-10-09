@@ -27,11 +27,11 @@ export function SwapPage() {
 
   // What stands where the card would, when the card cannot be used. The rest of the page is unchanged.
   const instead = paused ? (
-    <Notice title="Swaps are paused." action={<SecondaryButton onClick={() => void reload()}>Check again</SecondaryButton>}>
+    <Notice inCard title="Swaps are paused." action={<SecondaryButton onClick={() => void reload()}>Check again</SecondaryButton>}>
       <p>New swaps can't be started right now. Orders already made are still tracked, and refunds still reach their refund address.</p>
     </Notice>
   ) : status === "failed" ? (
-    <Notice title="Couldn't load coins." action={<SecondaryButton onClick={() => void load()}>Try again</SecondaryButton>}>
+    <Notice inCard title="Couldn't load coins." action={<SecondaryButton onClick={() => void load()}>Try again</SecondaryButton>}>
       <p>The list of coins didn't arrive. Check your connection and try again.</p>
     </Notice>
   ) : null;

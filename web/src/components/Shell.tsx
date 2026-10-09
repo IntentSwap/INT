@@ -211,11 +211,29 @@ export function Toast() {
 }
 
 /** A plain full-page message: headline, cause, and at most one action. */
-export function Notice({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+/**
+ * A page that has one thing to say (not found, not available, cannot be reached). It opens as the
+ * site's other single-purpose pages do: a small tag with its rule, a large title, a line beneath.
+ * `inCard` is for the swap page, where the notice stands in the swap card's own frame, at the card's
+ * width and in its place, so the page keeps its shape while the card cannot be used.
+ */
+export function Notice({ title, children, action, inCard = false }: { title: string; children: ReactNode; action?: ReactNode; inCard?: boolean }) {
+  if (inCard) {
+    return (
+      <section className="notice-card">
+        <h2 className="notice-card-title">{title}</h2>
+        <div className="notice-card-body muted">{children}</div>
+        {action}
+      </section>
+    );
+  }
   return (
     <section className="notice-page">
-      <h1>{title}</h1>
-      <div className="notice-page-body muted">{children}</div>
+      <header className="notice-head">
+        <p className="notice-tag mono">IntentSwap</p>
+        <h1 className="notice-title">{title}</h1>
+        <div className="notice-lead muted">{children}</div>
+      </header>
       {action}
     </section>
   );

@@ -211,9 +211,34 @@
   white-space: nowrap;
 }
 
-.table-frame th:last-child,
-.table-frame td:last-child {
-  padding-right: 0;
+/* On a narrow screen a wide table runs out under the frame's right edge, and fades there: the fade says there
+   is more to the side. The last cell keeps room, so that scrolled to its end nothing lies under the fade. */
+.table-frame {
+  -webkit-mask-image: linear-gradient(to right, var(--scrim) calc(100% - var(--space-24)), transparent);
+  mask-image: linear-gradient(to right, var(--scrim) calc(100% - var(--space-24)), transparent);
+}
+
+/* The example quote has two columns only: its figures fold under each other and nothing is cut. */
+.table-frame .docs-example th,
+.table-frame .docs-example td {
+  white-space: normal;
+}
+
+.docs-part {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .table-frame {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .table-frame th:last-child,
+  .table-frame td:last-child {
+    padding-right: 0;
+  }
 }
 
 .table-frame tr + tr > *,
@@ -324,5 +349,10 @@
 
   .docs-here {
     display: block;
+  }
+
+  /* "On this page" lists the page's own sections here, so the list on the left names the pages alone. */
+  .docs-group .docs-sections {
+    display: none;
   }
 }

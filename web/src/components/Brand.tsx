@@ -11,9 +11,8 @@ export function Mark({ size = 28 }: { size?: LogoHeight }) {
   return <img className="mark" src={logoSrc(size)} srcSet={logoSrcSet(size)} width={width} height={height} alt="IntentSwap" decoding="async" />;
 }
 
-/** The mark and the name, linking home. On a phone the mark is 24 px high; from 768 px it is 28. */
+/** The mark and the name, linking home. */
 export function Wordmark() {
-  const wide = LOGO_SIZES[28];
   return (
     <a
       className="wordmark"
@@ -25,10 +24,7 @@ export function Wordmark() {
         navigate("/");
       }}
     >
-      <picture>
-        <source media="(min-width: 768px)" srcSet={logoSrcSet(28)} width={wide.width} height={wide.height} />
-        <Mark size={24} />
-      </picture>
+      <Mark />
       {/* On the narrowest screens, and on a phone once the header fills up, the mark stands alone. */}
       <span className="wordmark-text">IntentSwap</span>
     </a>
