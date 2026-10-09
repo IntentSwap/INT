@@ -934,11 +934,6 @@
   overflow-wrap: anywhere;
 }
 
-.token-risk {
-  max-width: var(--prose-width);
-  color: var(--warning);
-}
-
 .outbound {
   display: inline-flex;
   align-items: center;

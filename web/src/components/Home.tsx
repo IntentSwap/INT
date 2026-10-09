@@ -402,7 +402,6 @@ export function TokenSection({ ownPage = false }: { ownPage?: boolean }) {
           </div>
         ) : null}
       </Reveal>
-      <p className="token-risk">Crypto tokens are high risk. You can lose everything. This is not an offer or advice.</p>
     </section>
   );
 }
