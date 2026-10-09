@@ -320,8 +320,9 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // A page whose code cannot be fetched (the connection dropped as its link was pressed): the site
-    // does not go blank. It says so, keeps its header, and offers to reload.
+    // A page whose code cannot be fetched (a new version is out, or the connection dropped as its link
+    // was pressed): the site does not go blank. It loads itself again, once; when the part is still
+    // missing it says so, keeps its header, and offers to reload.
     name: "page-code-missing",
     path: "/docs",
     noCard: true,
@@ -331,14 +332,15 @@ const SCENARIOS: Scenario[] = [
       await page.route(/\/assets\/DocsPage-[^/]+\.js$/, (route) => route.abort());
     },
     async run(page) {
-      await page.getByRole("heading", { name: "This page could not be loaded." }).waitFor({ timeout: 20_000 });
+      await page.getByRole("heading", { name: "The site was updated." }).waitFor({ timeout: 20_000 });
+      if (!(await page.getByText("Reload the page to continue.").isVisible())) throw new Error("a page that could not be loaded does not say what to do");
       if (!(await page.getByRole("button", { name: "Reload" }).isVisible())) throw new Error("a page that could not be loaded offers no way to reload");
       if ((await page.locator("header .wordmark").count()) !== 1) throw new Error("a page that could not be loaded has lost its header");
     },
     async after(page) {
-      // Another page still opens: the failure is the one page's, not the site's.
+      // Its parts are gone, so every page says the same until the site is loaded again: none goes blank.
       await page.locator("header .wordmark").click();
-      await page.locator(".card").waitFor({ timeout: 20_000 });
+      await page.getByRole("heading", { name: "The site was updated." }).waitFor({ timeout: 20_000 });
     },
   },
   {
@@ -389,9 +391,9 @@ const SCENARIOS: Scenario[] = [
       await note.waitFor({ timeout: 20_000 });
       const text = (await note.innerText()).replace(/\s+/g, " ").trim();
       if (text !== "Swaps are paused, so no example can be quoted right now. When they are on, a real quote is shown here with every fee in it. Every quote on the swap page shows the swap fee and the network fee before you confirm.") throw new Error(`on a paused site the Docs page's fees read "${text}"`);
-      // And nowhere in the fees section is there a percentage that no quote stands behind.
-      const fees = await page.locator(".docs-body").innerText();
-      if (/\d\s?%/.test(fees)) throw new Error(`on a paused site the Docs page's fees give a figure: "${fees.replace(/\s+/g, " ").slice(0, 200)}"`);
+      // And the fees section says that this site takes nothing: the only figures in it are the provider's own.
+      const fees = (await page.locator(".docs-body").innerText()).replace(/\s+/g, " ");
+      if (!fees.includes("IntentSwap takes no fee.")) throw new Error(`on a paused site the Docs page's fees do not say that IntentSwap takes no fee: "${fees.slice(0, 200)}"`);
     },
   },
   {
@@ -614,10 +616,9 @@ const SCENARIOS: Scenario[] = [
       if (clipped.length > 0) throw new Error(`these amounts do not fit in the amount field: ${clipped.join(", ")}`);
       const outputs = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".states-case .amount-output")].filter((output) => output.scrollWidth > output.clientWidth + 1).map((output) => output.textContent ?? ""));
       if (outputs.length > 0) throw new Error(`these amounts received do not fit: ${outputs.join(", ")}`);
-      // Recent orders: a row gives the amount paid exactly or not at all. The sample with all eighteen
-      // decimals names its coins alone; the others give their exact amounts.
+      // Recent orders: a row names its two coins and gives no amount.
       const rows = (await page.locator(".recent-row .recent-row-main").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
-      for (const want of ["ETH to USDT", "250 USDC to ETH", "0.5 ETH to USDT", "0.0125 BTC to USDC"]) if (!rows.includes(want)) throw new Error(`the recent orders on the states page read ${JSON.stringify(rows)}; "${want}" is missing`);
+      for (const want of ["ETH to USDT", "USDC to ETH", "BTC to USDC"]) if (!rows.includes(want)) throw new Error(`the recent orders on the states page read ${JSON.stringify(rows)}; "${want}" is missing`);
       if (rows.some((row) => /0\.1234/.test(row))) throw new Error(`a recent order's row gives a shortened amount to pay: ${JSON.stringify(rows)}`);
     },
   },

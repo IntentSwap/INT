@@ -222,7 +222,7 @@ export function Notice({ title, children, action, inCard = false }: { title: str
   if (inCard) {
     return (
       <section className="notice-card">
-        <h2 className="notice-card-title">{title}</h2>
+        <h1 className="notice-card-title">{title}</h1>
         <div className="notice-card-body muted">{children}</div>
         {action}
       </section>

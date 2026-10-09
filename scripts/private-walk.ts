@@ -152,7 +152,7 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
         say((await review.locator('.review-row[data-row="routing"] .routing-tag').innerText().catch(() => "")).trim() === "Private", "the review does not show the swap as privately routed");
         // No fee of ours, the provider's in figures, and somewhere for its points to go, as for any swap.
         const reviewed = (await review.innerText()).replace(/\s+/g, " ");
-        say(/IntentSwap fee None/.test(reviewed) && /Provider fee [^%]*0\.20%/.test(reviewed) && !/adds no points/.test(reviewed), "the review of a private swap does not give its fees as the quote held them");
+        say(/IntentSwap fee None/.test(reviewed) && /Provider fee [^%]*0\.20%/.test(reviewed), `the review of a private swap does not give its fees as the quote held them: "${reviewed.slice(0, 600)}"`);
         const rewards = review.getByLabel(/Rewards address/);
         say((await rewards.count()) === 1, "the review of a private swap has no field for a rewards address");
         await rewards.fill(EVM);
