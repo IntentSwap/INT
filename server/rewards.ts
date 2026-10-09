@@ -1,0 +1,518 @@
+// Points and weekly rewards: the record on disk and everything worked out from it.
+//
+// Points are counted here and nowhere else, from orders this server made, verified and stored, at
+// the moment one is delivered. The browser can never submit, name or change a number of points.
+// One small file per swap that adds points (DATA_DIR/rewards/entries) and one per closed week
+// (DATA_DIR/rewards/weeks). An entry names its order only by a one-way hash; it holds the rewards
+// address, the fee in dollars, why the swap counted less than in full if it did, the two coins and
+// the time. These are transaction records and are kept as such.
+//
+// A week is closed by a tool the operator runs by hand, in another process (see rewards-tools.ts).
+// Closing screens the payout list against the sanctions list, and a week is closed only once every
+// earlier week that holds points has been.
+
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { checkAddress, toChecksumAddress } from "../shared/addresses.ts";
+import { countedFeeMicro, feeUsdMicro, nextWeek, pointsMicro, reducedReason, REWARDS, sharePool, signInMessage, weekBounds, weekFeeMicro, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
+import type { Sanctions } from "./sanctions.ts";
+import { writeDurable, type OrderRecord } from "./store.ts";
+
+export interface PointsEntry {
+  v: 1;
+  /** sha256 of the order's ID, in hex. The ID itself is not kept here. */
+  order: string;
+  /** The rewards address, in its standard spelling. */
+  address: string;
+  week: string;
+  /** When the swap was delivered. */
+  at: string;
+  /** IntentSwap's fee on the swap, in millionths of a US dollar. */
+  feeUsdMicro: string;
+  /** The part of it that counts (all of it, or the reduced share). */
+  countedMicro: string;
+  reasons: PointsReason[];
+  from: { symbol: string; chain: string };
+  to: { symbol: string; chain: string };
+}
+
+export interface WeekShare {
+  address: string;
+  pointsMicro: string;
+  /** What is to be sent to the address, in the coin's smallest unit. Nothing when the share was too small to send, or was kept back. */
+  payout: string;
+  carriedMicro: string;
+  /**
+   * Only on a share that was kept back: the address was on the sanctions list when the week was
+   * closed. The amount it would have been sent, in the coin's smallest unit. Nothing is sent to it
+   * and nothing is carried for it; the amount stays in the reserve and is not handed to the others.
+   */
+  withheld?: string;
+  /** The transaction that paid this share, once it has been sent, checked on-chain and recorded. Absent until then, and on records written before it was kept. */
+  tx?: string;
+}
+
+export interface WeekRecord {
+  v: 1;
+  week: string;
+  closedAt: string;
+  asset: string;
+  /** The pool that was shared out, what is to be sent of it, and what stays in the reserve, in the coin's smallest unit. */
+  pool: string;
+  paid: string;
+  left: string;
+  totalPointsMicro: string;
+  /** The week's counted fee, every address's together, in millionths of a US dollar. Absent on records written before it was kept. */
+  countedFeeUsdMicro?: string;
+  /** The date of the sanctions list the payouts were screened against. Absent on records written before payouts were screened. */
+  screenedWith?: string;
+  shares: WeekShare[];
+  /** The payout transactions, once they have been sent and recorded. Which share each one paid is kept with the share. */
+  txs: { hash: string; recordedAt: string }[];
+}
+
+const WEEK_SHAPE = /^\d{4}-W\d{2}$/;
+const ORDER_HASH_SHAPE = /^[0-9a-f]{64}$/;
+const lower = (address: string) => address.toLowerCase();
+
+export const orderHash = (id: string): string => createHash("sha256").update(id).digest("hex");
+
+/** A rewards address as given, checked: a valid address of the rewards chain in its standard spelling, or null. */
+export function rewardsAddressOf(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const check = checkAddress(REWARDS.chain, value.trim());
+  return check.ok ? toChecksumAddress(check.address) : null;
+}
+
+/**
+ * The entry a delivered order adds, or null when it adds none: an order that was not delivered, or
+ * that names no rewards address. An order whose dollar value the provider did not give adds an
+ * entry of no points, which says why.
+ */
+export function entryFor(record: OrderRecord): PointsEntry | null {
+  if (record.state.status !== "delivered") return null;
+  const address = rewardsAddressOf(record.rewardsAddress ?? null);
+  if (address === null) return null;
+  const at = record.state.finishedAt ?? record.state.statusSince;
+  const when = Date.parse(at);
+  if (!Number.isFinite(when)) return null;
+  const fee = feeUsdMicro(record.amountInUsd, record.fees.appBps);
+  const reduced = reducedReason(record.from.symbol, record.to.symbol);
+  const reasons: PointsReason[] = fee === null ? ["no_usd_value"] : reduced !== null ? [reduced] : [];
+  const counted = fee === null ? 0n : countedFeeMicro(fee, reduced !== null);
+  return {
+    v: 1,
+    order: orderHash(record.id),
+    address,
+    week: weekOf(when),
+    at: new Date(when).toISOString(),
+    feeUsdMicro: (fee ?? 0n).toString(),
+    countedMicro: counted.toString(),
+    reasons,
+    from: { symbol: record.from.symbol, chain: record.from.chain },
+    to: { symbol: record.to.symbol, chain: record.to.chain },
+  };
+}
+
+function isEntry(value: unknown): value is PointsEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const e = value as Partial<PointsEntry>;
+  return e.v === 1 && typeof e.order === "string" && ORDER_HASH_SHAPE.test(e.order) && typeof e.address === "string" && typeof e.week === "string" && WEEK_SHAPE.test(e.week) && typeof e.countedMicro === "string" && /^\d+$/.test(e.countedMicro) && typeof e.feeUsdMicro === "string" && /^\d+$/.test(e.feeUsdMicro) && Array.isArray(e.reasons);
+}
+
+const isDigits = (value: unknown): value is string => typeof value === "string" && /^\d+$/.test(value);
+
+/** A share as a week's file holds it. One written before a share kept its own transaction has none, and is read all the same. */
+function isShare(value: unknown): value is WeekShare {
+  if (typeof value !== "object" || value === null) return false;
+  const share = value as Partial<WeekShare>;
+  return typeof share.address === "string" && isDigits(share.pointsMicro) && isDigits(share.payout) && isDigits(share.carriedMicro) && (share.withheld === undefined || isDigits(share.withheld)) && (share.tx === undefined || typeof share.tx === "string");
+}
+
+function isWeekRecord(value: unknown): value is WeekRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const w = value as Partial<WeekRecord>;
+  return w.v === 1 && typeof w.week === "string" && WEEK_SHAPE.test(w.week) && isDigits(w.pool) && typeof w.asset === "string" && Array.isArray(w.shares) && w.shares.every(isShare) && Array.isArray(w.txs) && w.txs.every((tx) => typeof tx === "object" && tx !== null && typeof (tx as { hash?: unknown }).hash === "string");
+}
+
+/** How old a temporary file must be before it is taken for one a crash left behind. A write takes a moment; a minute is far longer than any. */
+const STALE_TMP_MS = 60_000;
+
+/**
+ * Clears away a half-written file that a crash left behind. A young one is left alone: it may be a
+ * write in progress in another process (the server writes entries while a payout tool starts).
+ */
+function removeStaleTmp(file: string): void {
+  try {
+    if (Date.now() - fs.statSync(file).mtimeMs > STALE_TMP_MS) fs.rmSync(file, { force: true });
+  } catch {
+    // Gone already: whoever was writing it has finished.
+  }
+}
+
+/** Said when the payouts of a week cannot be screened. The week is then not closed. */
+const NOT_SCREENED = "The sanctions list is missing or out of date, so the payouts cannot be screened. Nothing was closed. Try again once the list has loaded.";
+
+export interface Rewards {
+  /** Adds the entry of a delivered order, once. Safe to call again for the same order. */
+  recordDelivered(record: OrderRecord): PointsEntry | null;
+  /** Writes an entry down, once. What recordDelivered does with the entry it worked out; also how a practice server's sample entries are put in. No route reaches it. */
+  record(entry: PointsEntry): void;
+  entriesFor(address: string): PointsEntry[];
+  /** Every address's points for a week, in millionths: its own swaps under the weekly ceiling, plus what was carried in from the week before. */
+  weekPoints(week: string): Map<string, bigint>;
+  week(week: string): WeekRecord | null;
+  weeks(): WeekRecord[];
+  /**
+   * What closing a week would write down, worked out and not written: the pool shared out by points,
+   * with every address that is due a payout screened against the sanctions list. It refuses whatever
+   * closing refuses. For a week that is closed already it gives the record as it stands.
+   */
+  planWeek(week: string, pool: bigint, asset: string, minPayout: bigint, now: number, sanctions: Sanctions): WeekRecord;
+  /** Closes a week: works out what planWeek does and writes it down. Closing the same week again with the same pool gives the same record. */
+  closeWeek(week: string, pool: bigint, asset: string, minPayout: bigint, now: number, sanctions: Sanctions): WeekRecord;
+  /** The week a transaction is on record for, or null. */
+  weekOfTx(hash: string): string | null;
+  /**
+   * Writes down which transaction paid which share of a closed week. The tool that calls it has
+   * checked each transaction on-chain first. A share is paid once, and a transaction is on record
+   * for one week only.
+   */
+  recordPaid(week: string, paid: readonly { address: string; hash: string }[], now: number): WeekRecord;
+  view(address: string, now: number): RewardsView;
+  summary(now: number): RewardsSummary;
+}
+
+export function createRewards(dataDir: string): Rewards {
+  const entriesDir = path.join(dataDir, "rewards", "entries");
+  const weeksDir = path.join(dataDir, "rewards", "weeks");
+  fs.mkdirSync(entriesDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(weeksDir, { recursive: true, mode: 0o700 });
+
+  /** Every entry, by the lower-case form of its address, and the order hashes already recorded. */
+  const byAddress = new Map<string, PointsEntry[]>();
+  const recorded = new Set<string>();
+  const remember = (entry: PointsEntry) => {
+    if (recorded.has(entry.order)) return;
+    recorded.add(entry.order);
+    const list = byAddress.get(lower(entry.address));
+    if (list === undefined) byAddress.set(lower(entry.address), [entry]);
+    else list.push(entry);
+  };
+  for (const name of fs.readdirSync(entriesDir)) {
+    if (name.includes(".tmp-")) {
+      removeStaleTmp(path.join(entriesDir, name));
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(fs.readFileSync(path.join(entriesDir, name), "utf8"));
+      if (isEntry(parsed) && name === `${parsed.order}.json`) remember(parsed);
+    } catch {
+      // A file that cannot be read is not an entry. It is left where it is for a person to look at.
+    }
+  }
+
+  // Closed weeks are written by a tool run by hand, in another process. A week's file is read and
+  // parsed once and kept. It is read again only when the file has changed (another file has taken
+  // its place, or its size or its time of writing differ), so that a request for the Rewards page
+  // does not read every closed week from disk again.
+  const weekFile = (week: string) => path.join(weeksDir, `${week}.json`);
+  const kept = new Map<string, { stamp: string; record: WeekRecord | null }>();
+  const readWeek = (week: string): WeekRecord | null => {
+    if (!WEEK_SHAPE.test(week)) return null;
+    let stamp: string;
+    try {
+      const stat = fs.statSync(weekFile(week));
+      stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      kept.delete(week);
+      return null;
+    }
+    const held = kept.get(week);
+    if (held !== undefined && held.stamp === stamp) return held.record;
+    let record: WeekRecord | null = null;
+    try {
+      const parsed: unknown = JSON.parse(fs.readFileSync(weekFile(week), "utf8"));
+      if (isWeekRecord(parsed) && parsed.week === week) record = parsed;
+    } catch {
+      // A file that cannot be read is not a week's record. It is left where it is for a person to look at.
+    }
+    kept.set(week, { stamp, record });
+    return record;
+  };
+  const readWeeks = (): WeekRecord[] =>
+    fs
+      .readdirSync(weeksDir)
+      .filter((name) => /^\d{4}-W\d{2}\.json$/.test(name))
+      .sort()
+      .flatMap((name) => {
+        const week = readWeek(name.slice(0, -5));
+        return week === null ? [] : [week];
+      });
+
+  /** An address's own points in a week, before anything carried in: its swaps' counted fees, summed, under the weekly ceiling. */
+  const ownWeek = (entries: readonly PointsEntry[], week: string): { counted: bigint; points: bigint; ceiling: boolean } => {
+    const sum = entries.filter((entry) => entry.week === week).reduce((total, entry) => total + BigInt(entry.countedMicro), 0n);
+    const counted = weekFeeMicro(sum);
+    return { counted, points: pointsMicro(counted), ceiling: counted < sum };
+  };
+  /** A week's counted fee, every address's together, in millionths of a dollar. */
+  const weekFee = (week: string): bigint => {
+    let total = 0n;
+    for (const entries of byAddress.values()) total += ownWeek(entries, week).counted;
+    return total;
+  };
+  /** What a closed week carried forward for each address: shares too small to send, and every share of a week nothing was paid for. */
+  const carriedFrom = (week: WeekRecord | null): Map<string, bigint> => new Map((week?.shares ?? []).filter((share) => BigInt(share.carriedMicro) > 0n).map((share) => [lower(share.address), BigInt(share.carriedMicro)]));
+  const previousWeek = (week: string): string | null => {
+    const bounds = weekBounds(week);
+    return bounds === null ? null : weekOf(bounds.start - 1);
+  };
+  /**
+   * The earliest week before one that holds points and has not been closed, or null. A week holds
+   * points when a swap was delivered in it, or when a closed week carried points into it. Points
+   * are carried from one week into the next and no further, so a week left open between two closed
+   * ones would lose what was carried into it. (Weeks are written so that they sort as text.)
+   */
+  const earlierOpenWeek = (week: string): string | null => {
+    const candidates = new Set<string>();
+    for (const entries of byAddress.values()) for (const entry of entries) if (entry.week < week) candidates.add(entry.week);
+    for (const closed of readWeeks()) {
+      if (closed.week >= week || carriedFrom(closed).size === 0) continue;
+      const after = nextWeek(closed.week);
+      if (after < week) candidates.add(after);
+    }
+    for (const candidate of [...candidates].sort()) if (readWeek(candidate) === null && self.weekPoints(candidate).size > 0) return candidate;
+    return null;
+  };
+
+  const self: Rewards = {
+    recordDelivered(record) {
+      const entry = entryFor(record);
+      if (entry === null) return null;
+      self.record(entry);
+      return entry;
+    },
+    record(entry) {
+      if (!isEntry(entry)) return;
+      const file = path.join(entriesDir, `${entry.order}.json`);
+      // The file is the record: if it is already there (written before a restart), it stands as it is.
+      if (!fs.existsSync(file)) writeDurable(file, JSON.stringify(entry));
+      // Kept in memory once, however often it is told (see remember).
+      remember(entry);
+    },
+    entriesFor: (address) => [...(byAddress.get(lower(address)) ?? [])],
+    weekPoints(week) {
+      const out = new Map<string, { address: string; points: bigint }>();
+      for (const [key, entries] of byAddress) {
+        const { points } = ownWeek(entries, week);
+        if (points > 0n) out.set(key, { address: entries[0]?.address ?? key, points });
+      }
+      const before = previousWeek(week);
+      const closedBefore = before === null ? null : readWeek(before);
+      const carried = carriedFrom(closedBefore);
+      for (const share of closedBefore?.shares ?? []) {
+        const amount = carried.get(lower(share.address)) ?? 0n;
+        if (amount === 0n) continue;
+        const held = out.get(lower(share.address));
+        out.set(lower(share.address), { address: held?.address ?? share.address, points: (held?.points ?? 0n) + amount });
+      }
+      return new Map([...out.values()].map((item) => [item.address, item.points]));
+    },
+    week: readWeek,
+    weeks: readWeeks,
+    planWeek(week, pool, asset, minPayout, now, sanctions) {
+      const bounds = weekBounds(week);
+      if (bounds === null) throw new Error(`"${week}" is not a week. Write it as 2026-W41.`);
+      if (now < bounds.end) throw new Error(`Week ${week} has not ended yet. It ends on ${new Date(bounds.end).toISOString()}.`);
+      const held = readWeek(week);
+      if (held !== null) {
+        if (held.pool !== pool.toString() || held.asset !== asset) throw new Error(`Week ${week} is already closed, with a pool of ${held.pool} ${held.asset}. A closed week is not closed again with another.`);
+        return held;
+      }
+      // A file that is there and cannot be read as a week's record is never written over.
+      if (fs.existsSync(weekFile(week))) throw new Error(`Week ${week} has a record that cannot be read. It was left as it is. Look at rewards/weeks/${week}.json in the data folder.`);
+      const open = earlierOpenWeek(week);
+      if (open !== null) throw new Error(`Week ${open} holds points and is still open. Close it first, with a pool of nothing if nothing is to be paid for it.`);
+      // Screened with the list order creation uses, and by the same rule: no usable list, no payout list.
+      if (!sanctions.available()) throw new Error(NOT_SCREENED);
+      const result = sharePool(pool, self.weekPoints(week), minPayout);
+      let paid = 0n;
+      const shares = result.shares.map((share: Share): WeekShare => {
+        const mine = { address: share.address, pointsMicro: share.points.toString() };
+        if (share.payout === 0n) return { ...mine, payout: "0", carriedMicro: share.carried.toString() };
+        // One address at a time, so that the one that is listed is known.
+        const screening = sanctions.screen([share.address]);
+        if (!screening.ok && screening.reason === "unavailable") throw new Error(NOT_SCREENED);
+        // A listed address is sent nothing and carries nothing. Its share was worked out with everyone's
+        // points, its own among them, so what it would have had stays in the reserve.
+        if (!screening.ok) return { ...mine, payout: "0", carriedMicro: "0", withheld: share.payout.toString() };
+        paid += share.payout;
+        return { ...mine, payout: share.payout.toString(), carriedMicro: "0" };
+      });
+      return {
+        v: 1,
+        week,
+        closedAt: new Date(now).toISOString(),
+        asset,
+        pool: pool.toString(),
+        paid: paid.toString(),
+        left: (pool - paid).toString(),
+        totalPointsMicro: result.totalPoints.toString(),
+        countedFeeUsdMicro: weekFee(week).toString(),
+        screenedWith: sanctions.version() ?? "",
+        shares,
+        txs: [],
+      };
+    },
+    closeWeek(week, pool, asset, minPayout, now, sanctions) {
+      const closed = readWeek(week) !== null;
+      const record = self.planWeek(week, pool, asset, minPayout, now, sanctions);
+      // A week that is closed already stands as it was written: it is read back, never written again.
+      if (!closed) writeDurable(weekFile(week), JSON.stringify(record));
+      return record;
+    },
+    weekOfTx(hash) {
+      const wanted = hash.toLowerCase();
+      for (const item of readWeeks()) {
+        if (item.txs.some((tx) => tx.hash.toLowerCase() === wanted) || item.shares.some((share) => share.tx?.toLowerCase() === wanted)) return item.week;
+      }
+      return null;
+    },
+    recordPaid(week, paid, now) {
+      const held = readWeek(week);
+      if (held === null) throw new Error(`Week ${week} is not closed. Close it first.`);
+      if (paid.length === 0) return held;
+      const shares = held.shares.map((share) => ({ ...share }));
+      const hashes: string[] = [];
+      for (const item of paid) {
+        const hash = item.hash.toLowerCase();
+        const share = shares.find((candidate) => lower(candidate.address) === lower(item.address));
+        if (share === undefined || BigInt(share.payout) === 0n) throw new Error(`${item.address} has no payout in week ${week}.`);
+        if (share.tx !== undefined) throw new Error(`The payout to ${share.address} in week ${week} has a transaction on record already.`);
+        share.tx = hash;
+        if (!hashes.includes(hash)) hashes.push(hash);
+      }
+      // One transaction, one week: a hash that any week has on record is not written down again.
+      for (const hash of hashes) {
+        const other = self.weekOfTx(hash);
+        if (other !== null) throw new Error(`Transaction ${hash} is on record for week ${other} already. A transaction is recorded once.`);
+      }
+      const at = new Date(now).toISOString();
+      const next: WeekRecord = { ...held, shares, txs: [...held.txs, ...hashes.map((hash) => ({ hash, recordedAt: at }))] };
+      writeDurable(weekFile(week), JSON.stringify(next));
+      return next;
+    },
+    view(address, now) {
+      const entries = self.entriesFor(address).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+      const week = weekOf(now);
+      const bounds = weekBounds(week);
+      const closed = readWeeks();
+      const own = ownWeek(entries, week);
+      const before = previousWeek(week);
+      const carriedIn = carriedFrom(closed.find((item) => item.week === before) ?? null).get(lower(address)) ?? 0n;
+      const weeksWithEntries = new Set(entries.map((entry) => entry.week));
+      let allTime = 0n;
+      for (const item of weeksWithEntries) allTime += ownWeek(entries, item).points;
+      return {
+        address: toChecksumAddress(address),
+        week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString(), pointsMicro: (own.points + carriedIn).toString(), ceiling: own.ceiling, carriedInMicro: carriedIn.toString() },
+        allTimeMicro: allTime.toString(),
+        swaps: entries.slice(0, 200).map((entry) => ({ at: entry.at, week: entry.week, from: entry.from, to: entry.to, pointsMicro: pointsMicro(BigInt(entry.countedMicro)).toString(), reasons: entry.reasons })),
+        // Its own payout and its own transfer, and no other address's: none yet until that transfer is on record.
+        payouts: closed
+          .flatMap((item) => {
+            const share = item.shares.find((candidate) => lower(candidate.address) === lower(address));
+            return share !== undefined && BigInt(share.payout) > 0n ? [{ week: item.week, amount: share.payout, asset: item.asset, txs: share.tx === undefined ? [] : [share.tx] }] : [];
+          })
+          .reverse(),
+      };
+    },
+    summary(now) {
+      const week = weekOf(now);
+      const bounds = weekBounds(week);
+      // What a week has paid is what is on record as sent: the shares that have a transfer of their own.
+      // What was worked out when the week was closed is not counted until then.
+      const paidWeeks = readWeeks().flatMap((item) => {
+        const sent = item.shares.filter((share) => share.tx !== undefined && BigInt(share.payout) > 0n);
+        if (sent.length === 0) return [];
+        const paid = sent.reduce((sum, share) => sum + BigInt(share.payout), 0n);
+        // Its transactions, each once, in the order they were recorded.
+        const mine = new Set(sent.map((share) => share.tx ?? ""));
+        const inOrder = item.txs.map((tx) => tx.hash).filter((hash) => mine.has(hash));
+        return [{ week: item.week, asset: item.asset, paid, txs: [...new Set([...inOrder, ...mine])] }];
+      });
+      return {
+        week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString() },
+        weeks: paidWeeks.map((item) => ({ week: item.week, asset: item.asset, paid: item.paid.toString(), txs: item.txs })).reverse(),
+        totalPaid: paidWeeks.reduce((sum, item) => sum + item.paid, 0n).toString(),
+        weeksPaid: paidWeeks.length,
+      };
+    },
+  };
+  return self;
+}
+
+/** The week after a closed one: where points carried forward are counted. Used by the tools to say so. */
+export const weekAfter = nextWeek;
+
+// ---- Signing in on the Rewards page ----
+
+export interface SignIn {
+  /** A one-time code for an address, and the message to sign. */
+  challenge(address: string, host: string, now: number): { message: string; nonce: string; issuedAt: number; expiresAt: number };
+  /** The address a code was issued for and the message that was to be signed. The code is used up by asking. */
+  redeem(nonce: unknown, now: number): { address: string; message: string } | null;
+  /** A session for an address, once its signature has been checked. */
+  issue(address: string, now: number): { token: string; expiresAt: number };
+  /** The address a session is for, or null. */
+  verify(token: unknown, now: number): string | null;
+}
+
+/** The most one-time codes kept at once. Beyond it the oldest are dropped: a flood of requests cannot fill the memory. */
+const MAX_NONCES = 20_000;
+
+export function createSignIn(secret: Buffer = randomBytes(32)): SignIn {
+  const nonces = new Map<string, { address: string; message: string; expiresAt: number }>();
+  const sign = (payload: string) => createHmac("sha256", secret).update(`rewards.${payload}`).digest("base64url");
+  return {
+    challenge(address, host, now) {
+      const nonce = randomBytes(16).toString("hex");
+      const expiresAt = now + REWARDS.nonceMinutes * 60_000;
+      const message = signInMessage({ host, address, nonce, issuedAt: new Date(now).toISOString(), expiresAt: new Date(expiresAt).toISOString() });
+      for (const [key, held] of nonces) if (held.expiresAt <= now) nonces.delete(key);
+      while (nonces.size >= MAX_NONCES) {
+        const oldest = nonces.keys().next().value;
+        if (oldest === undefined) break;
+        nonces.delete(oldest);
+      }
+      nonces.set(nonce, { address, message, expiresAt });
+      return { message, nonce, issuedAt: now, expiresAt };
+    },
+    redeem(nonce, now) {
+      if (typeof nonce !== "string" || !/^[0-9a-f]{32}$/.test(nonce)) return null;
+      const held = nonces.get(nonce);
+      // Used up whether or not what follows succeeds: a code is good for one attempt.
+      nonces.delete(nonce);
+      if (held === undefined || held.expiresAt <= now) return null;
+      return { address: held.address, message: held.message };
+    },
+    issue(address, now) {
+      const expiresAt = now + REWARDS.sessionMinutes * 60_000;
+      const payload = `r1.${expiresAt}.${lower(address)}`;
+      return { token: `${payload}.${sign(payload)}`, expiresAt };
+    },
+    verify(token, now) {
+      if (typeof token !== "string" || token.length > 200) return null;
+      const parts = token.split(".");
+      if (parts.length !== 4 || parts[0] !== "r1") return null;
+      const [version, expires, address, mac] = parts as [string, string, string, string];
+      if (!/^\d{13}$/.test(expires) || !/^0x[0-9a-f]{40}$/.test(address)) return null;
+      const expected = Buffer.from(sign(`${version}.${expires}.${address}`));
+      const given = Buffer.from(mac);
+      if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+      return Number(expires) > now ? toChecksumAddress(address) : null;
+    },
+  };
+}
