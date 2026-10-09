@@ -95,6 +95,8 @@ export interface ConfigResponse {
   dexscreenerUrl: string | null;
   githubUrl: string | null;
   supportContact: string | null;
+  /** The site's own address (scheme and host), or null where none is known. */
+  siteUrl: string | null;
   termsVersion: string;
   /** Short-lived token required by the quote and order routes. */
   session: string;

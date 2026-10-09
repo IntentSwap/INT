@@ -175,10 +175,12 @@ describe("GET /api/config, /api/status, /api/tokens", () => {
       githubUrl: "https://github.com/intentswap/intentswap",
       dexscreenerUrl: null,
       supportContact: "help@example.org",
+      // The site's own address: none here, where none is set and the server is not the live one.
+      siteUrl: null,
       termsVersion: TERMS_VERSION,
     });
     expect(Object.keys(body).sort()).toEqual(
-      ["dexscreenerUrl", "githubUrl", "paused", "practice", "privacyMode", "reownProjectId", "reserveAddress", "sampleOrders", "serverNow", "session", "sessionExpiresAt", "supportContact", "termsVersion", "testPages", "tokenAddress", "tokenPairAddress", "xUrl"].sort(),
+      ["dexscreenerUrl", "githubUrl", "paused", "practice", "privacyMode", "reownProjectId", "reserveAddress", "sampleOrders", "serverNow", "session", "sessionExpiresAt", "siteUrl", "supportContact", "termsVersion", "testPages", "tokenAddress", "tokenPairAddress", "xUrl"].sort(),
     );
     // Neither the fee setting nor where the fee is paid is among them. The fee a person is shown comes
     // from a quote, because the setting alone does not say what is charged.

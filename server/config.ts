@@ -54,6 +54,8 @@ export interface Config {
   excludedChains: ReadonlySet<string>;
   /** Where the site is reached, as an origin ("https://example.org"). Only used to give link previews the full address of the share image. */
   siteUrl: string | null;
+  /** True when SITE_URL itself was set. The site's address is then taken as given everywhere, the sign-in included. */
+  siteUrlSet: boolean;
   alertWebhookUrl: string | null;
 }
 
@@ -180,6 +182,11 @@ export function isSupportContact(value: string): boolean {
   }
 }
 
+/** The live site's own address, unless SITE_URL says otherwise. */
+export const DEFAULT_SITE_URL = "https://intentswap.app";
+/** The project's account on X, behind the X icon unless X_URL says otherwise. */
+export const DEFAULT_X_URL = "https://x.com/intentswap_";
+
 export function loadConfig(env: Env = process.env): Config {
   const mode = read(env, "NODE_ENV") ?? "production";
   if (mode !== "production" && mode !== "development" && mode !== "test") fail("NODE_ENV", "must be production, development or test");
@@ -285,8 +292,9 @@ export function loadConfig(env: Env = process.env): Config {
     if (reserveAddress === tokenAddress || reserveAddress === tokenPairAddress) fail("RESERVE_ADDRESS", "must be the reserve wallet's address, not the token's or the pair's");
   }
 
-  const xUrl = httpsUrl(env, "X_URL", false);
-  if (xUrl !== null && !/^https:\/\/(x|twitter)\.com\/[A-Za-z0-9_]{1,30}\/?$/.test(xUrl)) fail("X_URL", "must be an x.com profile link");
+  // The project's own account, unless the setting names another.
+  const xUrl = httpsUrl(env, "X_URL", false) ?? DEFAULT_X_URL;
+  if (!/^https:\/\/(x|twitter)\.com\/[A-Za-z0-9_]{1,30}\/?$/.test(xUrl)) fail("X_URL", "must be an x.com profile link");
   // The two other links behind the header's icons. Each is held to its own site, over https, with nothing after the path.
   const dexscreenerUrl = httpsUrl(env, "DEXSCREENER_URL", false);
   if (dexscreenerUrl !== null && !/^https:\/\/dexscreener\.com\/[A-Za-z0-9_-]{1,40}(\/[A-Za-z0-9_-]{1,80}){0,2}\/?$/.test(dexscreenerUrl)) fail("DEXSCREENER_URL", "must be a dexscreener.com link, for example https://dexscreener.com/bsc/0x...");
@@ -311,6 +319,11 @@ export function loadConfig(env: Env = process.env): Config {
     if (!SITE_ORIGIN.test(parsed.origin)) fail("SITE_URL", "must be the site's address alone, for example https://example.org");
     siteUrl = parsed.origin;
   }
+  // Left unset, the live site's address is the project's own. It is what the page says of itself (the
+  // share image's address, each page's canonical link). It does not pin the sign-in to that host: only
+  // a SITE_URL that was itself set does, so the same build still signs in on a preview address.
+  const siteUrlSet = siteUrl !== null;
+  if (siteUrl === null && production) siteUrl = DEFAULT_SITE_URL;
 
   const alertWebhookUrl = httpsUrl(env, "ALERT_WEBHOOK_URL", !production);
 
@@ -354,6 +367,7 @@ export function loadConfig(env: Env = process.env): Config {
     supportContact,
     excludedChains,
     siteUrl,
+    siteUrlSet,
     alertWebhookUrl,
   });
 }

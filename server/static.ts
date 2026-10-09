@@ -168,6 +168,17 @@ export function withBanner(html: string, kinds: readonly BannerKind[]): string {
   return html.replace(BANNER_PLACE, () => banner);
 }
 
+/**
+ * The page as it is sent for one address of the site, saying which address is its own (a canonical
+ * link): the same page reached by another address is then counted as this one. Only for pages
+ * that may be indexed, and only where the site's own address is known.
+ */
+export function withCanonical(html: string, siteUrl: string, pathname: string): string {
+  if (!SITE_ORIGIN.test(siteUrl)) throw new Error("the site's address is not a plain origin");
+  if (!/^\/[A-Za-z0-9/_-]{0,80}$/.test(pathname)) throw new Error("not an address of a page");
+  return html.replace("</title>", () => `</title>\n    <link rel="canonical" href="${siteUrl}${pathname}" />`);
+}
+
 export function loadStaticSite(distDir: string, options: { testPages?: boolean; tokenPage?: boolean; siteUrl?: string | null; banner?: readonly BannerKind[]; privateRouting?: boolean } = {}): StaticSite | null {
   const routes = [...APP_ROUTES, ...(options.privateRouting === true ? PRIVATE_ROUTES : []), ...(options.tokenPage ? TOKEN_ROUTES : []), ...(options.testPages ? TEST_ROUTES : [])];
   if (!fs.existsSync(path.join(distDir, "index.html"))) return null;
@@ -196,6 +207,19 @@ export function loadStaticSite(distDir: string, options: { testPages?: boolean; 
   }
   const index = assets.get("/index.html");
   if (index === undefined) return null;
+
+  // One copy of the page for each address that may be indexed, made the first time it is asked for.
+  const pages = new Map<string, Asset>();
+  function pageAt(pathname: string): Asset {
+    if (typeof options.siteUrl !== "string" || index === undefined) return index!;
+    let page = pages.get(pathname);
+    if (page === undefined) {
+      const raw = Buffer.from(withCanonical(index.raw.toString("utf8"), options.siteUrl, pathname), "utf8");
+      page = { ...index, raw, gzip: zlib.gzipSync(raw, { level: 9 }), brotli: zlib.brotliCompressSync(raw), etag: `"${createHash("sha256").update(raw).digest("base64url").slice(0, 22)}"` };
+      pages.set(pathname, page);
+    }
+    return page;
+  }
 
   function send(req: IncomingMessage, res: ServerResponse, asset: Asset, status: number, headers: Record<string, string>): number {
     if (status === 200 && req.headers["if-none-match"] === asset.etag) {
@@ -242,7 +266,7 @@ export function loadStaticSite(distDir: string, options: { testPages?: boolean; 
       const known = routes.some((route) => route.test(pathname));
       const orderPage = pathname.startsWith("/order/");
       // Order pages are never cached and never indexed. Unknown paths get the same shell with a 404.
-      return send(req, res, index, known ? 200 : 404, {
+      return send(req, res, known && !orderPage ? pageAt(pathname) : index, known ? 200 : 404, {
         "Cache-Control": orderPage || !known ? "no-store" : "no-cache",
         ...(orderPage || !known ? { "X-Robots-Tag": "noindex" } : {}),
       });

@@ -52,7 +52,7 @@ const photo = await card.screenshot({ type: "png" });
 await shop.close();
 
 // 2. The image: the logo and the name top-left, the line of words, the card on the right. The logo
-// is the site's own copy of the owner's artwork, at the size it is drawn here (scripts/make-brand.ts).
+// is the site's own copy of the supplied artwork, at the size it is drawn here (scripts/make-brand.ts).
 const logo = fs.readFileSync(path.resolve("web", "public", "brand", "logo-32.webp")).toString("base64");
 const font = fs.readFileSync(path.resolve("web", "src", "assets", "fonts", "geist-latin.woff2")).toString("base64");
 const scale = CARD_WIDTH / box.width;

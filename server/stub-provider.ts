@@ -6,7 +6,8 @@
 // stepped through their statuses on a timer or by the practice controls.
 //
 // It answers quotes at both routing levels the site uses: "public", and "basic" (the provider's
-// private routing). A private quote echoes no fee of ours and gives a little less out. Private
+// private routing). A private quote echoes our fee whole, with the provider's own beside it, and
+// gives a little less out. Private
 // previews are always made up here and never sent on: the real provider answers them only to a
 // partner with a key. One kind of pair is always refused in private and fine in public (any pair
 // that delivers on Zcash), so that the "not available" path can be reached while practising.

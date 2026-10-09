@@ -1,9 +1,9 @@
-// Makes every size of the logo and of the site's icons from the owner's two source files.
+// Makes every size of the project's logo and of the site's icons from the two source files.
 // Run it again when either source file changes; what it writes is committed.
 //
 //   npx tsx scripts/make-brand.ts
 //
-// The sources (web/src/assets/brand/) are the owner's artwork and are never changed:
+// The sources (web/src/assets/brand/) are the supplied artwork and are never changed:
 //   logo-source.png   the mark on a transparent ground, for the site itself
 //   icon-source.png   the mark on its own black square, for the browser tab and a phone's home screen
 //
@@ -34,6 +34,8 @@ const DENSITIES = [1, 2, 3] as const;
 /** How much of the mark's own size is left round it as air, on each side. */
 const LOGO_AIR = 0.02;
 const ICON_AIR = 0.14;
+/** The same for the smallest pictures (a browser tab's 16 px above all), where the mark needs every pixel it can have. */
+const TAB_ICON_AIR = 0.04;
 /** A pixel of the logo counts as part of the mark from this much opacity (of 255). */
 const LOGO_INK = 8;
 /** A pixel of the icon counts as the mark, or the light round it, from this much brightness (of 255). */
@@ -233,9 +235,11 @@ for (const height of heights) logos.push(await scaled("logo-source.png", logoCro
 // ---- The icons: the mark on its black square, with less of the empty black round it ----
 const icon = await measure("icon-source.png", "light", ICON_LIGHT);
 const iconCrop = squareRound(icon.box, ICON_AIR, icon.width, icon.height);
-const iconAt = (size: number, name: string) => scaled("icon-source.png", iconCrop, size, size, "image/png", name);
-const icons = [await iconAt(32, "favicon-32.png"), await iconAt(180, "apple-touch-icon.png"), await iconAt(192, "icon-192.png"), await iconAt(512, "icon-512.png")];
-const inIco = [await iconAt(16, "16"), await iconAt(32, "32"), await iconAt(48, "48")];
+// The pictures a browser tab shows are cut closer than a home screen's, which rounds the corners off its own.
+const tabCrop = squareRound(icon.box, TAB_ICON_AIR, icon.width, icon.height);
+const iconAt = (size: number, name: string, crop = iconCrop) => scaled("icon-source.png", crop, size, size, "image/png", name);
+const icons = [await iconAt(32, "favicon-32.png", tabCrop), await iconAt(180, "apple-touch-icon.png"), await iconAt(192, "icon-192.png"), await iconAt(512, "icon-512.png")];
+const inIco = [await iconAt(16, "16", tabCrop), await iconAt(32, "32", tabCrop), await iconAt(48, "48", tabCrop)];
 await browser.close();
 
 for (const made of [...logos, ...icons]) fs.writeFileSync(path.join(PUBLIC, made.name), Buffer.from(made.base64, "base64"));
@@ -311,7 +315,7 @@ export function logoSrcSet(height: LogoHeight): string {
 const kb = (file: string) => `${(fs.statSync(path.join(PUBLIC, file)).size / 1024).toFixed(1)} KB`;
 console.log(`make-brand: logo ${logo.width} x ${logo.height}, mark at ${JSON.stringify(logo.box)}, cut to ${JSON.stringify(logoCrop)}`);
 for (const made of logos) console.log(`  ${made.name}  ${made.width} x ${made.height}  ${kb(made.name)}`);
-console.log(`make-brand: icon ${icon.width} x ${icon.height}, mark and its light at ${JSON.stringify(icon.box)}, cut to ${JSON.stringify(iconCrop)}`);
+console.log(`make-brand: icon ${icon.width} x ${icon.height}, mark and its light at ${JSON.stringify(icon.box)}, cut to ${JSON.stringify(iconCrop)} (a tab's: ${JSON.stringify(tabCrop)})`);
 for (const made of icons) console.log(`  ${made.name}  ${made.width} x ${made.height}  ${kb(made.name)}`);
 console.log(`  favicon.ico  ${inIco.map((made) => made.width).join(", ")}  ${kb("favicon.ico")}`);
 console.log(`  site.webmanifest  ${pageColour}`);

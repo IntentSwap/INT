@@ -123,9 +123,13 @@ the reserve's, or if the sign-in outlives the page.
 Every screen it photographs is also put through the axe accessibility rules
 (all of axe's rules for WCAG 2.0 to 2.2 at levels A and AA, the size-of-target
 rule among them, and its "best practice" rules; `scripts/axe.ts` says exactly
-which). Any finding fails the run. One thing is left out of the rules: the
-wallet library's own window, the list of wallets that opens on "Connect",
-which is drawn by code this site does not write. The run also lays the pages out as a
+which). Any finding fails the run. Three things are left out of the rules.
+The wallet library's own window, the list of wallets that opens on "Connect",
+which is drawn by code this site does not write. A control of full size that
+is, at the moment of looking, partly scrolled under the site's own header: the
+size-of-target rule would call it too small. And the logo's alternative text,
+"IntentSwap", beside the name in words: the link that holds both has a name of
+its own, which is what is read out, so nothing is said twice. The run also lays the pages out as a
 1280 px window zoomed to 200% would (640 px wide), and at 320 px wide, and
 checks that nothing is cut off or scrolls sideways there: the home page with
 the coin list and the review, Track order, Docs, Rewards, Terms, Privacy, the
@@ -236,7 +240,7 @@ bad value stops the server with the variable's name in the log.
 | `PORT` | Port to listen on | Railway sets it. Leave unset |
 | `DATA_DIR` | Folder for orders, caches and logs. **Required** | Type `/data` (the volume's mount path) |
 | `TRUST_PROXY_HOPS` | Proxies in front of the server. **Required** | Type `1` on Railway |
-| `FEE_RECIPIENT` | Public address that receives our fee. **Required** | The fee wallet's public address, copied exactly as the wallet shows it, with its mix of capital and small letters. It must be a normal wallet whose key you hold |
+| `FEE_RECIPIENT` | Public address that receives our fee. **Required** | The fee wallet's public address, copied from the wallet itself, exactly as the wallet shows it, with its mix of capital and small letters (the server refuses any other spelling, so that a slip cannot send fees to nobody). It must be a normal wallet whose key you hold. The live site's fee wallet is `0x31af10585a22fbea8a9dd7231b4d409a5b91acd9`, written here in small letters only: check the wallet's own address against it, letter for letter, and paste the wallet's |
 | `FEE_BPS` | Our fee on a public swap, in basis points. The provider keeps half of it. Default `40` | Leave unset, or 20–300 |
 | `FEE_BPS_PRIVATE` | Our fee on a privately routed swap, in basis points. The provider leaves it whole and adds its own beside it, so the default of `20` makes a private swap cost what a public one does. `0` asks for no fee of ours on private swaps (they then add no points). Default `20` | Leave unset, or 0–300 |
 | `SWAPS_PAUSED` | `true` stops new quotes and orders. Default `true` in production | `true` for the preview. `false` is launch |
@@ -250,12 +254,12 @@ bad value stops the server with the variable's name in the log.
 | `TOKEN_ADDRESS` | The `$INT` contract on BNB Chain. Shows the `$INT` section when set | After the token launches |
 | `TOKEN_PAIR_ADDRESS` | The token's trading pair (liquidity pool) on BNB Chain, shown beside it | After the token launches |
 | `RESERVE_ADDRESS` | The wallet weekly payouts are sent from, on BNB Chain. Shows the reserve on the Rewards page when set | When payouts begin |
-| `X_URL` | Where the X icon in the header and footer leads. While unset the icon is shown and goes nowhere | For example `https://x.com/yourhandle` |
+| `X_URL` | Where the X icon in the header and footer leads. Default `https://x.com/intentswap_`, the project's own account | Leave unset |
 | `GITHUB_URL` | Where the GitHub icon leads. The same while unset | For example `https://github.com/yourname/yourproject` |
 | `DEXSCREENER_URL` | Where the DexScreener icon leads. The same while unset | The token's page, for example `https://dexscreener.com/bsc/0x...`, after the token launches |
 | `EXCLUDED_CHAINS` | More chains never to offer on the site, by the provider's chain code, comma-separated. Their coins are left out of the coin list, so they cannot be shown, quoted or ordered. Adds to the built-in list (`abs`); it cannot remove from it | Leave unset |
 | `SUPPORT_CONTACT` | One support contact, shown in the footer and on a failed order's page. Required before `SWAPS_PAUSED=false` in production: the server will not start with swaps on and nobody to write to | An email address or a link |
-| `SITE_URL` | The site's own address, so a shared link shows the share image | For example `https://example.org`, once the domain is live |
+| `SITE_URL` | The site's own address: the share image's full address and each page's canonical link are written with it. Default in production `https://intentswap.app`. Set it only for another address (a preview's own, say); a `SITE_URL` that is itself set is also the one name the Rewards sign-in will carry | Leave unset |
 | `ALERT_WEBHOOK_URL` | Where operator alerts are posted | A Slack or Discord "incoming webhook" URL |
 
 `PROVIDER_STUB` is for local development only and is refused in production.
@@ -298,7 +302,7 @@ One click at a time. This creates a **preview** with swaps paused.
    - `DATA_DIR` = `/data`
    - `TRUST_PROXY_HOPS` = `1`
    - `SWAPS_PAUSED` = `true`
-   - `FEE_RECIPIENT` = the fee wallet's public address
+   - `FEE_RECIPIENT` = the fee wallet's public address, pasted from the wallet itself (the table above has it in small letters, to check against)
 7. Service → **Settings** → **Networking** → **Generate Domain**. That address is the preview link.
 8. Keep it to **one instance**. Orders live on the volume and rate limits live in memory.
 

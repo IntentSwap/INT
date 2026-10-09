@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { signInHost } from "../server/app.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
 import { briefPoints, COIN_FAMILIES, countedFeeMicro, feeUsdMicro, isqrt, isSignInMessage, MICRO, nextWeek, pointsMicro, reducedReason, RESERVE_ASSET, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekFeeMicro, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
@@ -1412,6 +1413,25 @@ describe("points over the wire", () => {
     // And where the site's own address is set, the message names that and nothing a request says.
     const named = (await h.post("/api/rewards/code", { address: ALICE.address }, { session: await h.session(), origin: "https://other.example", headers: { "x-forwarded-host": "other.example" } })).body as { message: string };
     expect(named.message.split("\n")[0]).toBe("intentswap.example wants you to sign in with your Ethereum account:");
+  });
+
+  it("names the host of the request, and only for a page on that host, where the site's address is only the built-in one", () => {
+    // The live site told nothing of its address: it is the built-in one, for what the page says of itself.
+    const builtIn = { siteUrl: "https://intentswap.app", siteUrlSet: false };
+    // The sign-in still names the host the request was made to: its own address, or a preview one.
+    expect(signInHost(builtIn, "intentswap.app", "https://intentswap.app")).toBe("intentswap.app");
+    expect(signInHost(builtIn, "preview-1234.up.example.app", "https://preview-1234.up.example.app")).toBe("preview-1234.up.example.app");
+    // And never for a page of another site, for no page at all, or for a host that is not said.
+    expect(signInHost(builtIn, "intentswap.app", "https://evil.example")).toBeNull();
+    expect(signInHost(builtIn, "preview-1234.up.example.app", "https://intentswap.app")).toBeNull();
+    for (const origin of [undefined, null, "", "not an address", 5]) expect(signInHost(builtIn, "intentswap.app", origin), String(origin)).toBeNull();
+    for (const host of [undefined, "", 7]) expect(signInHost(builtIn, host, "https://intentswap.app"), String(host)).toBeNull();
+    // With no address at all it is the same rule.
+    expect(signInHost({ siteUrl: null, siteUrlSet: false }, "127.0.0.1:8787", "http://127.0.0.1:8787")).toBe("127.0.0.1:8787");
+    expect(signInHost({ siteUrl: null, siteUrlSet: false }, "127.0.0.1:8787", "https://evil.example")).toBeNull();
+    // Where SITE_URL itself was set, the message names that and nothing a request says.
+    const set = { siteUrl: "https://intentswap.example", siteUrlSet: true };
+    for (const [host, origin] of [["intentswap.example", "https://intentswap.example"], ["other.example", "https://other.example"], [undefined, undefined]] as const) expect(signInHost(set, host, origin)).toBe("intentswap.example");
   });
 
   it("limits how often a sign-in can be asked for and tried", async () => {

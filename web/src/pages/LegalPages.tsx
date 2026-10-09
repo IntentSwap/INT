@@ -33,14 +33,21 @@ function Contact() {
   return contact !== null ? <>Write to {contact.replace(/^https:\/\//, "")}. </> : null;
 }
 
+/** The site's own address as it is written in a sentence (its host), where the server knows it. */
+function useSiteHost(): string | null {
+  const address = useApp((state) => state.config?.siteUrl ?? null);
+  return address !== null && URL.canParse(address) ? new URL(address).host : null;
+}
+
 export function TermsPage() {
+  const site = useSiteHost();
   const privateOn = useApp((state) => isPrivateMode(state.config));
   return (
     <DocsLayout href="/terms" title="Terms of Use" lead="What IntentSwap is, what it is not, and what you agree to by using it.">
       <Version />
 
       <Section title="1. What IntentSwap is">
-        <p>IntentSwap is a website that helps you swap one coin for another across blockchains. It is an interface only. It never holds your coins, and it cannot move them: you send them yourself, from your own wallet.</p>
+        <p>IntentSwap{site !== null ? <> ({site})</> : null} is a website that helps you swap one coin for another across blockchains. It is an interface only. It never holds your coins, and it cannot move them: you send them yourself, from your own wallet.</p>
         <p>Swaps are executed by NEAR Intents 1Click, a service run by others. IntentSwap is independent of that service: it does not act for it or speak for it. Using IntentSwap makes no contract between you and that service.</p>
       </Section>
 
@@ -157,12 +164,13 @@ export function TermsPage() {
 
 export function PrivacyPage() {
   const privateOn = useApp((state) => isPrivateMode(state.config));
+  const site = useSiteHost();
   return (
     <DocsLayout href="/privacy" title="Privacy Policy" lead="What IntentSwap keeps, for how long, and who else is involved in a swap.">
       <Version />
 
       <Section title="1. The short version">
-        <p>IntentSwap has no accounts, sets no cookies and runs no analytics. It loads nothing from other sites: fonts, icons and every other file come from IntentSwap itself. It keeps what it needs to carry out and show your swap, for a limited time, and nothing else.</p>
+        <p>IntentSwap{site !== null ? <> ({site})</> : null} has no accounts, sets no cookies and runs no analytics. It loads nothing from other sites: fonts, icons and every other file come from IntentSwap itself. It keeps what it needs to carry out and show your swap, for a limited time, and nothing else.</p>
         {privateOn ? (
           <p>Your deposit and your delivery are public. Each is a transfer recorded on its blockchain, where anyone can see the addresses and the amounts. IntentSwap cannot change that. With private routing, the link between the two is not in public records. The provider's confidential system, which processes the swap, knows both ends of it. IntentSwap keeps the order as set out below, both addresses included, and the order's record also says how it was routed. Private routing is not anonymity.</p>
         ) : (

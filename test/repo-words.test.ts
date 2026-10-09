@@ -18,6 +18,8 @@ const NEVER: readonly (readonly [string, RegExp])[] = [
   ["a note cited by its number", new RegExp(join("\\b", "D", "\\d{1,2}(?:\\.\\d+)?\\b"))],
   ["whose wish something was", new RegExp(join("the own", "er's (?:instruction|rule|exception|message|note|decision|fourth message|words)"), "i")],
   ["how the code was looked over", new RegExp(join("security rev", "iew|design rev", "iew|rev", "iewer"), "i")],
+  // Whoever runs the site is "the operator"; the logo is "the project's logo" or "the supplied artwork".
+  ["a word for whoever the project belongs to", new RegExp(join("\\bthe own", "er\\b|\\bown", "er's\\b"), "i")],
 ];
 
 /** One sentence of each kind, in the order of the list above. */
@@ -27,6 +29,7 @@ const CAUGHT = [
   join("inline styles are allowed (D", "43)"),
   join("by the own", "er's rule, nothing is outlined"),
   join("found in the security rev", "iew"),
+  join("the mark is the own", "er's logo"),
 ];
 
 /** Sentences that say a fact or a rule, and words of the product that only look alike. */
@@ -56,11 +59,14 @@ describe("what is published says what the product does, and nothing of how it ca
     expect(CAUGHT).toHaveLength(NEVER.length);
     NEVER.forEach(([what, pattern], index) => {
       expect(pattern.test(CAUGHT[index]!), what).toBe(true);
-      expect(found(CAUGHT[index]!), what).toHaveLength(1);
+      // (A sentence may be of two kinds at once; it is found as this kind among them.)
+      expect(found(CAUGHT[index]!).filter((hit) => hit.startsWith(`${what}:`)), what).toHaveLength(1);
     });
     for (const sentence of PLAIN) expect(found(sentence), sentence).toEqual([]);
     // A sentence broken over two lines of a comment is still found.
-    expect(found(join("// as the own", "er's\n// instruction has it"))).toHaveLength(1);
+    // (This one is two things at once: whose wish it was, and the word for whose.)
+    expect(found(join("// as the own", "er's\n// instruction has it"))).toHaveLength(2);
+    expect(found(join("where the own", "er has set none"))).toHaveLength(1);
     expect(found(join(" * each entry is explained in do", "cs/decisions.md\n * (D", "43)."))).toHaveLength(2);
   });
 

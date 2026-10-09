@@ -18,7 +18,7 @@ import { configuredLimits, PREVIEW_SHARE, RateLimiter } from "../server/ratelimi
 import { createRpc, decodeErc20Transfer, decodeTransferLog, parseProxyBody, TRANSFER_TOPIC } from "../server/rpc.ts";
 import { createSessionIssuer, SESSION_TTL_MS } from "../server/session.ts";
 import { boot } from "../server/boot.ts";
-import { firstWords, inlineScriptHashes, loadStaticSite, privateRoutingEdits, withBanner, withPrivateRouting, withSiteUrl } from "../server/static.ts";
+import { firstWords, inlineScriptHashes, loadStaticSite, privateRoutingEdits, withBanner, withCanonical, withPrivateRouting, withSiteUrl } from "../server/static.ts";
 import { BANNER_WORDS } from "../shared/banner.ts";
 import { POSITIONING } from "../shared/positioning.ts";
 import { EXPLORER_HOSTS, explorerTxUrl } from "../shared/chains.ts";
@@ -855,7 +855,12 @@ describe("site serving", () => {
     const withAddress = loadStaticSite(dir, { siteUrl: "https://intentswap.example" })!;
     expect(await served(without)).toBe(page);
     expect(await served(loadStaticSite(dir, { siteUrl: null })!)).toBe(page);
-    expect(await served(withAddress)).toBe(withSiteUrl(page, "https://intentswap.example"));
+    // And the page says which address is its own: the home page's here.
+    expect(await served(withAddress)).toBe(withCanonical(withSiteUrl(page, "https://intentswap.example"), "https://intentswap.example", "/"));
+    expect(await served(withAddress)).toContain('<link rel="canonical" href="https://intentswap.example/" />');
+    // Only a plain address of a page, at a plain address of a site, is ever written.
+    for (const bad of ["docs", "/docs?x=1", '/"><script>', "/docs/../x", "/a b"]) expect(() => withCanonical(page, "https://a.org", bad), bad).toThrow();
+    expect(() => withCanonical(page, 'https://a"b.org', "/docs")).toThrow();
     // The inline script's hash, which the security policy carries, is the same either way.
     expect(withAddress.scriptHashes).toEqual(without.scriptHashes);
     expect(withAddress.scriptHashes).toHaveLength(1);
@@ -968,7 +973,12 @@ describe("site serving", () => {
     expect(withAddress.body).toContain('<meta property="og:url" content="https://intentswap.example/" />');
     expect(withAddress.body).not.toContain("/share.png");
     expect((await answer({ siteUrl: "https://intentswap.example" })).body).toContain('<meta property="og:image" content="https://intentswap.example/share.png" />');
-    expect((await answer({ siteUrl: "https://intentswap.example" })).body).toBe(withSiteUrl(page, "https://intentswap.example"));
+    expect((await answer({ siteUrl: "https://intentswap.example" })).body).toBe(withCanonical(withSiteUrl(page, "https://intentswap.example"), "https://intentswap.example", "/"));
+    // Each page that may be indexed names its own address; an order's page and an unknown address name none, and neither does a site that knows no address of its own.
+    for (const address of ["/docs", "/track", "/rewards", "/terms", "/privacy", "/docs/fees"]) expect((await answer({ siteUrl: "https://intentswap.example" }, address)).body, address).toContain(`<link rel="canonical" href="https://intentswap.example${address}" />`);
+    expect((await answer({ siteUrl: "https://intentswap.example" }, "/docs")).body.match(/rel="canonical"/g)).toHaveLength(1);
+    for (const address of [`/order/${"A".repeat(27)}`, "/nowhere", "/docs/private"]) expect((await answer({ siteUrl: "https://intentswap.example" }, address)).body, address).not.toContain('rel="canonical"');
+    expect((await answer({}, "/docs")).body).not.toContain('rel="canonical"');
     // The banner is written into either page alike.
     expect((await answer({ privateRouting: true, banner: ["paused"] })).body).toBe(withBanner(withPrivateRouting(page), ["paused"]));
   });

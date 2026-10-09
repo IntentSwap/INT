@@ -10,8 +10,9 @@
 // echoed fees are checked here against what we asked for.
 //
 // A quote is asked for at one of two routing levels, "public" or "basic" (the
-// provider's private routing). The echo must name the level that was sent, and
-// a private quote carries no fee of ours.
+// provider's private routing). The echo must name the level that was sent. A
+// private quote's echo holds our fee, never more than was sent, and beside it
+// one entry of the provider's own, which is bounded.
 
 import { verifyQuoteSignature } from "@defuse-protocol/one-click-sdk-typescript";
 import { checkAddress, sameAddress } from "../shared/addresses.ts";

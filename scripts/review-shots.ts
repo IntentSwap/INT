@@ -1064,7 +1064,7 @@ if (walks("review")) {
       // Paying by hand: the address and its QR code stay hidden until the box is ticked, and the
       // code, read back from the pixels on screen, is the order's deposit address and nothing else.
       const deposit = ((await (await fetch(new URL(`/api/orders/${id}`, practiceUrl))).json()) as { depositAddress?: string }).depositAddress ?? "";
-      expectThat((await page2.locator(".qr").count()) === 0 && !(await page2.locator("main#main").innerText()).includes(deposit.slice(0, 12)), "the deposit address is on show before the box is ticked");
+      expectThat((await page2.locator(".qr").count()) === 0 && !(await page2.locator("main#main:visible").innerText()).includes(deposit.slice(0, 12)), "the deposit address is on show before the box is ticked");
       await page2.getByLabel("I'm sending on Base").check();
       const code = page2.locator(".qr");
       await code.waitFor({ timeout: 5000 });

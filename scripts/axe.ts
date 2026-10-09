@@ -4,8 +4,10 @@
 // which axe leaves off unless asked. What does not run: axe's three rules for level AAA, which
 // the site does not claim, and five rules axe itself has withdrawn. What is not looked at: the
 // wallet library's own window (the list of wallets that opens on "Connect"), which is drawn by
-// code this site does not write and cannot change. And one case of one rule: a control of full
-// size that is, at the moment of looking, partly scrolled under the site's own header (see below).
+// code this site does not write and cannot change. And one case each of two rules: a control of
+// full size that is, at the moment of looking, partly scrolled under the site's own header; and
+// the logo's alternative text beside the site's name, inside a link that has a name of its own
+// (see below for both).
 // The aim is no finding at all in the rest.
 
 import fs from "node:fs";

@@ -1,4 +1,4 @@
-// The owner's logo and the site's icons: the artwork is
+// The project's logo and the site's icons: the supplied artwork is
 // kept as it was supplied, every size the site shows is made from it and served by the site itself,
 // and the two-arrow drawing it replaces is gone.
 
@@ -63,7 +63,7 @@ function webpHead(webp: Buffer): { width: number; height: number; alpha: boolean
   return { width: webp.readUIntLE(24, 3) + 1, height: webp.readUIntLE(27, 3) + 1, alpha: (webp[20]! & 0x10) !== 0, profile: (webp[20]! & 0x20) !== 0 || webp.includes("ICCP") };
 }
 
-describe("the owner's artwork", () => {
+describe("the supplied artwork", () => {
   it("is kept in the project as it was supplied: the two source files, unchanged", () => {
     const print = (name: string) => createHash("sha256").update(fs.readFileSync(path.join(SOURCES, name))).digest("hex");
     expect(fs.readdirSync(SOURCES).sort()).toEqual(["icon-source.png", "logo-source.png"]);

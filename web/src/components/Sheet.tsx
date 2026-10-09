@@ -46,7 +46,7 @@ export function Sheet({ title, onClose, children, tall = false, footer, locked =
     };
   }, []);
 
-  // The owner of the sheet is told once that it has closed, however it came to close.
+  // Whatever opened the sheet is told once that it has closed, however it came to close.
   const told = useRef(false);
   const tellClosed = useCallback(() => {
     if (told.current) return;

@@ -162,6 +162,20 @@ export function toOrderView(record: OrderRecord, now: number): OrderView {
   };
 }
 
+/**
+ * The host a sign-in message names, or null when no message may be given. Where SITE_URL itself was
+ * set, it is that address and nothing a request says. Otherwise (the live site's address being only
+ * the built-in one, or none) it is the host the request was made to, and only when the page that
+ * asked is on that same host: so the same build signs in on its own address and on a preview one,
+ * and never hands another site a message that names it.
+ */
+export function signInHost(config: Pick<Config, "siteUrl" | "siteUrlSet">, hostHeader: unknown, originHeader: unknown): string | null {
+  if (config.siteUrlSet && config.siteUrl !== null) return new URL(config.siteUrl).host;
+  const host = typeof hostHeader === "string" ? hostHeader.slice(0, 100) : "";
+  const origin = typeof originHeader === "string" && URL.canParse(originHeader) ? new URL(originHeader).host : null;
+  return host !== "" && origin !== null && origin === host ? host : null;
+}
+
 export function createApp(deps: AppDeps): RequestListener {
   const { config, log, accessLog, alerts, geo, sanctions, oneclick, tokens, store, poller, rpc, limiters, sessions, rewards, signIn, site, now } = deps;
   const production = config.env === "production";
@@ -388,6 +402,8 @@ export function createApp(deps: AppDeps): RequestListener {
           dexscreenerUrl: config.dexscreenerUrl,
           githubUrl: config.githubUrl,
           supportContact: config.supportContact,
+          // The site's own address, where it is known: the Terms and the Privacy Policy name the site by it.
+          siteUrl: config.siteUrl,
           termsVersion: TERMS_VERSION,
           session: session.token,
           sessionExpiresAt: new Date(session.expiresAt).toISOString(),
@@ -858,12 +874,8 @@ export function createApp(deps: AppDeps): RequestListener {
         // in a forwarding header is not taken: a program can write that header as it likes, and
         // another site could then be handed a message that names itself. (Behind a proxy that changes
         // the host, set SITE_URL.)
-        let host = String(ctx.req.headers.host ?? "").slice(0, 100);
-        if (config.siteUrl !== null) host = new URL(config.siteUrl).host;
-        else {
-          const origin = typeof ctx.req.headers.origin === "string" && URL.canParse(ctx.req.headers.origin) ? new URL(ctx.req.headers.origin).host : null;
-          if (origin === null || origin !== host) throw new HttpError(403, "origin", "Signing in is not available from this address.");
-        }
+        const host = signInHost(config, ctx.req.headers.host, ctx.req.headers.origin);
+        if (host === null) throw new HttpError(403, "origin", "Signing in is not available from this address.");
         const challenge = signIn.challenge(address, host, now());
         // The parts go with the message, so that the page can put the message together itself and
         // see that it is the one for this site and this address before the wallet is opened.

@@ -30,6 +30,24 @@ export interface WalkResult {
   shots: number;
 }
 
+/**
+ * The Help button floats in a corner and steps out of the way of anything that can be pressed there.
+ * So at any moment it is either on show, or something to press lies where it would be: never hidden for nothing.
+ */
+async function helpShownOrCovering(page: Page): Promise<boolean> {
+  if (await page.locator(".help").isVisible()) return true;
+  return page.evaluate(() => {
+    const help = document.querySelector(".help");
+    if (help === null) return false;
+    const box = help.getBoundingClientRect();
+    for (const control of document.querySelectorAll("main a, main button, main summary, main input, main textarea, main select, main label, footer a, footer button")) {
+      const other = control.getBoundingClientRect();
+      if (other.width > 0 && other.height > 0 && other.left < box.right && other.right > box.left && other.top < box.bottom && other.bottom > box.top) return true;
+    }
+    return false;
+  });
+}
+
 export async function siteWalk(browser: Browser, options: { baseUrl: string; practiceUrl: string | null; out: string; visit(page: Page, url: string): Promise<void> }): Promise<WalkResult> {
   const complaints: string[] = [];
   let shots = 0;
@@ -225,7 +243,7 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
       for (const script of scripts) expectThat(!walletMark.test(await (await fetch(script)).text()), `${address} fetched wallet code before Connect was pressed (${new URL(script).pathname})`);
       // From 768 px up the Help button floats on every page, clear of whatever the page is about.
       const help = await boxOf(fresh, ".help");
-      expectThat(help !== null && (await fresh.locator(".help").isVisible()), `on ${address} there is no Help button on a wide screen`);
+      expectThat(help !== null && (await helpShownOrCovering(fresh)), `on ${address} there is no Help button on a wide screen, and nothing to press where it would be`);
       for (const part of [".card", ".focus-stage", ".rewards-week", ".docs-body", ".button-primary"]) if ((await fresh.locator(part).count()) > 0) expectThat(!overlaps(help, await boxOf(fresh, part)), `on ${address} the Help button lies over ${part}`);
       await fresh.close();
     }
@@ -310,6 +328,48 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     await desk.screenshot({ path: path.join(out, "..", "..", "data", "stuck-site-wide.png") }).catch(() => undefined);
   }
   await wide.close();
+
+  // ---- The site's own icons: each is served by the site, as what it is, and the tab's is drawn for the eye ----
+  {
+    const label = "icons";
+    const say = (ok: boolean, what: string) => {
+      if (!ok) complaints.push(`${label}: ${what}`);
+    };
+    const served = new Map<string, Buffer>();
+    for (const [address, type] of [
+      ["/favicon.ico", "image/x-icon"],
+      ["/favicon-32.png", "image/png"],
+      ["/apple-touch-icon.png", "image/png"],
+      ["/icon-192.png", "image/png"],
+      ["/icon-512.png", "image/png"],
+      ["/site.webmanifest", "application/manifest+json; charset=utf-8"],
+    ] as const) {
+      const reply = await fetch(new URL(address, baseUrl));
+      say(reply.status === 200 && reply.headers.get("content-type") === type, `${address} is answered ${reply.status} as ${reply.headers.get("content-type")}`);
+      served.set(address, Buffer.from(await reply.arrayBuffer()));
+    }
+    // The page's head names them, and every one it names is at this site.
+    const head = await (await fetch(new URL("/", baseUrl))).text();
+    const named = [...head.matchAll(/<link rel="(?:icon|apple-touch-icon|manifest)"[^>]*href="([^"]*)"/g)].map((link) => link[1] ?? "");
+    say(named.join(" ") === "/favicon.ico /favicon-32.png /apple-touch-icon.png /site.webmanifest", `the page's head names these icons: ${named.join(" ")}`);
+    // The three sizes inside favicon.ico, each a picture of its own, drawn from the very bytes the site sent
+    // (a page at another address may not embed the site's files): as a tab shows it, and enlarged.
+    const ico = served.get("/favicon.ico")!;
+    const frames = new Map<number, string>();
+    for (let index = 0; index < ico.readUInt16LE(4); index++) {
+      const at = 6 + 16 * index;
+      frames.set(ico[at]!, `data:image/png;base64,${ico.subarray(ico.readUInt32LE(at + 12), ico.readUInt32LE(at + 12) + ico.readUInt32LE(at + 8)).toString("base64")}`);
+    }
+    say([...frames.keys()].join(" ") === "16 32 48", `favicon.ico holds the sizes ${[...frames.keys()].join(", ")}`);
+    const touch = `data:image/png;base64,${served.get("/apple-touch-icon.png")!.toString("base64")}`;
+    const strip = (ground: string, ink: string) =>
+      `<div style="background:${ground};color:${ink};padding:12px 16px;display:flex;gap:24px;align-items:center;font:13px system-ui"><span style="display:inline-flex;gap:8px;align-items:center;background:rgba(127,127,127,.18);border-radius:8px 8px 0 0;padding:8px 14px"><img src="${frames.get(16)}" width="16" height="16">IntentSwap</span><img src="${frames.get(32)}" width="32" height="32"><img src="${frames.get(48)}" width="48" height="48"><img src="${frames.get(16)}" width="96" height="96" style="image-rendering:pixelated"><img src="${touch}" width="60" height="60" style="border-radius:13px"></div>`;
+    const sheet = await (await browser.newContext({ viewport: { width: 720, height: 200 }, deviceScaleFactor: 2 })).newPage();
+    await sheet.setContent(`<!doctype html><body style="margin:0">${strip("#202124", "#e8eaed")}${strip("#dee1e6", "#202124")}</body>`, { waitUntil: "load" });
+    await sheet.screenshot({ path: path.join(out, "brand-tab-icon.png") });
+    shots += 1;
+    await sheet.context().close();
+  }
 
   // ---- A kept copy of the coin list, and no live one ----
   const kept = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
@@ -439,7 +499,7 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     expectThat((await showing()) === firstItem, "a touch that is not a swipe moved the stage");
     await phone.screenshot({ path: path.join(out, "site-stage-360-dark.png"), fullPage: false });
     shots += 1;
-    expectThat(await phone.locator(".help").isVisible(), "on a phone the Help button does not come back once the card is scrolled past");
+    expectThat(await helpShownOrCovering(phone), "on a phone the Help button does not come back once the card is scrolled past, though nothing to press lies where it would be");
     const help = await boxOf(phone, ".help");
     expectThat(help !== null && help.x + help.width <= 360 && help.y + help.height <= 780, "on a phone the Help button is not wholly on screen");
     await phone.screenshot({ path: path.join(out, "site-home-help-360-dark.png"), fullPage: false });
@@ -647,12 +707,13 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
           const text = await page.evaluate(() => getComputedStyle(document.body).color);
           say((await icons.first().evaluate((link) => getComputedStyle(link).color)) === text, "under the pointer an icon does not take the text colour");
           await page.mouse.move(0, 0);
-          // No address is set on this server: a press goes nowhere. No new tab, no jump to the top, no change of address, no complaint.
-          say(drawn.every((icon) => icon.href === null), `with no address set an icon carries one: ${JSON.stringify(drawn.map((icon) => icon.href))}`);
+          // Nothing is set on this server. The X icon leads to the project's own account all the same; the two others carry no
+          // address, and a press on one goes nowhere: no new tab, no jump to the top, no change of address, no complaint.
+          say(JSON.stringify(drawn.map((icon) => icon.href)) === JSON.stringify([null, null, "https://x.com/intentswap_"]), `with nothing set the icons lead to ${JSON.stringify(drawn.map((icon) => icon.href))}`);
           await page.evaluate(() => window.scrollTo(0, 300));
           await page.waitForTimeout(200);
           const before = { url: page.url(), tabs: context.pages().length, y: await page.evaluate(() => window.scrollY) };
-          for (let index = 0; index < 3; index++) {
+          for (let index = 0; index < 2; index++) {
             const box = await icons.nth(index).boundingBox();
             if (box !== null) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
           }

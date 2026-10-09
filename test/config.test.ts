@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toChecksumAddress } from "../shared/addresses.ts";
-import { ConfigError, DEFAULT_BLOCKED_COUNTRIES, describeConfig, DEV_FEE_RECIPIENT, isSupportContact, loadConfig } from "../server/config.ts";
+import { ConfigError, DEFAULT_BLOCKED_COUNTRIES, DEFAULT_SITE_URL, DEFAULT_X_URL, describeConfig, DEV_FEE_RECIPIENT, isSupportContact, loadConfig } from "../server/config.ts";
 
 const FEE = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
 const KEY = "aaaaaaaaaaaa.bbbbbbbbbbbb.cccccccccccc";
@@ -34,7 +34,8 @@ describe("configuration", () => {
       providerStub: false,
       reownProjectId: "c0d68cdb58343fb95145440afe216c42",
       tokenAddress: null,
-      xUrl: null,
+      // The project's own account on X stands behind the X icon unless another is named.
+      xUrl: "https://x.com/intentswap_",
       supportContact: null,
       alertWebhookUrl: null,
     });
@@ -180,7 +181,11 @@ describe("configuration", () => {
     expect(config).toMatchObject({ port: 3000, trustProxyHops: 1, feeBps: 60, swapsPaused: false, oneClickMaxPerMin: 600, tokenAddress: FEE, tokenPairAddress: null });
     // The three links behind the header's icons. Each is optional; none is set until the operator sets it.
     expect(config).toMatchObject({ xUrl: "https://x.com/intentswap", dexscreenerUrl: "https://dexscreener.com/bsc/0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", githubUrl: "https://github.com/intentswap/intentswap" });
-    expect(loadConfig(production({}))).toMatchObject({ xUrl: null, dexscreenerUrl: null, githubUrl: null });
+    // Two of them lead nowhere until they are set. The X icon leads to the project's own account from the start, in every place a server runs.
+    expect(loadConfig(production({}))).toMatchObject({ xUrl: DEFAULT_X_URL, dexscreenerUrl: null, githubUrl: null });
+    expect(DEFAULT_X_URL).toBe("https://x.com/intentswap_");
+    for (const env of [{ NODE_ENV: "development" }, { NODE_ENV: "test" }]) expect(loadConfig(env).xUrl).toBe(DEFAULT_X_URL);
+    expect(loadConfig(production({ X_URL: " " })).xUrl).toBe(DEFAULT_X_URL);
     expect(loadConfig(production({ GITHUB_URL: "https://github.com/intentswap" })).githubUrl).toBe("https://github.com/intentswap");
     // The pair is optional, and is kept in the same standard spelling as the token.
     expect(loadConfig(production({ TOKEN_ADDRESS: FEE, TOKEN_PAIR_ADDRESS: "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed" })).tokenPairAddress).toBe("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed");
@@ -264,8 +269,16 @@ describe("configuration", () => {
     });
   });
 
-  it("keeps the site's own address as an origin, and has none unless one is given", () => {
-    expect(loadConfig(production()).siteUrl).toBeNull();
+  it("keeps the site's own address as an origin: the project's own on the live site unless another is given, and none elsewhere", () => {
+    expect(DEFAULT_SITE_URL).toBe("https://intentswap.app");
+    // The live site told nothing: its address is the project's own, and the setting is known not to have been made.
+    expect(loadConfig(production())).toMatchObject({ siteUrl: DEFAULT_SITE_URL, siteUrlSet: false });
+    expect(loadConfig(production({ SITE_URL: "  " }))).toMatchObject({ siteUrl: DEFAULT_SITE_URL, siteUrlSet: false });
+    // Set, it is taken as given, and is known to have been set (the sign-in then names it and nothing else).
+    expect(loadConfig(production({ SITE_URL: "https://intentswap.example" }))).toMatchObject({ siteUrl: "https://intentswap.example", siteUrlSet: true });
+    expect(loadConfig(production({ SITE_URL: DEFAULT_SITE_URL }))).toMatchObject({ siteUrl: DEFAULT_SITE_URL, siteUrlSet: true });
+    // A development or test server has none of its own: nothing it serves claims to be the live site.
+    for (const env of [{ NODE_ENV: "development" }, { NODE_ENV: "test" }]) expect(loadConfig(env)).toMatchObject({ siteUrl: null, siteUrlSet: false });
     expect(loadConfig(production({ SITE_URL: "https://IntentSwap.example/" })).siteUrl).toBe("https://intentswap.example");
     expect(loadConfig(production({ SITE_URL: "https://intentswap.example:8443" })).siteUrl).toBe("https://intentswap.example:8443");
   });

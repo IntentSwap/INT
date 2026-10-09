@@ -2,7 +2,7 @@ import { LOGO_SIZES, logoSrc, logoSrcSet, type LogoHeight } from "../../../share
 import { navigate } from "../router.ts";
 
 /**
- * The mark: the owner's logo, as it was supplied. The site serves its own copies, made from the
+ * The mark: the project's logo, as it was supplied. The site serves its own copies, made from the
  * source file by scripts/make-brand.ts at each height it is shown at, for screens of one, two and
  * three device pixels to a pixel. Its width and height are set, so nothing moves when it arrives.
  */
