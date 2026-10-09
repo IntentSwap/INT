@@ -290,6 +290,7 @@ const M: Mutation[] = [
   // ---- points and the sign-in ----
   { file: "server/rewards.ts", find: "  if (record.state.status !== \"delivered\") return null;", replace: "", label: "only a delivered order adds points" },
   { file: "server/rewards.ts", find: "    if (recorded.has(entry.order)) return;\n    recorded.add(entry.order);", replace: "    recorded.add(entry.order);", label: "an order adds its points once" },
+  { file: "server/rewards.ts", find: "      if (fs.existsSync(file)) return;\n      writeDurable(file, JSON.stringify(entry));", replace: "      if (!fs.existsSync(file)) writeDurable(file, JSON.stringify(entry));", label: "an order whose entry file is there already adds nothing in memory: memory holds what the folder holds" },
   { file: "server/rewards.ts", find: "      nonces.delete(nonce);\n      if (held === undefined || held.expiresAt <= now) return null;", replace: "      if (held === undefined || held.expiresAt <= now) return null;", label: "a sign-in code is used up by one attempt" },
   { file: "server/rewards.ts", find: "      if (held === undefined || held.expiresAt <= now) return null;", replace: "      if (held === undefined) return null;", label: "a sign-in code runs out" },
   { file: "server/rewards.ts", find: "      if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;", replace: "", label: "a rewards session is checked against the server's secret" },

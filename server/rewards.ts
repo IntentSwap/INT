@@ -357,9 +357,12 @@ export function createRewards(dataDir: string): Rewards {
     record(entry) {
       if (!isEntry(entry)) return;
       const file = path.join(entriesDir, `${entry.order}.json`);
-      // The file is the record: if it is already there (written before a restart), it stands as it is.
-      if (!fs.existsSync(file)) writeDurable(file, JSON.stringify(entry));
-      // Kept in memory once, however often it is told (see remember).
+      // The file is the record. Where one is there already it stands as it is, and nothing is added
+      // here: an entry that was read from it at start is in memory already, and a file that could not
+      // be read as an entry (one of the older kind) adds nothing. So what is in memory is always what
+      // a fresh reading of the folder would hold, and nothing appears now that would be gone at the next start.
+      if (fs.existsSync(file)) return;
+      writeDurable(file, JSON.stringify(entry));
       remember(entry);
     },
     entriesFor: (address) => [...(byAddress.get(lower(address)) ?? [])],

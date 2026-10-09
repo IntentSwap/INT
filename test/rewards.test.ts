@@ -424,16 +424,35 @@ describe("the record of points", () => {
     expect(JSON.stringify(rewards.view(BOB.address, MONDAY))).not.toContain(ALICE.address);
   });
 
-  it("does not read an entry written while points were counted from a fee: its file is left as it is, and adds nothing", () => {
+  it("does not read an entry written while points were counted from a fee: its file is left as it is, and adds nothing, also when its order is put to the record again at a start", () => {
     const dir = tempDir();
     const entries = path.join(dir, "rewards", "entries");
     fs.mkdirSync(entries, { recursive: true });
-    const old = JSON.stringify({ v: 1, order: "c".repeat(64), address: ALICE.address, week: "2026-W41", at: new Date(MONDAY).toISOString(), feeUsdMicro: "2500000", countedMicro: "2500000", reasons: [], from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" } });
-    fs.writeFileSync(path.join(entries, `${"c".repeat(64)}.json`), old);
+    // The entry of the older kind that a delivered order left behind, under that order's own name.
+    const order = stored();
+    const file = path.join(entries, `${orderHash(order.id)}.json`);
+    const old = JSON.stringify({ v: 1, order: orderHash(order.id), address: ALICE.address, week: "2026-W41", at: new Date(MONDAY).toISOString(), feeUsdMicro: "2500000", countedMicro: "2500000", reasons: [], from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" } });
+    fs.writeFileSync(file, old);
     const rewards = createRewards(dir);
     expect(rewards.entriesFor(ALICE.address)).toEqual([]);
     expect(rewards.weekPoints("2026-W41").size).toBe(0);
-    expect(fs.readFileSync(path.join(entries, `${"c".repeat(64)}.json`), "utf8")).toBe(old);
+    // At a start every stored delivered order is put to the record again. This one's file is there: nothing is written, and nothing is added in memory.
+    rewards.recordDelivered(order);
+    rewards.recordDelivered(order);
+    expect(rewards.entriesFor(ALICE.address)).toEqual([]);
+    expect(rewards.weekPoints("2026-W41").size).toBe(0);
+    expect(rewards.view(ALICE.address, MONDAY + 86_400_000)).toMatchObject({ allTimeMicro: "0", week: { pointsMicro: "0" }, swaps: [] });
+    expect(rewards.summary(MONDAY + 86_400_000).weekPointsMicro).toBe("0");
+    // A fresh reading of the folder, as the payout tools make one, holds the same: nothing.
+    const fresh = createRewards(dir);
+    expect(fresh.entriesFor(ALICE.address)).toEqual([]);
+    expect(fresh.weekPoints("2026-W41")).toEqual(rewards.weekPoints("2026-W41"));
+    expect(fs.readFileSync(file, "utf8")).toBe(old);
+    expect(fs.readdirSync(entries)).toEqual([`${orderHash(order.id)}.json`]);
+    // Another order of the same address, with no file yet, is written down and counted as ever, in memory and on disk alike.
+    rewards.recordDelivered(stored({ id: "C".repeat(27) }));
+    expect(rewards.entriesFor(ALICE.address)).toHaveLength(1);
+    expect(createRewards(dir).entriesFor(ALICE.address)).toEqual(rewards.entriesFor(ALICE.address));
   });
 
   it("closes a week once: the same pool gives the same record, another pool is refused, and a week still running cannot be closed", () => {
