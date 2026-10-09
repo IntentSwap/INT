@@ -51,6 +51,8 @@ export interface Config {
   blockedCountries: ReadonlySet<string>;
   /** Whether the site has its Stats page (STATS_PAGE, on unless it is set to "off"). Off, the link, the page's address and its data route are all gone. */
   statsPage: boolean;
+  /** How many swaps the site must have delivered before the Stats page lists the coins received. */
+  statsReceivedMin: number;
   rpcUrls: Readonly<Record<WalletChain | "sol", string>>;
   reownProjectId: string;
   tokenAddress: string | null;
@@ -288,6 +290,7 @@ export function loadConfig(env: Env = process.env): Config {
   const statsAsked = read(env, "STATS_PAGE");
   if (statsAsked !== null && statsAsked !== "on" && statsAsked !== "off") fail("STATS_PAGE", 'must be "on" or "off"');
   const statsPage = statsAsked !== "off";
+  const statsReceivedMin = int(env, "STATS_RECEIVED_MIN", 1, 1, 1_000_000);
 
   const excludedChains = new Set(DEFAULT_EXCLUDED_CHAINS);
   const excluded = read(env, "EXCLUDED_CHAINS");
@@ -410,6 +413,7 @@ export function loadConfig(env: Env = process.env): Config {
     regionBlock,
     blockedCountries: blocked,
     statsPage,
+    statsReceivedMin,
     rpcUrls: Object.freeze(rpcUrls),
     reownProjectId,
     tokenAddress,

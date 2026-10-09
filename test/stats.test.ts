@@ -236,7 +236,8 @@ describe("the totals", () => {
     expect(shown.totals.chains).toBe(shown.chainsUsed.length);
     // The share is of the very sum the list of top chains shows in dollars.
     expect(shown.chains.map((item) => [item.chain, item.volumeUsd])).toEqual([["base", 900], ["arb", 100]]);
-    for (const received of ['"sol"', '"btc"', '"op"', "Solana", "Bitcoin", "Optimism"]) expect(JSON.stringify(shown) + s.text(), received).not.toContain(received);
+    // Outside the totals of coins received, which name a coin and its chain and no swap, no chain a swap arrived on is named.
+    for (const received of ['"sol"', '"btc"', '"op"', "Solana", "Bitcoin", "Optimism"]) expect(JSON.stringify({ ...shown, received: null }) + JSON.stringify({ ...s.file(), received: [] }), received).not.toContain(received);
     // Kept as counted, and whole after a restart.
     expect(s.file().chains).toEqual({ base: { swaps: 2, volumeMicro: "900000000" }, arb: { swaps: 1, volumeMicro: "100000000" }, zec: { swaps: 1, volumeMicro: "0" } });
     expect(site({ dir: s.dir }).stats.view()).toEqual(shown);
@@ -295,7 +296,7 @@ describe("the totals", () => {
     const text = fs.readFileSync(file, "utf8");
     for (const gone of ["USDT", '"sol"', "BTC", '"btc"', "pairs", '"to"', '"from"', "band", "quarter", "days", "chainSwaps"]) expect(text, gone).not.toContain(gone);
     const kept = JSON.parse(text) as StatsFile;
-    expect(Object.keys(kept).sort()).toEqual(["chains", "coins", "deliveriesTimed", "deliverySeconds", "hours", "rows", "swaps", "v", "volumeMicro"]);
+    expect(Object.keys(kept).sort()).toEqual(["chains", "coins", "deliveriesTimed", "deliverySeconds", "hours", "received", "rows", "swaps", "v", "volumeMicro"]);
     expect(kept).toMatchObject({ v: 2, swaps: 7, volumeMicro: "2600000000", rows: [] });
     // What was sent, from each pair's sending coin. How many swaps a chain sent the old file cannot say.
     expect(kept.coins).toEqual([{ symbol: "ETH", chain: "base", volumeMicro: "1500000000" }, { symbol: "USDC", chain: "base", volumeMicro: "500000000" }, { symbol: "USDC", chain: "arb", volumeMicro: "600000000" }]);
@@ -450,18 +451,24 @@ describe("the Stats page, its route and its file know nothing of the receiving s
 
       const never = new Set(records.flatMap(neverOf));
       expect(never.size).toBeGreaterThan(70);
-      for (const [where, text] of [["the file", kept], ["the answers", [...answers, reply.text].join("\n")], ["the rows", JSON.stringify(reply.body.feed)]] as const) {
+      // The coin a swap delivered is named in one place only, the totals by coin: a coin, its chain and dollars, and no swap. Those apart, nothing of the receiving side is anywhere.
+      const totals = (JSON.parse(kept) as StatsFile).received ?? [];
+      expect(totals.length).toBeGreaterThan(0);
+      for (const total of totals) expect(Object.keys(total).sort()).toEqual(["chain", "symbol", "volumeMicro"]);
+      for (const total of (reply.body as StatsResponse).received ?? []) expect(Object.keys(total).sort()).toEqual(["coin", "volumeUsd"]);
+      const beside = (text: string) => JSON.stringify({ ...(JSON.parse(text) as Record<string, unknown>), received: null });
+      for (const [where, text] of [["the file", beside(kept)], ["the answers", [...answers, reply.text].map(beside).join("\n")], ["the rows", JSON.stringify(reply.body.feed)]] as const) {
         for (const secret of never) expect(text.toLowerCase().includes(secret.toLowerCase()), `${where} hold ${secret}`).toBe(false);
       }
 
       // What is there instead, part by part.
-      expect(Object.keys(reply.body).sort()).toEqual(["chains", "chainsUsed", "coins", "feed", "totals"]);
+      expect(Object.keys(reply.body).sort()).toEqual(["chains", "chainsUsed", "coins", "feed", "received", "totals"]);
       expect(Object.keys(reply.body.totals).sort()).toEqual(["chains", "deliverySeconds", "swaps", "volume24hUsd", "volumeUsd"]);
       for (const item of reply.body.coins) expect([Object.keys(item).sort(), Object.keys(item.coin).sort()]).toEqual([["coin", "volumeUsd"], ["chain", "symbol"]]);
       for (const item of reply.body.chains) expect(Object.keys(item).sort()).toEqual(["chain", "name", "volumeUsd"]);
       for (const item of reply.body.chainsUsed) expect(Object.keys(item).sort()).toEqual(["chain", "share", "swaps"]);
       const file = JSON.parse(kept) as StatsFile;
-      expect(Object.keys(file).sort()).toEqual(["chains", "coins", "deliveriesTimed", "deliverySeconds", "hours", "rows", "swaps", "v", "volumeMicro"]);
+      expect(Object.keys(file).sort()).toEqual(["chains", "coins", "deliveriesTimed", "deliverySeconds", "hours", "received", "rows", "swaps", "v", "volumeMicro"]);
       for (const row of [...reply.body.feed, ...file.rows]) {
         expect(Object.keys(row).sort()).toEqual(["amount", "at", "coin", "tx"]);
         expect(Object.keys(row.coin).sort()).toEqual(["chain", "decimals", "symbol"]);
@@ -492,7 +499,7 @@ const words = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/&#x27
 const LISTED = [{ key: "bsc", name: "BNB Chain" }, { key: "eth", name: "Ethereum" }, { key: "sol", name: "Solana" }, { key: "base", name: "Base" }, { key: "qtc", name: "Quantus" }];
 
 describe("chains used", () => {
-  const stats: StatsResponse = { totals: { swaps: 13, volumeUsd: 1500, volume24hUsd: 400, chains: 2, deliverySeconds: 72 }, coins: [], chains: [], chainsUsed: [{ chain: "base", swaps: 12, share: 31 }, { chain: "sol", swaps: 1, share: "<1" }], feed: [] };
+  const stats: StatsResponse = { totals: { swaps: 13, volumeUsd: 1500, volume24hUsd: 400, chains: 2, deliverySeconds: 72 }, coins: [], received: null, chains: [], chainsUsed: [{ chain: "base", swaps: 12, share: 31 }, { chain: "sol", swaps: 1, share: "<1" }], feed: [] };
   /** The grid's chains as they are drawn, in order: what each says, and whether it can be pressed. */
   const drawn = (markup: string) => {
     const grid = /<ul class="stats-chains">(.*?)<\/ul>/.exec(markup)?.[1] ?? "";
@@ -678,6 +685,7 @@ describe("recent swaps", () => {
     const stats: StatsResponse = {
       totals: { swaps: 3, volumeUsd: 1500, volume24hUsd: 400, chains: 2, deliverySeconds: 72 },
       coins: [{ coin: { symbol: "ETH", chain: "base" }, volumeUsd: 1500 }],
+      received: [{ coin: { symbol: "USDT", chain: "sol" }, volumeUsd: 1500 }],
       chains: [{ chain: "base", name: "Base", volumeUsd: 1500 }],
       chainsUsed: [{ chain: "base", swaps: 3, share: 100 }],
       feed: [
@@ -691,7 +699,7 @@ describe("recent swaps", () => {
     const rows = [...markup.matchAll(/<li class="stats-swap">(.*?)<\/li>/g)].map((match) => match[1]!);
     expect(rows).toHaveLength(3);
     // The heading, and under it the one line that says what a row is and is not.
-    expect(words(markup)).toContain("Recent swaps Each row links to the deposit on its own chain. Where it was delivered is never shown.");
+    expect(words(markup)).toContain("Recent swaps Each row links to the deposit on its own chain. Which swap was delivered where is never shown.");
     // What was sent, and when, on the clock of whoever reads it.
     expect(words(rows[0]!)).toContain(`0.5 ETH on Base ${whenText("2026-10-08T12:03:17Z")} `);
     expect(rows[0]).toContain('<time class="stats-swap-when muted" dateTime="2026-10-08T12:03:17Z">');
@@ -718,7 +726,9 @@ describe("recent swaps", () => {
 
     // No rows: the heading and its line stay where they are, and the list's own room says that there are none.
     const without = renderToStaticMarkup(createElement(StatsContent, { stats: { ...stats, feed: [] }, chains: LISTED }));
-    expect(words(without)).toContain("Recent swaps Each row links to the deposit on its own chain. Where it was delivered is never shown. No swaps yet. Top coins sent");
+    expect(words(without)).toContain("Recent swaps Each row links to the deposit on its own chain. Which swap was delivered where is never shown. No swaps yet.");
+    // The three lists stand in their order above it, the coins received between the other two.
+    expect(words(markup)).toMatch(/Top coins sent .* Top coins received .* Top chains .* Recent swaps/);
     expect(without).not.toContain('class="stats-swap"');
   });
 });
@@ -730,6 +740,7 @@ describe("the page stands still while it loads", () => {
   const some = (rows: number): StatsResponse => ({
     totals: { swaps: rows, volumeUsd: 1500, volume24hUsd: 400, chains: rows === 0 ? 0 : 1, deliverySeconds: rows === 0 ? null : 72 },
     coins: rows === 0 ? [] : [{ coin: { symbol: "ETH", chain: "base" }, volumeUsd: 1500 }],
+    received: null,
     chains: rows === 0 ? [] : [{ chain: "base", name: "Base", volumeUsd: 1500 }],
     chainsUsed: rows === 0 ? [] : [{ chain: "base", swaps: rows, share: 100 }],
     feed: Array.from({ length: rows }, (_, index) => row(rows - index)),
@@ -745,7 +756,7 @@ describe("the page stands still while it loads", () => {
       held: (match[2]!.match(/<li class="stats-(?:swap|rank)">(?!<span class="skeleton)/g) ?? []).length,
       says: /<p class="stats-none muted">([^<]*)<\/p>/.exec(match[2]!)?.[1] ?? null,
     }));
-  const ORDER = ["tiles", "stats-recent", "stats-coins", "stats-chains", "stats-used"];
+  const ORDER = ["tiles", "stats-used", "stats-coins", "stats-chains", "stats-recent"];
 
   it("every part is in its place, with its room, before the answer comes; the same parts stand in the same order once it has, whether it holds twenty swaps, one or none", () => {
     const waiting = draw(null);
@@ -762,7 +773,8 @@ describe("the page stands still while it loads", () => {
     // Twenty swaps: the newest five in the room, and a button for the rest. One swap: one row in the same room. None: the room says so.
     const full = draw(some(20));
     expect(parts(full)).toEqual(ORDER);
-    expect(rooms(full)).toEqual([{ rows: 5, waiting: 0, held: 5, says: null }, { rows: 5, waiting: 0, held: 1, says: null }, { rows: 5, waiting: 0, held: 1, says: null }]);
+    // The two lists first, then the swaps, which stand last on the page.
+    expect(rooms(full)).toEqual([{ rows: 5, waiting: 0, held: 1, says: null }, { rows: 5, waiting: 0, held: 1, says: null }, { rows: 5, waiting: 0, held: 5, says: null }]);
     expect(full).toContain('<button type="button" class="button-text" aria-expanded="false" aria-controls="stats-swaps">Show more</button>');
     expect([...full.matchAll(/<span class="amount mono" title="(\d+) ETH">/g)].map((match) => match[1])).toEqual(["20", "19", "18", "17", "16"]);
     const one = draw(some(1));
@@ -884,7 +896,7 @@ describe("the switch, and practice mode", () => {
     expect(((await again.get("/api/stats")).json as StatsResponse).totals).toEqual(stats.totals);
 
     const plain = await server({});
-    expect((await plain.get("/api/stats")).json).toEqual({ totals: { swaps: 0, volumeUsd: 0, volume24hUsd: 0, chains: 0, deliverySeconds: null }, coins: [], chains: [], chainsUsed: [], feed: [] });
+    expect((await plain.get("/api/stats")).json).toEqual({ totals: { swaps: 0, volumeUsd: 0, volume24hUsd: 0, chains: 0, deliverySeconds: null }, coins: [], received: null, chains: [], chainsUsed: [], feed: [] });
     expect(fs.readdirSync(path.join(plain.dataDir, "stats")).filter((name) => name !== "stats.json")).toEqual([]);
   });
 });

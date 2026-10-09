@@ -156,6 +156,8 @@ export interface StatsResponse {
   };
   /** The five coins with the most volume sent, largest first. */
   coins: { coin: StatsCoin; volumeUsd: number }[];
+  /** The five coins with the most volume delivered, largest first: totals only. Null until the site has delivered enough swaps for the list to be shown. */
+  received: { coin: StatsCoin; volumeUsd: number }[] | null;
   /** The five chains with the most volume sent from them, largest first. */
   chains: { chain: string; name: string; volumeUsd: number }[];
   /**

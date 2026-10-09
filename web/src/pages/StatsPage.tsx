@@ -225,7 +225,7 @@ function Feed({ feed }: { feed: readonly StatsFeedRow[] | null }) {
           </TextButton>
         ) : null}
       </div>
-      <p className="muted stats-note">Each row links to the deposit on its own chain. Where it was delivered is never shown.</p>
+      <p className="muted stats-note">Each row links to the deposit on its own chain. Which swap was delivered where is never shown.</p>
       <div className="stats-room stats-room-swaps" style={room}>
         {rows === null ? (
           <ul className="stats-swaps" aria-hidden="true">
@@ -277,7 +277,15 @@ export function StatsContent({ stats, chains }: { stats: StatsResponse | null; c
         <Tile label="Average delivery time" value={totals?.deliverySeconds} text={durationText} />
       </Reveal>
 
-      <Feed feed={stats === null ? null : stats.feed} />
+      {/* Every chain is drawn as soon as the list is known, faded; the answer then says which were used. The count is the very number of the tile above. */}
+      {chains.length > 0 ? (
+        <section className="stats-part" aria-labelledby="stats-used">
+          <h2 id="stats-used" className="stats-heading">
+            Chains used
+          </h2>
+          <ChainGrid chains={chainGrid(chains, stats?.chainsUsed ?? [])} count={stats === null ? null : stats.totals.chains} chosen={chosen} onChoose={setChosen} />
+        </section>
+      ) : null}
 
       <div className="stats-tops">
         <Ranked
@@ -298,19 +306,27 @@ export function StatsContent({ stats, chains }: { stats: StatsResponse | null; c
                 }))
           }
         />
+        {/* Totals of the coins delivered, where the server gives them. Which swap delivered which is in no figure. */}
+        {stats !== null && stats.received !== null ? (
+          <Ranked
+            id="stats-received"
+            title="Top coins received"
+            rows={stats.received.map((item) => ({
+              key: JSON.stringify(item.coin),
+              name: (
+                <>
+                  <SentIcon coin={item.coin} />
+                  <span>{coinText(item.coin)}</span>
+                </>
+              ),
+              volumeUsd: item.volumeUsd,
+            }))}
+          />
+        ) : null}
         <Ranked id="stats-chains" title="Top chains" rows={stats === null ? null : stats.chains.map((item) => ({ key: item.chain, name: <Chain chain={item.chain} name={item.name} />, volumeUsd: item.volumeUsd }))} />
       </div>
 
-      {/* The last part of the page, so that the coin list arriving after everything else moves nothing above it. Every chain is
-          drawn as soon as the list is known, faded; the answer then says which were used. The count is the very number of the tile above. */}
-      {chains.length > 0 ? (
-        <section className="stats-part" aria-labelledby="stats-used">
-          <h2 id="stats-used" className="stats-heading">
-            Chains used
-          </h2>
-          <ChainGrid chains={chainGrid(chains, stats?.chainsUsed ?? [])} count={stats === null ? null : stats.totals.chains} chosen={chosen} onChoose={setChosen} />
-        </section>
-      ) : null}
+      <Feed feed={stats === null ? null : stats.feed} />
     </>
   );
 }

@@ -462,7 +462,7 @@ function PrivateRouting() {
           </li>
           {statsOn ? (
             <li>
-              <strong>Anyone, for the deposit alone.</strong> The <Link href="/stats">Stats page</Link> lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. The delivery is not listed there.
+              <strong>Anyone, for the deposit alone.</strong> The <Link href="/stats">Stats page</Link> lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. Totals of the coins received are shown there too; which swap was delivered where is not.
             </li>
           ) : null}
         </ul>

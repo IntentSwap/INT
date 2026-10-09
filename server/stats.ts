@@ -66,6 +66,8 @@ export interface StatsFile {
   chains: Record<string, { swaps: number; volumeMicro: string }>;
   /** Every coin a delivered swap sent, with the dollar value of those swaps. */
   coins: { symbol: string; chain: string; volumeMicro: string }[];
+  /** Every coin a delivered swap delivered, with the dollar value of those swaps: a total by coin and nothing by swap. Absent in a file made before it was kept. */
+  received?: { symbol: string; chain: string; volumeMicro: string }[];
   hours: Record<string, { swaps: number; volumeMicro: string }>;
   /** The oldest first. */
   rows: StoredRow[];
@@ -90,6 +92,8 @@ export interface Delivery {
   at: number;
   /** When the swap began on the sending side: the last step this server saw before the end, or the order being made. */
   began: number;
+  /** The coin that was delivered. It adds to that coin's total of dollars received and to nothing else. */
+  to?: StatsCoin;
 }
 
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -137,7 +141,7 @@ function deliveryOf(record: OrderRecord): Delivery | null {
   const sent = record.from;
   const coin = { ...coinOf(sent), decimals: isDecimals(sent.decimals) ? sent.decimals : 0 };
   const paid = record.state.details?.originTxs[0]?.hash ?? (record.state.depositVerified === true ? record.state.depositTxHash : null);
-  return { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), tx: isValidTxHash(coin.chain, paid) ? paid : null, seconds, at, began: began > 0 && began <= at ? began : at };
+  return { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), tx: isValidTxHash(coin.chain, paid) ? paid : null, seconds, at, began: began > 0 && began <= at ? began : at, to: coinOf(record.to) };
 }
 
 /**
@@ -158,11 +162,12 @@ interface Sums {
   timed: number;
   chains: Map<string, { swaps: number; volume: bigint }>;
   coins: Map<string, { coin: StatsCoin; volume: bigint }>;
+  received: Map<string, { coin: StatsCoin; volume: bigint }>;
   hours: Map<number, { swaps: number; volume: bigint }>;
   rows: StoredRow[];
 }
 
-const empty = (): Sums => ({ swaps: 0, volume: 0n, seconds: 0, timed: 0, chains: new Map(), coins: new Map(), hours: new Map(), rows: [] });
+const empty = (): Sums => ({ swaps: 0, volume: 0n, seconds: 0, timed: 0, chains: new Map(), coins: new Map(), received: new Map(), hours: new Map(), rows: [] });
 const coinKey = (coin: StatsCoin) => JSON.stringify([coin.symbol, coin.chain]);
 
 function toFile(sums: Sums, v: StatsFile["v"]): StatsFile {
@@ -174,6 +179,7 @@ function toFile(sums: Sums, v: StatsFile["v"]): StatsFile {
     deliveriesTimed: sums.timed,
     chains: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, { swaps: held.swaps, volumeMicro: held.volume.toString() }])),
     coins: [...sums.coins.values()].map((held) => ({ symbol: held.coin.symbol, chain: held.coin.chain, volumeMicro: held.volume.toString() })),
+    received: [...sums.received.values()].map((held) => ({ symbol: held.coin.symbol, chain: held.coin.chain, volumeMicro: held.volume.toString() })),
     hours: Object.fromEntries([...sums.hours].map(([hour, held]) => [String(hour), { swaps: held.swaps, volumeMicro: held.volume.toString() }])),
     rows: sums.rows,
   };
@@ -238,6 +244,11 @@ function fromFile(value: unknown): { sums: Sums; v: 1 | 2 | 3 } | null {
     const coin = { symbol: held.symbol, chain: held.chain };
     sums.coins.set(coinKey(coin), { coin, volume: BigInt(held.volumeMicro) });
   }
+  for (const held of (Array.isArray(value.received) ? value.received : []) as unknown[]) {
+    if (!isObject(held) || !isCoin(held) || !isMicro(held.volumeMicro)) return null;
+    const coin = { symbol: held.symbol, chain: held.chain };
+    sums.received.set(coinKey(coin), { coin, volume: BigInt(held.volumeMicro) });
+  }
   for (const row of rows as unknown[]) {
     if (!isRow(row)) return null;
     // Read part by part: whatever else a file's row might hold is not carried on.
@@ -271,6 +282,11 @@ function add(sums: Sums, delivery: Delivery, now: number): void {
   if (delivery.usdMicro !== null) {
     const sent = sums.coins.get(coinKey(coin)) ?? { coin, volume: 0n };
     sums.coins.set(coinKey(coin), { coin, volume: sent.volume + usd });
+    // The coin it delivered: added to that coin's total, and kept nowhere else. No row and no other figure names it.
+    if (delivery.to !== undefined) {
+      const got = sums.received.get(coinKey(delivery.to)) ?? { coin: delivery.to, volume: 0n };
+      sums.received.set(coinKey(delivery.to), { coin: delivery.to, volume: got.volume + usd });
+    }
   }
   const hour = Math.floor(delivery.at / HOUR_MS);
   if (hour > Math.floor(now / HOUR_MS) - HOURS_KEPT) {
@@ -316,11 +332,13 @@ function lastDay(sums: Sums, now: number): { swaps: number; volume: bigint } {
 }
 
 /** What the page is sent, from the sums as they stand. */
-function render(sums: Sums, now: number): StatsResponse {
+function render(sums: Sums, now: number, receivedMin: number): StatsResponse {
   const recent = lastDay(sums, now);
   const byVolume = <T extends { volumeUsd: number; name: string }>(list: T[]): T[] => list.filter((item) => item.volumeUsd > 0).sort((a, b) => b.volumeUsd - a.volumeUsd || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).slice(0, TOP);
   const coins = byVolume([...sums.coins.entries()].map(([name, held]) => ({ name, coin: held.coin, volumeUsd: dollars(held.volume) }))).map(({ coin, volumeUsd }) => ({ coin, volumeUsd }));
   const chains = byVolume([...sums.chains].map(([chain, held]) => ({ chain, name: chainName(chain), volumeUsd: dollars(held.volume) })));
+  // The coins delivered, as totals only, once the site has delivered enough swaps. Which swap delivered which is in no figure.
+  const received = sums.swaps >= receivedMin ? byVolume([...sums.received.entries()].map(([name, held]) => ({ name, coin: held.coin, volumeUsd: dollars(held.volume) }))).map(({ coin, volumeUsd }) => ({ coin, volumeUsd })) : null;
   // Every chain a swap was sent from, in the order of their codes. Its share is worked out from the same sum the list above shows in dollars.
   const chainsUsed = [...sums.chains].map(([chain, held]) => ({ chain, swaps: held.swaps, share: shareOf(held.volume, sums.volume) })).sort((a, b) => (a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0));
   // The newest first, and none older than a row is kept for. A row is sent part by part: these four things and no others.
@@ -331,6 +349,7 @@ function render(sums: Sums, now: number): StatsResponse {
     // How many chains have been used is the length of the list of them, so that the two are one number.
     totals: { swaps: sums.swaps, volumeUsd: dollars(sums.volume), volume24hUsd: dollars(recent.volume), chains: chainsUsed.length, deliverySeconds: sums.timed === 0 ? null : Math.round(sums.seconds / sums.timed) },
     coins,
+    received,
     chains,
     chainsUsed,
     feed,
@@ -361,8 +380,10 @@ export interface Stats {
   readonly setAside: boolean;
 }
 
-export function createStats(dataDir: string, options: { now?: () => number } = {}): Stats {
+export function createStats(dataDir: string, options: { now?: () => number; receivedMin?: number } = {}): Stats {
   const now = options.now ?? Date.now;
+  // How many swaps the site must have delivered before the totals of coins received are shown.
+  const receivedMin = options.receivedMin ?? 1;
   const dir = path.join(dataDir, "stats");
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, "stats.json");
@@ -452,7 +473,7 @@ export function createStats(dataDir: string, options: { now?: () => number } = {
       write();
     },
     view() {
-      return render(live, now());
+      return render(live, now(), receivedMin);
     },
     tidy() {
       const before = live.rows.length;

@@ -195,7 +195,7 @@ export function PrivacyPage() {
           <li>
             {statsOn ? (
               <>
-                <strong>Stats.</strong> Every delivered swap is listed on the <Link href="/stats">Stats page</Link> for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Nothing about where the swap was delivered is listed or kept for that page: not the coin received, not its amount, not the receiving address and not the delivery transaction. Beside those rows the server keeps running totals of what delivered swaps sent: how many there were, and their value in US dollars by coin, by chain and by hour.
+                <strong>Stats.</strong> Every delivered swap is listed on the <Link href="/stats">Stats page</Link> for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Which swap was delivered where is not listed or kept for that page: no row names the coin received, its amount, the receiving address or the delivery transaction. Beside those rows the server keeps running totals: how many swaps there were, their value in US dollars by coin sent, by chain and by hour, and the value in US dollars of each coin received, as a total by coin.
               </>
             ) : (
               <>

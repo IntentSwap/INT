@@ -580,14 +580,14 @@ describe("private wording is shown only where swaps are routed privately", () =>
 });
 
 describe("what the Stats page lists of a swap is said where a person would look for it, wherever the site has that page", () => {
-  const PRIVACY = "Every delivered swap is listed on the Stats page for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Nothing about where the swap was delivered is listed or kept for that page: not the coin received, not its amount, not the receiving address and not the delivery transaction.";
-  const DOCS = "The Stats page lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. The delivery is not listed there.";
+  const PRIVACY = "Every delivered swap is listed on the Stats page for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Which swap was delivered where is not listed or kept for that page: no row names the coin received, its amount, the receiving address or the delivery transaction.";
+  const DOCS = "The Stats page lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. Totals of the coins received are shown there too; which swap was delivered where is not.";
   const withStats = (config: object, statsPage: boolean) => ({ ...config, statsPage });
 
   it("the Privacy Policy says that every delivered swap's deposit is listed, that the deposit shows who sent it, and that nothing of the delivery is listed or kept; where the site has no Stats page it says what is kept and that it is shown nowhere", () => {
     for (const config of [{ ...SETTINGS, privacyMode: "public" }, ROUTED_PRIVATELY]) {
       const on = wordsOf(drawnWith(withStats(config, true), privacy));
-      expect(on).toContain(`Stats. ${PRIVACY} Beside those rows the server keeps running totals of what delivered swaps sent`);
+      expect(on).toContain(`Stats. ${PRIVACY} Beside those rows the server keeps running totals: how many swaps there were, their value in US dollars by coin sent, by chain and by hour, and the value in US dollars of each coin received, as a total by coin.`);
       expect(drawnWith(withStats(config, true), privacy)).toContain('<a href="/stats">Stats page</a>');
       const off = wordsOf(drawnWith(withStats(config, false), privacy));
       expect(off).not.toMatch(/listed on the Stats page|Stats page/);
@@ -611,7 +611,7 @@ describe("what the Stats page lists of a swap is said where a person would look 
 
   it("none of it says more than is so", () => {
     const more = /\b(?:anonymous\w*|untrac\w*|invisib\w*|guaranteed?)\b|can(?:not|'t| not) be (?:traced|tracked|matched|linked|followed|identified|seen)|(?:no one|nobody) can (?:see|know|tell)/i;
-    for (const sentence of [PRIVACY, DOCS, "This swap's deposit transaction will be listed on the Stats page. Where it is delivered will not be.", "Each row links to the deposit on its own chain. Where it was delivered is never shown."]) expect(sentence).not.toMatch(more);
+    for (const sentence of [PRIVACY, DOCS, "This swap's deposit transaction will be listed on the Stats page. Which swap was delivered where is not shown.", "Each row links to the deposit on its own chain. Which swap was delivered where is never shown."]) expect(sentence).not.toMatch(more);
     for (const sentence of ["A swap listed here cannot be traced.", "The delivery is invisible.", "Nobody can see where it went."]) expect(more.test(sentence), sentence).toBe(true);
   });
 });

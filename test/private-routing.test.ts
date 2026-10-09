@@ -317,7 +317,7 @@ describe("the review sheet", () => {
   });
 
   it("where the site has its Stats page, the last look says what of this swap will be listed there, however it is routed; where it has none, nothing is said of it", () => {
-    const LISTED = "This swap's deposit transaction will be listed on the Stats page. Where it is delivered will not be.";
+    const LISTED = "This swap's deposit transaction will be listed on the Stats page. Which swap was delivered where is not shown.";
     for (const [routed, quote] of [["basic", PRIVATE_QUOTE], ["public", PUBLIC_QUOTE]] as const) {
       serverRoutes(routed);
       held = { quote };

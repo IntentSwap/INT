@@ -450,7 +450,7 @@ export function ReviewSheet() {
           Confirming makes the order, with a final quote taken at that moment. If that quote is more than 1% worse than the numbers above, no order is made and you are shown the new numbers first. Nothing leaves your wallet until you pay, and an order cannot be changed once it is made.
         </p>
         {/* Said before the order is made, wherever the site has its Stats page: what of this swap will be listed there. */}
-        {statsOn ? <p className="review-plain muted">This swap's deposit transaction will be listed on the Stats page. Where it is delivered will not be.</p> : null}
+        {statsOn ? <p className="review-plain muted">This swap's deposit transaction will be listed on the Stats page. Which swap was delivered where is not shown.</p> : null}
 
         <label className="check">
           <input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} disabled={phase === "creating" || phase === "mismatch" || phase === "unavailable"} />

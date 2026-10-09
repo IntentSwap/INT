@@ -120,7 +120,7 @@ export function boot(options: {
   // The site's own totals, for the Stats page. They are told of the same orders at the same two
   // moments, and count each once: the order's own record is marked as counted before the totals
   // are touched. They are kept whether or not the page is switched on, so that they are whole when it is.
-  const stats = createStats(config.dataDir, { now });
+  const stats = createStats(config.dataDir, { now, receivedMin: config.statsReceivedMin });
   if (stats.setAside) log.error("stats_file_unreadable");
   const store = createOrderStore(config.dataDir, {
     onState(record) {
