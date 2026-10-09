@@ -6,8 +6,9 @@
 // stepped through their statuses on a timer or by the practice controls.
 //
 // It answers quotes at both routing levels the site uses: "public", and "basic" (the provider's
-// private routing). A private quote echoes our fee whole, with the provider's own beside it, and
-// gives a little less out. Private
+// private routing). Asked with no fee of ours, as the site asks unless it is set to take one, the
+// echo holds the provider's own fee alone, at either level. A private quote sent with a fee echoes
+// it whole, with the provider's own beside it. A private quote gives a little less out. Private
 // previews are always made up here and never sent on: the real provider answers them only to a
 // partner with a key. One kind of pair is always refused in private and fine in public (any pair
 // that delivers on Zcash), so that the "not available" path can be reached while practising.
@@ -258,9 +259,10 @@ export function createStubProvider(options: {
     const usdIn = (amountIn * priceIn) / 10n ** BigInt(origin.decimals); // scaled 1e18
     if (usdIn < 10n ** 17n) return { ok: false, kind: "rejected", status: 400, message: "No liquidity available" };
 
-    // Mirrors what the real provider was seen to do. On a public quote our fee is halved and its own
-    // share has a 20 bps floor. On a private quote our fee comes back whole, and the provider's own
-    // 20 is added beside it; sent with no fee of ours, the echo holds the provider's entry alone.
+    // Mirrors what the real provider was seen to do. Sent with no fee of ours, at either level, the
+    // echo holds the provider's entry alone: its own 20, to an account of its own. On a public quote
+    // sent with a fee, ours is halved and the provider's share has a 20 bps floor. On a private quote
+    // sent with a fee, ours comes back whole and the provider's own 20 is added beside it.
     const fees = Array.isArray(body.appFees) ? (body.appFees as unknown[]) : [];
     const first = isRecord(fees[0]) ? fees[0] : null;
     const sentBps = first !== null && typeof first.fee === "number" ? first.fee : 0;

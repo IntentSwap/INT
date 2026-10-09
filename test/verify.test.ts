@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createStubProvider } from "../server/stub-provider.ts";
-import { MAX_PRIVATE_PROVIDER_FEE_BPS, maxTotalFeeBps, ONECLICK_SIGNING_KEY, QuoteVerificationError, verifyQuoteResponse, type SentQuote } from "../server/verify.ts";
+import { MAX_PROVIDER_FEE_BPS, maxTotalFeeBps, ONECLICK_SIGNING_KEY, QuoteVerificationError, verifyQuoteResponse, type SentQuote } from "../server/verify.ts";
 import { ADDR, ASSET, FIXTURE_TOKENS } from "./helpers.ts";
 
 // The provider's signature check is wrapped so one test can observe which key it is given.
@@ -59,14 +59,13 @@ function reason(fn: () => unknown): string {
 const check = (sent: SentQuote, response: unknown, key: string, originChain = "base", now = NOW) =>
   reason(() => verifyQuoteResponse({ sent, response, originChain, now, extraSigningKeys: [key] }));
 
-/** A private quote as the server sends one: the level "basic", and no fee of ours. */
-/** A private quote as this site sends one: our fee on a private swap, to our own recipient. */
+/** A private quote as this site sends one where it is set to take a fee on private swaps: that fee, to our own recipient. */
 function privateQuote(overrides: Partial<SentQuote> = {}): SentQuote {
   return sentQuote({ confidentiality: "basic", appFees: [{ recipient: FEE_RECIPIENT, fee: 20 }], ...overrides });
 }
-/** The same with no fee of ours at all, as it is sent where FEE_BPS_PRIVATE is 0. */
-function feeFreeQuote(overrides: Partial<SentQuote> = {}): SentQuote {
-  const sent = privateQuote(overrides);
+/** A quote with no fee of ours at all, as the site sends one unless it is set to take a fee: at either routing level. */
+function feeFreeQuote(confidentiality: SentQuote["confidentiality"]): SentQuote {
+  const sent = sentQuote({ confidentiality });
   delete sent.appFees;
   return sent;
 }
@@ -245,8 +244,8 @@ describe("verifyQuoteResponse", () => {
     expect(checkPrivate(priv, withFees([ours, provider, { recipient: ADDR.evm3, fee: 5 }]), key)).toBe("echo:appFees private recipient");
     expect(checkPrivate(priv, withFees([ours, provider, { recipient: "other-account", fee: 0 }]), key)).toBe("echo:appFees private recipient");
     // The provider's own fee is bounded as the total of a public quote sent with no fee would be.
-    expect(MAX_PRIVATE_PROVIDER_FEE_BPS).toBe(maxTotalFeeBps(0));
-    expect(MAX_PRIVATE_PROVIDER_FEE_BPS).toBe(25);
+    expect(MAX_PROVIDER_FEE_BPS).toBe(maxTotalFeeBps(0));
+    expect(MAX_PROVIDER_FEE_BPS).toBe(25);
     expect(checkPrivate(priv, withFees([ours, { recipient: "provider-account", fee: 25 }]), key)).toBe("accepted");
     expect(checkPrivate(priv, withFees([ours, { recipient: "provider-account", fee: 26 }]), key)).toBe("echo:appFees private total");
     // Entries are read as strictly as a public quote's.
@@ -260,34 +259,52 @@ describe("verifyQuoteResponse", () => {
     for (const fee of [0, -1, 0.5]) expect(checkPrivate(privateQuote({ appFees: [{ recipient: FEE_RECIPIENT, fee }] }), response, key), String(fee)).toBe("sent fees");
     // Without being told where our fee is paid, a private quote cannot be checked, so it is not accepted.
     expect(check(priv, response, key)).toBe("sent fees");
-    // A public quote is checked as it always was: it must carry our fee, so the provider's entry alone will not do.
+    // A public quote sent with our fee is checked as it always was: its echo must carry that fee, so the provider's entry alone will not do.
     const sent = sentQuote();
     const answered = await signedBy(sent);
     expect(check(sent, { ...answered.response, quoteRequest: { ...answered.response.quoteRequest, appFees: [provider] } }, answered.key)).toBe("echo:appFees recipient");
-    expect(check(sentQuote({ appFees: undefined }), answered.response, answered.key)).toBe("sent fees");
+    // And no quote goes out with two fees.
+    expect(check(sentQuote({ appFees: [ours, ours] }), answered.response, answered.key)).toBe("sent fees");
   });
 
-  it("a private quote sent with no fee of ours may pay us nothing: the provider's own entry, or none at all", async () => {
-    // FEE_BPS_PRIVATE=0: nothing of ours goes with the request.
-    const free = feeFreeQuote();
+  it.each(["public", "basic"] as const)("a %s quote sent with no fee of ours may hold the provider's one entry, and an echo that pays this site is refused", async (level) => {
+    // FEE_BPS and FEE_BPS_PRIVATE are 0 unless set: nothing of ours goes with the request.
+    const free = feeFreeQuote(level);
+    expect("appFees" in free).toBe(false);
     const { response, key } = await signedBy(free);
     const withFees = (appFees: unknown) => ({ ...response, quoteRequest: { ...response.quoteRequest, appFees } });
+    /** Verified with our fee recipient known, as where one kind of swap carries a fee and this kind does not. */
+    const verify = (answer: unknown, feeRecipient: string | null = FEE_RECIPIENT) => verifyQuoteResponse({ sent: free, response: answer, originChain: "base", now: NOW, extraSigningKeys: [key], feeRecipient });
+    const refusal = (answer: unknown, feeRecipient: string | null = FEE_RECIPIENT) => reason(() => verify(answer, feeRecipient));
     const provider = { recipient: "provider-account", fee: 20 };
-    expect(response.quoteRequest.appFees).toHaveLength(1);
+    // What the stand-in provider echoes, as the real one did in the previews of 9 Oct 2026: its own entry alone.
+    expect(response.quoteRequest.appFees).toEqual([{ recipient: expect.any(String), fee: 20 }]);
     expect(JSON.stringify(response.quoteRequest.appFees).toLowerCase()).not.toContain(FEE_RECIPIENT.toLowerCase());
-    expect(verifyPrivate(free, response, key)).toMatchObject({ appBps: 0, providerBps: 20, confidentiality: "basic" });
-    expect(verifyPrivate(free, withFees([provider]), key)).toMatchObject({ appBps: 0, providerBps: 20 });
-    expect(verifyPrivate(free, withFees([provider, { recipient: FEE_RECIPIENT, fee: 0 }]), key)).toMatchObject({ appBps: 0, providerBps: 20 });
-    for (const none of [undefined, null, []]) expect(verifyPrivate(free, withFees(none), key)).toMatchObject({ appBps: 0, providerBps: 0 });
-    // An echo that pays us is not the quote that was asked for: no fee was sent.
-    expect(checkPrivate(free, withFees([{ recipient: FEE_RECIPIENT, fee: 20 }]), key)).toBe("echo:appFees private share");
-    expect(checkPrivate(free, withFees([{ recipient: FEE_RECIPIENT.toUpperCase().replace("0X", "0x"), fee: 1 }, provider]), key)).toBe("echo:appFees private share");
-    // Nor is one that pays anybody beside the provider, or pays the provider more than the bound.
-    expect(checkPrivate(free, withFees([provider, { recipient: ADDR.evm3, fee: 5 }]), key)).toBe("echo:appFees private recipient");
-    expect(checkPrivate(free, withFees([{ recipient: "provider-account", fee: 26 }]), key)).toBe("echo:appFees private total");
+    expect(verify(response)).toMatchObject({ appBps: 0, providerBps: 20, confidentiality: level });
+    expect(verify(withFees([{ recipient: "provider-account", fee: 1 }]))).toMatchObject({ appBps: 0, providerBps: 1 });
+    for (const none of [undefined, null, []]) expect(verify(withFees(none))).toMatchObject({ appBps: 0, providerBps: 0 });
+    // An echo that pays us is not the quote that was asked for: no fee was sent. Nor is one that names our address for nothing.
+    expect(refusal(withFees([{ recipient: FEE_RECIPIENT, fee: 20 }]))).toBe("echo:appFees unsent share");
+    expect(refusal(withFees([{ recipient: FEE_RECIPIENT.toUpperCase().replace("0X", "0x"), fee: 1 }]))).toBe("echo:appFees unsent share");
+    expect(refusal(withFees([{ recipient: FEE_RECIPIENT, fee: 0 }]))).toBe("echo:appFees unsent share");
+    // One entry at most: a second is a fee for us or for somebody else, whatever it holds.
+    expect(refusal(withFees([provider, { recipient: FEE_RECIPIENT, fee: 20 }]))).toBe("echo:appFees unsent recipient");
+    expect(refusal(withFees([provider, { recipient: ADDR.evm3, fee: 5 }]))).toBe("echo:appFees unsent recipient");
+    expect(refusal(withFees([provider, { recipient: "other-account", fee: 0 }]))).toBe("echo:appFees unsent recipient");
     // The echo of a quote that carried our fee is not the echo of this one.
-    const paid = await signedBy(privateQuote());
-    expect(checkPrivate(free, { ...response, quoteRequest: { ...response.quoteRequest, appFees: paid.response.quoteRequest.appFees } }, key)).toBe("echo:appFees private share");
+    const paid = await signedBy(level === "basic" ? privateQuote() : sentQuote());
+    expect(refusal(withFees(paid.response.quoteRequest.appFees))).toBe("echo:appFees unsent recipient");
+    // The provider's own entry is bounded, and read as strictly as any.
+    expect(refusal(withFees([{ recipient: "provider-account", fee: MAX_PROVIDER_FEE_BPS }]))).toBe("accepted");
+    expect(refusal(withFees([{ recipient: "provider-account", fee: MAX_PROVIDER_FEE_BPS + 1 }]))).toBe("echo:appFees unsent total");
+    for (const fee of [-1, 20.5, "20", 501]) expect(refusal(withFees([{ recipient: "provider-account", fee }])), String(fee)).toBe("echo:appFees fee");
+    expect(refusal(withFees(["provider-account"]))).toBe("echo:appFees entry");
+    expect(refusal(withFees("none"))).toBe("echo:appFees");
+    // Where the server has no fee recipient at all (both fees are 0), no entry can be ours: one entry is the provider's, bounded, and two are refused.
+    expect(verify(response, null)).toMatchObject({ appBps: 0, providerBps: 20 });
+    expect(verify(withFees([{ recipient: FEE_RECIPIENT, fee: 20 }]), null)).toMatchObject({ appBps: 0, providerBps: 20 });
+    expect(refusal(withFees([provider, { recipient: ADDR.evm3, fee: 5 }]), null)).toBe("echo:appFees unsent recipient");
+    expect(refusal(withFees([{ recipient: "provider-account", fee: 26 }]), null)).toBe("echo:appFees unsent total");
   });
 
   it("checks the fees itself, because the signature does not cover them", async () => {

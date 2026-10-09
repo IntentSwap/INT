@@ -8,9 +8,9 @@
 //     private means here" in three rows in place of the line about public swaps, a Docs page;
 //     and it uses none of the words it must never use;
 //   - the card carries a small "Private" tag; the quote's breakdown says how the swap is routed and
-//     gives IntentSwap's fee, the provider's and the points, as for any swap; the review and the
-//     order's page say how it is routed, and the order the server holds is a private one, with our
-//     fee on it and the address its points go to;
+//     gives IntentSwap's fee as "None", the provider's in figures and the points, as for any swap; the
+//     review and the order's page say how it is routed, and the order the server holds is a private
+//     one, with no fee of ours on it and the address its points go to;
 //   - a private order is not found from its deposit address on the Track order page, which says so;
 //   - where a private quote cannot be had the card says so plainly and offers "Swap without private
 //     routing"; until that is pressed no public quote is asked for; after it, the card, the review
@@ -127,14 +127,14 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
       await routingRow.waitFor({ timeout: 5000 });
       say((await routingRow.locator("dd").innerText()).trim() === "Private", `the breakdown's routing reads "${(await routingRow.locator("dd").innerText()).trim()}"`);
       const feeRow = (await page.locator(".quote-row", { hasText: "IntentSwap fee" }).innerText()).replace(/\s+/g, " ");
-      // Our fee and the provider's, in figures, as the provider's answer held them: 0.20% each on the practice provider.
-      say(/0\.20%/.test(feeRow) && !/None/i.test(feeRow), `on a private quote the IntentSwap fee row reads "${feeRow}"`);
+      // No fee of ours, and the provider's in figures, as the provider's answer held them: 0.20% on the practice provider.
+      say(/None/.test(feeRow) && !/%/.test(feeRow), `on a private quote the IntentSwap fee row reads "${feeRow}"`);
       const providerRow = (await page.locator(".quote-row", { hasText: "Provider fee" }).innerText()).replace(/\s+/g, " ");
       say(/0\.20%/.test(providerRow), `on a private quote the provider's fee row reads "${providerRow}"`);
       // And its points, as on any quote: a row in the breakdown, with a figure.
       const pointsRow = page.locator(".quote-row", { hasText: /^Points/ });
       say((await pointsRow.count()) === 1 && /\d/.test(await pointsRow.innerText().catch(() => "")), "a private quote is not shown as adding points");
-      say(!/adds no points|takes no fee/i.test(await page.locator(".card").innerText()), "the card says a private swap adds no points, or pays no fee");
+      say(!/adds no points/i.test(await page.locator(".card").innerText()), "the card says a private swap adds no points");
       await page.waitForTimeout(350);
       await page.locator(".card").scrollIntoViewIfNeeded();
       await shoot("card");
@@ -150,9 +150,9 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
         await page.waitForTimeout(350);
         say(/Routed privately\.$/.test((await review.locator(".review-sentence").first().innerText()).trim()), `the review's sentence reads "${(await review.locator(".review-sentence").first().innerText()).trim()}"`);
         say((await review.locator('.review-row[data-row="routing"] .routing-tag').innerText().catch(() => "")).trim() === "Private", "the review does not show the swap as privately routed");
-        // Its fee in figures and somewhere for its points to go, as for any swap.
+        // No fee of ours, the provider's in figures, and somewhere for its points to go, as for any swap.
         const reviewed = (await review.innerText()).replace(/\s+/g, " ");
-        say(/IntentSwap fee [^%]*0\.20%/.test(reviewed) && !/adds no points: IntentSwap takes no fee|None/.test(reviewed), "the review of a private swap does not give IntentSwap's fee in figures");
+        say(/IntentSwap fee None/.test(reviewed) && /Provider fee [^%]*0\.20%/.test(reviewed) && !/adds no points/.test(reviewed), "the review of a private swap does not give its fees as the quote held them");
         const rewards = review.getByLabel(/Rewards address/);
         say((await rewards.count()) === 1, "the review of a private swap has no field for a rewards address");
         await rewards.fill(EVM);
@@ -166,7 +166,7 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
         await page.getByRole("heading", { name: "Send your deposit" }).waitFor({ timeout: 15_000 });
         say((await page.locator(".order-title-row .routing-tag").innerText().catch(() => "")).trim() === "Private", "the order's page does not carry the Private tag");
         const order = (await (await fetch(new URL(`/api/orders/${id}`, privateUrl))).json()) as { routing?: string; fees?: { appBps?: number; providerBps?: number }; rewardsAddress?: string | null; depositAddress?: string | null };
-        say(order.routing === "confidential" && order.fees?.appBps === 20 && order.fees?.providerBps === 20, `the order the server holds is routed "${order.routing}" with a fee of ours of ${order.fees?.appBps} and the provider's of ${order.fees?.providerBps}`);
+        say(order.routing === "confidential" && order.fees?.appBps === 0 && order.fees?.providerBps === 20, `the order the server holds is routed "${order.routing}" with a fee of ours of ${order.fees?.appBps} and the provider's of ${order.fees?.providerBps}`);
         say(order.rewardsAddress === EVM, `the private order's points go to "${order.rewardsAddress}"`);
         await shoot("order");
 

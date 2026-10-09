@@ -241,9 +241,9 @@ bad value stops the server with the variable's name in the log.
 | `PORT` | Port to listen on | Railway sets it. Leave unset |
 | `DATA_DIR` | Folder for orders, caches and logs. **Required** | Type `/data` (the volume's mount path) |
 | `TRUST_PROXY_HOPS` | Proxies in front of the server. **Required** | Type `1` on Railway |
-| `FEE_RECIPIENT` | Public address that receives our fee. **Required** | The fee wallet's public address, copied from the wallet itself, exactly as the wallet shows it, with its mix of capital and small letters (the server refuses any other spelling, so that a slip cannot send fees to nobody). It must be a normal wallet whose key you hold. The live site's fee wallet is `0x31af10585a22fbea8a9dd7231b4d409a5b91acd9`, written here in small letters only: check the wallet's own address against it, letter for letter, and paste the wallet's |
-| `FEE_BPS` | Our fee on a public swap, in basis points. The provider keeps half of it. Default `40` | Leave unset, or 20–300 |
-| `FEE_BPS_PRIVATE` | Our fee on a privately routed swap, in basis points. The provider leaves it whole and adds its own beside it, so the default of `20` makes a private swap cost what a public one does. `0` asks for no fee of ours on private swaps (they then add no points). Default `20` | Leave unset, or 0–300 |
+| `FEE_BPS` | IntentSwap's fee on a swap routed in public, in basis points. Default `0`: IntentSwap takes no fee, and no fee of ours is sent with a quote. Above 0, the provider keeps half of what is set | Leave unset. 0–300 |
+| `FEE_BPS_PRIVATE` | IntentSwap's fee on a privately routed swap, in basis points. Default `0`: no fee of ours. Above 0, the provider leaves it whole and adds its own beside it | Leave unset. 0–300 |
+| `FEE_RECIPIENT` | Public address that would receive a fee of ours. Needed, and read, only while `FEE_BPS` or `FEE_BPS_PRIVATE` is above 0: with both at 0 the server starts without it | Leave unset. If a fee is ever set: the fee wallet's public address, copied from the wallet itself, exactly as the wallet shows it, with its mix of capital and small letters (the server refuses any other spelling, so that a slip cannot send fees to nobody). It must be a normal wallet whose key you hold. The project's fee wallet is `0x31af10585a22fbea8a9dd7231b4d409a5b91acd9`, written here in small letters only: check the wallet's own address against it, letter for letter, and paste the wallet's |
 | `SWAPS_PAUSED` | `true` stops new quotes and orders. Default `true` in production | `true` for the preview. `false` is launch |
 | `ONECLICK_API_KEY` | The provider's partner key. Server only: it is never sent to a browser, never logged, and never committed. Private routing needs it, and with it set private routing is on (see `PRIVACY_MODE`). Without it the site runs, with public swaps only | The provider's partner portal, `partners.near-intents.org`: a key is issued on registering. Paste it into the host's variable, or into a local `.env` for development |
 | `PRIVACY_MODE` | How swaps are routed at the provider. `basic` is its private routing: the deposit and the delivery are not tied to each other in public records. `public` is the ordinary kind. Left unset, it is `basic` when `ONECLICK_API_KEY` is set and `public` when it is not (the provider answers private quotes only to a partner with a key), and the log then says at start that private routing is waiting for a key. `basic` written out with no key stops the live server from starting. Any other value stops it too | Leave unset. Type `public` to keep private routing off even with a key |
@@ -267,10 +267,9 @@ bad value stops the server with the variable's name in the log.
 `PROVIDER_STUB` is for local development only and is refused in production.
 
 While `PRIVACY_MODE` is `basic`, every quote asks the provider for private
-routing, with our fee from `FEE_BPS_PRIVATE`, and a person can still choose to
-route one swap in public. The fees a quote shows are the ones the provider's
-answer holds, and points are counted from our fee as it was shown, on a private
-swap as on any other. When the provider will not give a private quote, the site
+routing, and a person can still choose to route one swap in public. The fees a
+quote shows are the ones the provider's answer holds, and points are counted
+from our fee as it was shown, on a private swap as on any other. When the provider will not give a private quote, the site
 says "Private routing is not available for this swap right now." and offers
 "Swap without private routing"; it never routes a swap in public by itself. A
 privately routed order is not found from its deposit address on the Track order
@@ -304,7 +303,6 @@ One click at a time. This creates a **preview** with swaps paused.
    - `DATA_DIR` = `/data`
    - `TRUST_PROXY_HOPS` = `1`
    - `SWAPS_PAUSED` = `true`
-   - `FEE_RECIPIENT` = the fee wallet's public address, pasted from the wallet itself (the table above has it in small letters, to check against)
 7. Service → **Settings** → **Networking** → **Generate Domain**. That address is the preview link.
 8. Keep it to **one instance**. Orders live on the volume and rate limits live in memory.
 
@@ -364,29 +362,39 @@ person's refund address is part of their order there.
 3. **Tell users.** Post on the project's X account and on the support contact: stop sending deposits, and do not trust any address shown on the site until further notice.
 4. **Rotate everything.** GitHub, Railway and Reown passwords and two-factor; the partner key; any RPC keys; the alert webhook.
 5. **Check what changed.** GitHub → the repo → commits and deploy keys. Railway → deploy history and variables. Reown → allowed domains.
-6. **Fee wallet.** The server holds no keys, so funds in the fee wallet are safe unless that wallet itself was exposed. If in doubt, create a new one and change `FEE_RECIPIENT`.
+6. **Fee wallet, if a fee is set.** The server holds no keys, so funds in a fee wallet are safe unless that wallet itself was exposed. If in doubt, create a new one and change `FEE_RECIPIENT`.
 7. Redeploy from a known-good commit only after the cause is understood.
 
 ## Where fees go
 
-Each quote carries our fee, paid to `FEE_RECIPIENT`. On a public swap it is
-set by `FEE_BPS` and the provider splits it: with the default of 40, about 20
-basis points reach us and 20 go to the provider. On a privately routed swap it
-is set by `FEE_BPS_PRIVATE` and the provider adds its own beside it: with the
-default of 20, 20 reach us and the provider takes 20 of its own, so either kind
-of swap costs 40 in all. Every quote the server sends to the browser carries
-both figures, taken from the quote itself; showing them is part of the quote
-panel.
+IntentSwap takes no fee. The only fee is the provider's 0.20%. It is the
+provider's own (less between two dollar coins), it is paid to the provider, and
+nothing of it reaches this site. Every quote the server sends to the browser
+carries the figures the provider's answer held: nothing for IntentSwap, and the
+provider's fee; showing them is part of the quote panel.
+
+With `FEE_BPS` and `FEE_BPS_PRIVATE` at 0, as they are unless set, no fee of
+ours goes with a quote at all, and the server refuses any answer from the
+provider that would pay this site, pay a second party, or charge more than 25
+basis points for the provider.
+
+A fee can be set, and is then paid to `FEE_RECIPIENT`. On a public swap it is
+set by `FEE_BPS` and the provider splits it: of 40, about 20 basis points would
+reach us and 20 go to the provider. On a privately routed swap it is set by
+`FEE_BPS_PRIVATE` and the provider adds its own beside it: of 20, 20 would reach
+us and the provider takes 20 of its own. The site's pages say that IntentSwap
+takes no fee, so they must be changed before a fee is set.
 
 The provider's written terms say that app fees do not apply to its confidential
 swaps, while its system accepted ours in price previews. Whether the fee of a
-private swap is in fact paid is to be checked on the first real one.
+private swap is in fact paid is to be checked on the first real one, should a
+fee ever be set.
 
-Fees do not arrive in the wallet on its own chain. They collect as balances
-inside NEAR Intents, in each swap's input coin, under the fee address. To
-collect them, connect the fee wallet to the NEAR Intents app and withdraw from
-there. The fee wallet must be a normal wallet whose key you hold: an exchange
-address or a multi-signature wallet cannot sign the withdrawal.
+Fees of ours would not arrive in the wallet on its own chain. They collect as
+balances inside NEAR Intents, in each swap's input coin, under the fee address.
+To collect them, connect the fee wallet to the NEAR Intents app and withdraw
+from there. The fee wallet must be a normal wallet whose key you hold: an
+exchange address or a multi-signature wallet cannot sign the withdrawal.
 
 ## Alerts
 

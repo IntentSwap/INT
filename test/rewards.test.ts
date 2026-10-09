@@ -1288,7 +1288,7 @@ describe("points over the wire", () => {
   });
 
   it("shows an address its own points after one signature, and never anyone else's", async () => {
-    const h = await start({ practice: true });
+    const h = await start({ practice: true, env: { FEE_BPS: "40" } });
     await delivered(h, { rewardsAddress: ALICE.address });
     await delivered(h, { rewardsAddress: BOB.address, recipient: ADDR.evm3 });
     // Without a sign-in: nothing.
@@ -1317,7 +1317,7 @@ describe("points over the wire", () => {
   });
 
   it("a week closed, and then paid, by the tools while the server runs is in the server's next answer", async () => {
-    const h = await start({ practice: true });
+    const h = await start({ practice: true, env: { FEE_BPS: "40" } });
     await delivered(h, { rewardsAddress: ALICE.address });
     await delivered(h, { rewardsAddress: BOB.address, recipient: ADDR.evm3 });
     const token = await signedIn(h, ALICE);

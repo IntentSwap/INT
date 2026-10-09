@@ -14,7 +14,7 @@ import path from "node:path";
 import { priceToScaled } from "../shared/amounts.ts";
 import { chainInfo } from "../shared/chains.ts";
 import type { TokenView } from "../shared/api.ts";
-import { loadConfig } from "../server/config.ts";
+import { DEV_FEE_RECIPIENT, loadConfig } from "../server/config.ts";
 import { HttpError } from "../server/http.ts";
 import { silentLogger } from "../server/log.ts";
 import { createOneClick } from "../server/oneclick.ts";
@@ -26,6 +26,8 @@ const allCoins = process.argv.includes("--all-coins");
 const DOLLARS = 25n;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "intentswap-survey-"));
 const config = loadConfig({ NODE_ENV: "development", DATA_DIR: dataDir });
+// The address the fees tried at the end are sent with. The site itself sends no fee unless it is set to.
+const feeRecipient = config.feeRecipient ?? DEV_FEE_RECIPIENT;
 // allowLive is off: this client cannot send anything but a preview.
 const oneclick = createOneClick({ apiKey: null, maxPerMin: 600, allowLive: false, log: silentLogger });
 const tokens = createTokenService({ oneclick, rpc: createRpc({ urls: config.rpcUrls }), alerts: { send: () => undefined }, log: silentLogger, dataDir: null });
@@ -57,7 +59,7 @@ async function preview(from: TokenView, to: TokenView, feeBps: number | null = c
   let sent: Record<string, unknown>;
   try {
     const input = parseSwapInput({ from: from.id, to: to.id, amount: amountOf(from), pay: "manual" }, snapshot!.byId, false);
-    sent = buildSentQuote(input, { dry: true, now: Date.now(), feeRecipient: config.feeRecipient, feeBps: feeBps ?? config.feeBps, feeBpsPrivate: config.feeBpsPrivate }) as unknown as Record<string, unknown>;
+    sent = buildSentQuote(input, { dry: true, now: Date.now(), feeRecipient, feeBps: feeBps ?? config.feeBps, feeBpsPrivate: config.feeBpsPrivate }) as unknown as Record<string, unknown>;
   } catch (err) {
     return { text: `not sent: ${err instanceof HttpError ? err.message : "error"}`, renamed: null, data: null };
   }
@@ -127,8 +129,8 @@ if (baseEth) {
   for (const fee of [null, 10, 20, 40, 100]) {
     const answer = await preview(baseEth, arbUsdc, fee);
     const echoed = answer.data?.quoteRequest?.appFees ?? [];
-    const ours = echoed.filter((f) => f.recipient.toLowerCase() === config.feeRecipient.toLowerCase()).reduce((sum, f) => sum + f.fee, 0);
-    const theirs = echoed.filter((f) => f.recipient.toLowerCase() !== config.feeRecipient.toLowerCase()).reduce((sum, f) => sum + f.fee, 0);
+    const ours = echoed.filter((f) => f.recipient.toLowerCase() === feeRecipient.toLowerCase()).reduce((sum, f) => sum + f.fee, 0);
+    const theirs = echoed.filter((f) => f.recipient.toLowerCase() !== feeRecipient.toLowerCase()).reduce((sum, f) => sum + f.fee, 0);
     console.log(`  ${fee === null ? "none" : String(fee).padStart(4)} -> ${answer.text === "accepted" ? `${ours} + ${theirs}` : answer.text}`);
   }
 }

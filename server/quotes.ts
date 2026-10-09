@@ -1,8 +1,9 @@
 // Builds provider quote requests, and turns provider answers into our own
-// views and plain-word errors. The fee and its recipient come from server
-// configuration only; nothing a browser sends can change them. The same goes
-// for the routing level: it is the server's setting, and the one thing a
-// request can say about it is "not private, this once".
+// views and plain-word errors. Whether a fee of ours goes with a quote, how
+// much and to whom come from server configuration only; nothing a browser
+// sends can change them. The same goes for the routing level: it is the
+// server's setting, and the one thing a request can say about it is "not
+// private, this once".
 
 import { addressMessage } from "../shared/address-words.ts";
 import { checkAddress } from "../shared/addresses.ts";
@@ -114,7 +115,7 @@ export function parseSwapInput(body: Record<string, unknown>, byId: ReadonlyMap<
   return { from, to, amount, pay, recipient, refundTo, sender, usedPlaceholder, slippageBps, confidentiality };
 }
 
-export function buildSentQuote(input: QuoteInput, options: { dry: boolean; now: number; feeRecipient: string; feeBps: number; feeBpsPrivate: number }): SentQuote {
+export function buildSentQuote(input: QuoteInput, options: { dry: boolean; now: number; feeRecipient: string | null; feeBps: number; feeBpsPrivate: number }): SentQuote {
   // Our fee is the server's own setting, one for each way of routing. Nothing of the request is read for it.
   const privately = input.confidentiality === "basic";
   const fee = privately ? options.feeBpsPrivate : options.feeBps;
@@ -135,10 +136,14 @@ export function buildSentQuote(input: QuoteInput, options: { dry: boolean; now: 
     referral: REFERRAL,
     // Said in every request, public ones too, so that the echo can be held to it.
     confidentiality: input.confidentiality,
-    appFees: [{ recipient: options.feeRecipient, fee }],
   };
-  // A private quote can be set to carry no fee of ours (FEE_BPS_PRIVATE=0). Nothing is sent for it then.
-  if (privately && fee === 0) delete sent.appFees;
+  // IntentSwap takes no fee unless the setting for this way of routing is above 0. At 0 nothing of
+  // ours goes with the quote: no fee, and no address of ours. Only a fee above 0 is ever sent.
+  if (fee > 0) {
+    // A fee is set only together with where it is paid (server/config.ts). One with nowhere to go is never sent.
+    if (options.feeRecipient === null) throw new Error("a fee is set and no fee recipient is");
+    sent.appFees = [{ recipient: options.feeRecipient, fee }];
+  }
   // Stellar deposits need a memo; other chains reject the field.
   if (input.from.chain === "stellar") sent.depositMode = "MEMO";
   if (input.sender !== null) sent.connectedWallets = [input.sender];

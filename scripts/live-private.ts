@@ -5,8 +5,8 @@
 //   npx tsx scripts/live-private.ts                      without a partner key
 //   npx tsx --env-file=.env scripts/live-private.ts      with the key the local settings file holds
 //
-// For a handful of pairs it asks the same preview several ways (public with the usual fee;
-// "confidentiality": "basic" with no fee, with a fee of 20 and with a fee of 40) and prints what
+// For a handful of pairs it asks the same preview several ways (public with no fee and with a fee
+// of 40; "confidentiality": "basic" with no fee, with a fee of 20 and with a fee of 40) and prints what
 // came back: accepted or the provider's own words, the level and the fees the provider echoed,
 // the amount out and the time. The key itself is never printed: only whether there is one.
 
@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { priceToScaled } from "../shared/amounts.ts";
 import type { TokenView } from "../shared/api.ts";
-import { loadConfig } from "../server/config.ts";
+import { DEV_FEE_RECIPIENT, loadConfig } from "../server/config.ts";
 import { silentLogger } from "../server/log.ts";
 import { createOneClick } from "../server/oneclick.ts";
 import { buildSentQuote, parseSwapInput } from "../server/quotes.ts";
@@ -24,6 +24,8 @@ import { createTokenService } from "../server/tokens.ts";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "intentswap-private-"));
 const config = loadConfig({ NODE_ENV: "development", DATA_DIR: dataDir });
+// The address the fees tried below are sent with. The site itself sends no fee unless it is set to.
+const feeRecipient = config.feeRecipient ?? DEV_FEE_RECIPIENT;
 // allowLive is off: this client cannot send anything but a preview. The partner key, when the
 // environment holds one, is handed to the client and goes nowhere else.
 const apiKey = (process.env.ONECLICK_API_KEY ?? "").trim() || null;
@@ -54,11 +56,11 @@ interface Echo {
 
 async function ask(from: TokenView, to: TokenView, dollars: bigint, level: string | null, fee: number | null): Promise<string> {
   const input = parseSwapInput({ from: from.id, to: to.id, amount: amountOf(from, dollars), pay: "manual" }, snapshot!.byId, false);
-  const sent = buildSentQuote(input, { dry: true, now: Date.now(), feeRecipient: config.feeRecipient, feeBps: config.feeBps, feeBpsPrivate: config.feeBpsPrivate }) as unknown as Record<string, unknown>;
+  const sent = buildSentQuote(input, { dry: true, now: Date.now(), feeRecipient, feeBps: config.feeBps, feeBpsPrivate: config.feeBpsPrivate }) as unknown as Record<string, unknown>;
   // The request is put together by hand from here, so that each case asks exactly what its name says.
   sent.confidentiality = level ?? "public";
   if (fee === null) delete sent.appFees;
-  else sent.appFees = [{ recipient: config.feeRecipient, fee }];
+  else sent.appFees = [{ recipient: feeRecipient, fee }];
   const result = await oneclick.quote(sent, "user");
   if (!result.ok) return result.kind === "rejected" ? `refused (${result.status}): ${result.message}` : `unavailable (${result.status ?? "no reply"})`;
   const data = result.data as { quoteRequest?: Echo; quote?: { amountOut?: string; amountOutFormatted?: string; timeEstimate?: number; amountInUsd?: string; amountOutUsd?: string; depositAddress?: unknown } };
@@ -88,6 +90,7 @@ for (const [fromChain, fromSymbol, toChain, toSymbol, dollars] of PAIRS) {
   }
   console.log(`\n${fromSymbol} on ${fromChain} to ${toSymbol} on ${toChain}, about $${dollars}`);
   for (const [name, level, fee] of [
+    ["public, no fee           ", null, null],
     ["public, fee 40           ", null, 40],
     ["private (basic), no fee  ", "basic", null],
     ["private (basic), fee 20  ", "basic", 20],

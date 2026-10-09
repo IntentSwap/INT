@@ -29,6 +29,12 @@ afterEach(async () => {
 });
 
 const QUOTE = { from: ASSET.baseEth, to: ASSET.arbUsdc, amount: "5000000000000000", pay: "wallet" };
+/**
+ * IntentSwap takes no fee unless the server is set to, and these tests run that way. The tests of
+ * what happens to a fee that is set start their server with these: 40 on a public swap (the
+ * provider keeps half) and 20 on a private one (the provider adds its own beside it).
+ */
+const FEES = { FEE_BPS: "40", FEE_BPS_PRIVATE: "20" };
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -124,7 +130,9 @@ describe("security headers and HTTP rules", () => {
     const key = "aaaaaaaaaaaa.bbbbbbbbbbbbbbbb.cccccccccccccccc";
     const rpcSecret = "https://rpc.example/v2/SUPER-SECRET-RPC-KEY";
     const hook = "https://hooks.example/services/SECRET-HOOK";
-    const h = await start({ env: { ONECLICK_API_KEY: key, BASE_RPC_URL: rpcSecret, ALERT_WEBHOOK_URL: hook } });
+    const h = await start({ env: { ...FEES, ONECLICK_API_KEY: key, BASE_RPC_URL: rpcSecret, ALERT_WEBHOOK_URL: hook } });
+    const feeRecipient = h.config.feeRecipient;
+    if (feeRecipient === null) throw new Error("a fee is set, so there is a fee recipient");
     const order = asOrder(await h.order());
     const replies = [
       await h.get("/api/config"),
@@ -136,7 +144,7 @@ describe("security headers and HTTP rules", () => {
       await h.post("/api/rpc/base", { jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }, { session: await h.session() }),
     ];
     const everything = replies.map((r) => r.text + JSON.stringify([...r.headers.entries()])).join("\n") + h.logs.join("\n") + JSON.stringify(h.access);
-    for (const secret of [key, "SUPER-SECRET-RPC-KEY", "rpc.example", "SECRET-HOOK", h.config.feeRecipient]) {
+    for (const secret of [key, "SUPER-SECRET-RPC-KEY", "rpc.example", "SECRET-HOOK", feeRecipient]) {
       expect(everything).not.toContain(secret);
     }
   });
@@ -234,7 +242,11 @@ describe("POST /api/quote", () => {
     expect(reply.status).toBe(200);
     const q = reply.body as QuoteView;
     expect(q.amountIn).toBe("5000000000000000");
-    expect(q.fees).toEqual({ appBps: 20, providerBps: 20, appAmount: "10000000000000", providerAmount: "10000000000000" });
+    // No fee of IntentSwap's, and the provider's own, as its echo held it.
+    expect(q.fees).toEqual({ appBps: 0, providerBps: 20, appAmount: "0", providerAmount: "10000000000000" });
+    // Where a fee is set, the echo holds our share of it beside the provider's.
+    const charging = await start({ env: FEES });
+    expect(((await charging.quote(QUOTE)).body as QuoteView).fees).toEqual({ appBps: 20, providerBps: 20, appAmount: "10000000000000", providerAmount: "10000000000000" });
     expect(BigInt(q.minAmountOut)).toBeLessThanOrEqual(BigInt(q.amountOut));
     expect(q.slippageBps).toBe(100);
     expect(q.timeEstimate).toBe(30);
@@ -550,7 +562,7 @@ describe("quote verification inside the routes", () => {
   });
 
   it("discards a quote whose fee was raised or redirected", async () => {
-    const h = await start();
+    const h = await start({ env: FEES });
     h.tap.corruptResponse = (data) => {
       const request = data.quoteRequest as Record<string, unknown>;
       return { ...data, quoteRequest: { ...request, appFees: [{ recipient: ADDR.evm3, fee: 20 }, { recipient: "provider", fee: 20 }] } };
@@ -565,9 +577,77 @@ describe("quote verification inside the routes", () => {
   });
 });
 
+describe("IntentSwap takes no fee unless the server is set to", () => {
+  it.each(["public", "basic"] as const)("sends no fee of ours with a %s quote, preview or real, whatever a browser sends, and shows what the echo held", async (level) => {
+    const h = await start({ env: { PRIVACY_MODE: level } });
+    expect(h.config).toMatchObject({ feeBps: 0, feeBpsPrivate: 0, feeRecipient: null });
+    // Everything a browser might send to put a fee on the swap. None of it reaches the provider.
+    const hostile = { appFees: [{ recipient: ADDR.evm3, fee: 30 }], fee: 30, feeBps: 30, feeBpsPrivate: 30, feeRecipient: ADDR.evm3 };
+    const preview = (await h.quote({ ...QUOTE, ...hostile })).body as QuoteView;
+    expect(h.tap.quotes.at(-1)).toMatchObject({ dry: true, confidentiality: level });
+    expect(Object.keys(h.tap.quotes.at(-1)!)).not.toContain("appFees");
+    // The breakdown is the echo's own: nothing of ours, and the provider's entry.
+    expect(preview.fees).toEqual({ appBps: 0, providerBps: 20, appAmount: "0", providerAmount: "10000000000000" });
+    const order = asOrder(await h.order(hostile));
+    expect(h.tap.quotes.at(-1)).toMatchObject({ dry: false, confidentiality: level });
+    expect(Object.keys(h.tap.quotes.at(-1)!)).not.toContain("appFees");
+    expect(order.fees).toEqual(preview.fees);
+    expect(h.store.get(order.id)?.fees).toEqual(preview.fees);
+    for (const sent of h.tap.quotes) expect(JSON.stringify(sent)).not.toMatch(/appFees|"fee"/);
+  });
+
+  it.each(["public", "basic"] as const)("discards the echo of a %s quote sent with no fee that holds more than the provider's one entry, or more than the bound", async (level) => {
+    const h = await start({ env: { PRIVACY_MODE: level } });
+    type Fee = { recipient: string; fee: number };
+    const echoing = (fees: (theirs: Fee) => unknown) => (data: Record<string, unknown>) => {
+      const request = data.quoteRequest as Record<string, unknown>;
+      return { ...data, quoteRequest: { ...request, appFees: fees((request.appFees as Fee[])[0]!) } };
+    };
+    for (const [fees, reason] of [
+      [(theirs: Fee) => [theirs, { recipient: ADDR.evm3, fee: 5 }], "echo:appFees unsent recipient"],
+      [(theirs: Fee) => [{ ...theirs, fee: 26 }], "echo:appFees unsent total"],
+    ] as const) {
+      h.tap.corruptResponse = echoing(fees);
+      const reply = await h.quote(QUOTE);
+      expect(reply.status, reason).toBe(502);
+      expect(reply.body.error, reason).toEqual({ code: "try_later", message: "We couldn't confirm that quote. Try again shortly." });
+      expect(h.alerts.at(-1)!.text, reason).toContain(`(${reason})`);
+    }
+    // The same for the real quote of an order: no order is made from it.
+    h.tap.corruptResponse = (data) => ((data.quote as Record<string, unknown>).depositAddress === undefined ? data : echoing((theirs) => [theirs, { recipient: ADDR.evm3, fee: 5 }])(data));
+    expect((await h.order()).status).toBe(502);
+    expect(h.store.openCount()).toBe(0);
+    // Whatever the echo holds within the rule is what is shown: the provider's fee was 1 between two dollar coins.
+    h.tap.corruptResponse = echoing((theirs) => [{ ...theirs, fee: 1 }]);
+    expect(((await h.quote(QUOTE)).body as QuoteView).fees).toMatchObject({ appBps: 0, providerBps: 1 });
+  });
+
+  it("discards an echo that pays this site when no fee was sent with that kind of quote", async () => {
+    // A fee on private swaps only, so the server has a fee recipient, and a public quote goes out with nothing of ours.
+    const h = await start({ env: { PRIVACY_MODE: "basic", FEE_BPS_PRIVATE: "20" } });
+    const ours = h.config.feeRecipient;
+    expect(ours).not.toBeNull();
+    const inPublic = { ...QUOTE, withoutPrivate: true };
+    expect(((await h.quote(inPublic)).body as QuoteView).fees).toMatchObject({ appBps: 0, providerBps: 20 });
+    expect(h.tap.quotes.at(-1)!.confidentiality).toBe("public");
+    expect(Object.keys(h.tap.quotes.at(-1)!)).not.toContain("appFees");
+    for (const fee of [20, 1, 0]) {
+      h.tap.corruptResponse = (data) => ({ ...data, quoteRequest: { ...(data.quoteRequest as Record<string, unknown>), appFees: [{ recipient: ours, fee }] } });
+      const reply = await h.quote(inPublic);
+      expect(reply.status, String(fee)).toBe(502);
+      expect(h.alerts.at(-1)!.text, String(fee)).toContain("(echo:appFees unsent share)");
+    }
+    // And no order is made from such a quote.
+    h.tap.corruptResponse = (data) => ((data.quote as Record<string, unknown>).depositAddress === undefined ? data : { ...data, quoteRequest: { ...(data.quoteRequest as Record<string, unknown>), appFees: [{ recipient: ours, fee: 20 }] } });
+    expect((await h.order({ withoutPrivate: true })).status).toBe(502);
+    expect(h.store.openCount()).toBe(0);
+  });
+});
+
 describe("POST /api/orders", () => {
   it("creates an order whose deposit address and numbers come from the verified live quote", async () => {
-    const h = await start();
+    const h = await start({ env: FEES });
+    const feeRecipient = h.config.feeRecipient ?? "";
     const reply = await h.order();
     expect(reply.status).toBe(201);
     const order = reply.body as OrderView;
@@ -597,7 +677,7 @@ describe("POST /api/orders", () => {
     // (points are counted from the first), the two fees as the provider echoed them, and its two charges.
     const signed = stored.quoteResponse.quote as Record<string, string | undefined>;
     const echoed = stored.quoteResponse.quoteRequest.appFees as { recipient: string; fee: number }[];
-    const ours = echoed.filter((entry) => entry.recipient.toLowerCase() === h.config.feeRecipient.toLowerCase()).reduce((sum, entry) => sum + entry.fee, 0);
+    const ours = echoed.filter((entry) => entry.recipient.toLowerCase() === feeRecipient.toLowerCase()).reduce((sum, entry) => sum + entry.fee, 0);
     const theirs = echoed.reduce((sum, entry) => sum + entry.fee, 0) - ours;
     const amountIn = BigInt(signed.amountIn ?? "0");
     const expected = {
@@ -619,7 +699,7 @@ describe("POST /api/orders", () => {
   });
 
   it("ignores any deposit address, fee or status a browser sends", async () => {
-    const h = await start();
+    const h = await start({ env: FEES });
     const order = asOrder(
       await h.order({ depositAddress: ADDR.evm3, fees: { appBps: 0 }, appFees: [], status: "delivered", id: "A".repeat(27), deadline: "2099-01-01T00:00:00Z" }),
     );
@@ -627,6 +707,11 @@ describe("POST /api/orders", () => {
     expect(order.status).toBe("waiting");
     expect(order.id).not.toBe("A".repeat(27));
     expect(order.fees.appBps).toBe(20);
+    // Nor can a browser put a fee on a swap where the server takes none.
+    const free = await start();
+    const unpaid = asOrder(await free.order({ fees: { appBps: 30 }, appFees: [{ recipient: ADDR.evm3, fee: 30 }], feeBps: 30 }));
+    expect(unpaid.fees).toMatchObject({ appBps: 0, appAmount: "0" });
+    expect(Object.keys(free.tap.quotes.at(-1)!)).not.toContain("appFees");
   });
 
   it("requires the current Terms to be accepted", async () => {
@@ -677,7 +762,7 @@ describe("POST /api/orders", () => {
   });
 
   it("stops when the minimum received or the fee is worse than reviewed", async () => {
-    const h = await start();
+    const h = await start({ env: FEES });
     const preview = (await h.quote({ ...QUOTE, recipient: ADDR.evm2, sender: ADDR.evm })).body as QuoteView;
     const higherMin = ((BigInt(preview.minAmountOut) * 103n) / 100n).toString();
     expect((await h.order({ reviewed: { amountOut: preview.amountOut, minAmountOut: higherMin, totalFeeBps: 40 } })).body.error.code).toBe("price_moved");
@@ -2469,6 +2554,8 @@ describe("the provider's call classes, proven funds, and order quotas by network
 describe("private routing", () => {
   // These tests set the server to route privately. Everywhere else in this file it routes in public.
   const PRIVATE: HarnessOptions = { env: { PRIVACY_MODE: "basic" } };
+  // The same with a fee set on each kind of swap, for the tests of what happens to a fee.
+  const PRIVATE_FEES: HarnessOptions = { env: { PRIVACY_MODE: "basic", ...FEES } };
   // What the page is told of a quote or an order that is routed privately, and of one that is not.
   const PRIVATELY = "confidential";
   const IN_PUBLIC = "public";
@@ -2506,7 +2593,7 @@ describe("private routing", () => {
 
   it("lets nothing a browser sends raise the level or name one", async () => {
     // On a server set to public, nothing in a request makes a quote private.
-    const open = await start();
+    const open = await start({ env: FEES });
     const raising = [{ confidentiality: "basic" }, { confidentiality: "advanced" }, { privacy: "basic" }, { privacyMode: "basic" }, { PRIVACY_MODE: "basic" }, { routing: PRIVATELY }, { routing: "basic" }, { level: "basic" }, { private: true }, { withPrivate: true }, { withoutPrivate: false }, { withoutPrivate: true }];
     for (const extra of raising) {
       const reply = await open.quote({ ...QUOTE, ...extra });
@@ -2539,7 +2626,7 @@ describe("private routing", () => {
   });
 
   it("honours one thing a request says about routing, withoutPrivate: true, and that only lowers the level", async () => {
-    const h = await start(PRIVATE);
+    const h = await start(PRIVATE_FEES);
     // The person's explicit choice: this one swap in public.
     const lowered = await h.quote({ ...QUOTE, withoutPrivate: true });
     expect(outcome(lowered)).toBe("ok");
@@ -2574,9 +2661,9 @@ describe("private routing", () => {
   });
 
   it("sends our private-swap fee with a private quote, shows the fees its echo holds, and refuses an echo that gives us more or pays anyone else", async () => {
-    const h = await start(PRIVATE);
+    const h = await start(PRIVATE_FEES);
     const preview = (await h.quote(SWAP)).body as QuoteView;
-    // FEE_BPS_PRIVATE, 20 unless it is set otherwise: our fee on a private swap, to our own recipient.
+    // FEE_BPS_PRIVATE, set to 20 here: our fee on a private swap, to our own recipient.
     expect(h.config.feeBpsPrivate).toBe(20);
     const ourFee = [{ recipient: h.config.feeRecipient, fee: 20 }];
     expect(h.tap.quotes.at(-1)!.confidentiality).toBe("basic");
@@ -2631,7 +2718,7 @@ describe("private routing", () => {
 
   it("takes the private-swap fee from FEE_BPS_PRIVATE alone: another figure is sent as set, and 0 sends no fee of ours at all", async () => {
     // A request cannot name a fee: whatever it carries, the server's own setting is what is sent.
-    const raised = await start({ env: { PRIVACY_MODE: "basic", FEE_BPS_PRIVATE: "30" } });
+    const raised = await start({ env: { PRIVACY_MODE: "basic", FEE_BPS: "40", FEE_BPS_PRIVATE: "30" } });
     const dearer = (await raised.quote({ ...SWAP, appFees: [{ recipient: ADDR.evm3, fee: 1 }], feeBps: 1, feeBpsPrivate: 1, fee: 1 })).body as QuoteView;
     expect(raised.tap.quotes.at(-1)!.appFees).toEqual([{ recipient: raised.config.feeRecipient, fee: 30 }]);
     expect(dearer.fees).toMatchObject({ appBps: 30, providerBps: 20 });
@@ -2639,7 +2726,8 @@ describe("private routing", () => {
     await raised.quote({ ...SWAP, withoutPrivate: true });
     expect(raised.tap.quotes.at(-1)!.appFees).toEqual([{ recipient: raised.config.feeRecipient, fee: 40 }]);
 
-    const free = await start({ env: { PRIVACY_MODE: "basic", FEE_BPS_PRIVATE: "0" } });
+    // A fee on public swaps only: there is a fee recipient, and a private quote goes out with nothing of ours.
+    const free = await start({ env: { PRIVACY_MODE: "basic", FEE_BPS: "40", FEE_BPS_PRIVATE: "0" } });
     const preview = (await free.quote(SWAP)).body as QuoteView;
     expect(free.tap.quotes.at(-1)!.confidentiality).toBe("basic");
     expect(Object.keys(free.tap.quotes.at(-1)!)).not.toContain("appFees");
@@ -2654,13 +2742,10 @@ describe("private routing", () => {
       return { ...data, quoteRequest: request };
     };
     expect(((await free.quote(SWAP)).body as QuoteView).fees).toMatchObject({ appBps: 0, providerBps: 0 });
-    free.tap.corruptResponse = (data) => {
-      const request = data.quoteRequest as Record<string, unknown>;
-      return { ...data, quoteRequest: { ...request, appFees: [{ recipient: free.config.feeRecipient, fee: 20 }, ...(request.appFees as unknown[])] } };
-    };
+    free.tap.corruptResponse = (data) => ({ ...data, quoteRequest: { ...(data.quoteRequest as Record<string, unknown>), appFees: [{ recipient: free.config.feeRecipient, fee: 20 }] } });
     const reply = await free.quote(SWAP);
     expect(reply.status).toBe(502);
-    expect(free.alerts.at(-1)!.text).toContain("(echo:appFees private share)");
+    expect(free.alerts.at(-1)!.text).toContain("(echo:appFees unsent share)");
   });
 
   it("discards a quote that was answered at another level than it was asked for at, both ways", async () => {
@@ -2823,7 +2908,7 @@ describe("private routing", () => {
   });
 
   it("makes a private order from a private quote and a public order from the person's choice of public, and says which on the order and in its record", async () => {
-    const h = await start(PRIVATE);
+    const h = await start(PRIVATE_FEES);
     const hidden = (await h.quote(SWAP)).body as QuoteView;
     expect(hidden.routing).toBe(PRIVATELY);
     const privateOrder = asOrder(await h.order());
@@ -2857,7 +2942,7 @@ describe("private routing", () => {
     expect((await h.get(`/api/orders/${privateOrder.id}`)).body).toMatchObject({ status: "delivered", routing: PRIVATELY });
 
     // On a server set to public, the choice changes nothing: both orders are public ones.
-    const open = await start();
+    const open = await start({ env: FEES });
     for (const overrides of [{}, { withoutPrivate: true, recipient: ADDR.evm3 }]) {
       const order = asOrder(await open.order(overrides));
       expect(order.routing).toBe(IN_PUBLIC);
@@ -2954,7 +3039,7 @@ describe("private routing", () => {
       expect(h.store.get(order.id)?.state.status).toBe("delivered");
       return order;
     };
-    const h = await start(PRIVATE);
+    const h = await start(PRIVATE_FEES);
     const deliver = delivering(h);
     const order = await deliver({ rewardsAddress: ADDR.evm3 });
     expect(order).toMatchObject({ routing: PRIVATELY, rewardsAddress: ADDR.evm3, fees: { appBps: 20 } });
@@ -2973,7 +3058,7 @@ describe("private routing", () => {
     expect(h.rewards.view(ADDR.evm2, h.clock.t).allTimeMicro).toBe(h.rewards.view(ADDR.evm3, h.clock.t).allTimeMicro);
 
     // Where the server takes no fee on a private swap, the order is on the record with a fee of nothing, and so with no points.
-    const free = await start({ env: { PRIVACY_MODE: "basic", FEE_BPS_PRIVATE: "0" } });
+    const free = await start(PRIVATE);
     const unpaid = await delivering(free)({ rewardsAddress: ADDR.evm3 });
     expect(unpaid).toMatchObject({ routing: PRIVATELY, rewardsAddress: ADDR.evm3, fees: { appBps: 0, appAmount: "0" } });
     const none = free.rewards.entriesFor(ADDR.evm3);

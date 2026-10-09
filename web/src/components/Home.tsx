@@ -317,7 +317,7 @@ function DoAndDont({ privateOn }: { privateOn: boolean }) {
           Your coins go from you to the provider's deposit address, and from there to your receiving address.
         </Statement>
         <Statement kind="do" title="The fee is shown before you commit.">
-          Every quote lists IntentSwap's fee, the provider's fee and the network fee before you confirm.
+          IntentSwap takes no fee. The only fee is the provider's 0.20%. Every quote shows it, and the network fee, before you confirm.
         </Statement>
         <Statement kind="do" title="If a swap fails, the provider refunds you.">
           The refund goes to the refund address you chose, on the chain you paid from.

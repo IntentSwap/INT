@@ -5,6 +5,8 @@ import { ConfigError, DEFAULT_BLOCKED_COUNTRIES, DEFAULT_DEXSCREENER_URL, DEFAUL
 const FEE = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
 const KEY = "aaaaaaaaaaaa.bbbbbbbbbbbb.cccccccccccc";
 const production = (extra: Record<string, string> = {}) => ({ NODE_ENV: "production", DATA_DIR: "/data", TRUST_PROXY_HOPS: "1", FEE_RECIPIENT: FEE, ...extra });
+/** The same with a fee set, which is when the fee recipient is read at all. */
+const charging = (extra: Record<string, string> = {}) => production({ FEE_BPS: "40", ...extra });
 
 function problem(env: Record<string, string>): string {
   try {
@@ -29,7 +31,9 @@ describe("configuration", () => {
       trustProxyHops: 1,
       oneClickApiKey: null,
       oneClickMaxPerMin: 300,
-      feeBps: 40,
+      // IntentSwap takes no fee unless one is set.
+      feeBps: 0,
+      feeBpsPrivate: 0,
       swapsPaused: true,
       providerStub: false,
       reownProjectId: "c0d68cdb58343fb95145440afe216c42",
@@ -39,7 +43,9 @@ describe("configuration", () => {
       supportContact: null,
       alertWebhookUrl: null,
     });
-    expect(config.feeRecipient).toBe(FEE.toLowerCase());
+    // With no fee set, the fee recipient is not read, whatever the variable holds.
+    expect(config.feeRecipient).toBeNull();
+    expect(loadConfig(charging()).feeRecipient).toBe(FEE.toLowerCase());
     expect([...config.blockedCountries].sort()).toEqual([...DEFAULT_BLOCKED_COUNTRIES].sort());
     expect(Object.keys(config.rpcUrls).sort()).toEqual(["arb", "base", "bsc", "eth", "sol"]);
   });
@@ -51,8 +57,20 @@ describe("configuration", () => {
     expect(DEFAULT_BLOCKED_COUNTRIES).toHaveLength(21);
   });
 
-  it("requires a real fee recipient, a data folder and the proxy setting in production", () => {
-    expect(problem({ NODE_ENV: "production", DATA_DIR: "/data", TRUST_PROXY_HOPS: "1" })).toBe("FEE_RECIPIENT: is required in production");
+  it("starts without a fee recipient while no fee is set, and requires one as soon as either fee is above nothing", () => {
+    const bare = { NODE_ENV: "production", DATA_DIR: "/data", TRUST_PROXY_HOPS: "1" };
+    expect(problem(bare)).toBe("accepted");
+    expect(loadConfig(bare)).toMatchObject({ feeBps: 0, feeBpsPrivate: 0, feeRecipient: null });
+    expect(problem({ ...bare, FEE_BPS: "0", FEE_BPS_PRIVATE: "0" })).toBe("accepted");
+    // In every environment, and whatever the variable holds: it is not read while no fee is set.
+    for (const mode of ["development", "test"]) expect(loadConfig({ NODE_ENV: mode }).feeRecipient, mode).toBeNull();
+    for (const held of ["0x1234", FEE.toLowerCase(), "not an address"]) expect(loadConfig({ ...bare, FEE_RECIPIENT: held }).feeRecipient, held).toBeNull();
+    // A fee with nowhere to be paid stops the live server, whichever of the two it is.
+    for (const fee of [{ FEE_BPS: "1" }, { FEE_BPS_PRIVATE: "1" }, { FEE_BPS: "40", FEE_BPS_PRIVATE: "20" }] as Record<string, string>[]) expect(problem({ ...bare, ...fee }), JSON.stringify(fee)).toBe("FEE_RECIPIENT: is required while FEE_BPS or FEE_BPS_PRIVATE is above 0");
+    expect(loadConfig({ ...bare, FEE_BPS_PRIVATE: "20", FEE_RECIPIENT: FEE })).toMatchObject({ feeBps: 0, feeBpsPrivate: 20, feeRecipient: FEE.toLowerCase() });
+  });
+
+  it("requires a data folder and the proxy setting in production", () => {
     expect(problem({ NODE_ENV: "production", FEE_RECIPIENT: FEE, TRUST_PROXY_HOPS: "1" })).toBe("DATA_DIR: is required in production");
     // Guessing the proxy setting would either block every visitor or trust a forged address, so it must be stated.
     expect(problem({ NODE_ENV: "production", DATA_DIR: "/data", FEE_RECIPIENT: FEE })).toBe("TRUST_PROXY_HOPS: is required in production (1 on Railway)");
@@ -61,24 +79,28 @@ describe("configuration", () => {
   });
 
   it("wants the fee recipient in its checksum form in production, so a typo cannot send fees to nobody", () => {
-    expect(problem(production({ FEE_RECIPIENT: toChecksumAddress(DEV_FEE_RECIPIENT) }))).toBe("FEE_RECIPIENT: is still the development placeholder");
-    expect(problem(production({ FEE_RECIPIENT: FEE.toLowerCase() }))).toBe("FEE_RECIPIENT: must be copied in its mixed-case (checksum) form, exactly as the wallet shows it");
-    expect(problem(production({ FEE_RECIPIENT: FEE.toUpperCase().replace("0X", "0x") }))).toBe("FEE_RECIPIENT: must be copied in its mixed-case (checksum) form, exactly as the wallet shows it");
+    expect(problem(charging({ FEE_RECIPIENT: toChecksumAddress(DEV_FEE_RECIPIENT) }))).toBe("FEE_RECIPIENT: is still the development placeholder");
+    expect(problem(charging({ FEE_RECIPIENT: FEE.toLowerCase() }))).toBe("FEE_RECIPIENT: must be copied in its mixed-case (checksum) form, exactly as the wallet shows it");
+    expect(problem(charging({ FEE_RECIPIENT: FEE.toUpperCase().replace("0X", "0x") }))).toBe("FEE_RECIPIENT: must be copied in its mixed-case (checksum) form, exactly as the wallet shows it");
     // One wrong character in the mixed-case form is caught by the checksum.
-    expect(problem(production({ FEE_RECIPIENT: FEE.replace("d8dA", "d8dB") }))).toBe("FEE_RECIPIENT: must be a 0x address or a NEAR account");
-    expect(loadConfig(production({ FEE_RECIPIENT: FEE })).feeRecipient).toBe(FEE.toLowerCase());
+    expect(problem(charging({ FEE_RECIPIENT: FEE.replace("d8dA", "d8dB") }))).toBe("FEE_RECIPIENT: must be a 0x address or a NEAR account");
+    expect(loadConfig(charging({ FEE_RECIPIENT: FEE })).feeRecipient).toBe(FEE.toLowerCase());
+    // The same for a fee on private swaps alone.
+    expect(problem(production({ FEE_BPS_PRIVATE: "20", FEE_RECIPIENT: FEE.toLowerCase() }))).toBe("FEE_RECIPIENT: must be copied in its mixed-case (checksum) form, exactly as the wallet shows it");
     // Development is lenient.
-    expect(loadConfig({ NODE_ENV: "development", FEE_RECIPIENT: FEE.toLowerCase() }).feeRecipient).toBe(FEE.toLowerCase());
+    expect(loadConfig({ NODE_ENV: "development", FEE_BPS: "40", FEE_RECIPIENT: FEE.toLowerCase() }).feeRecipient).toBe(FEE.toLowerCase());
   });
 
   it("allows a placeholder fee recipient in development only", () => {
-    const dev = loadConfig({ NODE_ENV: "development" });
+    // Where a fee is set and no address is: for trying a fee on one's own machine.
+    const dev = loadConfig({ NODE_ENV: "development", FEE_BPS: "40" });
     expect(dev.feeRecipient).toBe(DEV_FEE_RECIPIENT);
     expect(dev.swapsPaused).toBe(false);
+    expect(loadConfig({ NODE_ENV: "development" }).feeRecipient).toBeNull();
   });
 
   it("accepts a NEAR account as the fee recipient", () => {
-    expect(loadConfig(production({ FEE_RECIPIENT: "fees.intentswap.near" })).feeRecipient).toBe("fees.intentswap.near");
+    expect(loadConfig(charging({ FEE_RECIPIENT: "fees.intentswap.near" })).feeRecipient).toBe("fees.intentswap.near");
   });
 
   it("refuses the practice provider in production and behind any proxy", () => {
@@ -98,9 +120,9 @@ describe("configuration", () => {
     ["ONECLICK_MAX_PER_MIN", production({ ONECLICK_MAX_PER_MIN: "5" }), "ONECLICK_MAX_PER_MIN"],
     ["a routing level this site never asks for", production({ PRIVACY_MODE: "advanced", ONECLICK_API_KEY: KEY }), "PRIVACY_MODE"],
     ["a routing level that is no level", production({ PRIVACY_MODE: "yes" }), "PRIVACY_MODE"],
-    ["FEE_RECIPIENT", production({ FEE_RECIPIENT: "0x1234" }), "FEE_RECIPIENT"],
-    ["FEE_RECIPIENT checksum", production({ FEE_RECIPIENT: FEE.replace("d8dA", "D8dA") }), "FEE_RECIPIENT"],
-    ["FEE_BPS too low", production({ FEE_BPS: "19" }), "FEE_BPS"],
+    ["FEE_RECIPIENT", charging({ FEE_RECIPIENT: "0x1234" }), "FEE_RECIPIENT"],
+    ["FEE_RECIPIENT checksum", charging({ FEE_RECIPIENT: FEE.replace("d8dA", "D8dA") }), "FEE_RECIPIENT"],
+    ["FEE_BPS under nothing", production({ FEE_BPS: "-1" }), "FEE_BPS"],
     ["FEE_BPS too high", production({ FEE_BPS: "301" }), "FEE_BPS"],
     ["FEE_BPS decimal", production({ FEE_BPS: "40.5" }), "FEE_BPS"],
     ["SWAPS_PAUSED", production({ SWAPS_PAUSED: "yes" }), "SWAPS_PAUSED"],
@@ -154,7 +176,7 @@ describe("configuration", () => {
   it("never repeats a bad value in the error, because it may be a secret", () => {
     const secret = "sk-very-secret-value-123";
     for (const variable of ["ONECLICK_API_KEY", "BSC_RPC_URL", "ALERT_WEBHOOK_URL", "FEE_RECIPIENT", "PORT", "SUPPORT_CONTACT<"]) {
-      const message = problem(production({ [variable.replace("<", "")]: variable.endsWith("<") ? `${secret}<` : secret }));
+      const message = problem(charging({ [variable.replace("<", "")]: variable.endsWith("<") ? `${secret}<` : secret }));
       expect(message).not.toContain(secret);
     }
   });
@@ -239,18 +261,19 @@ describe("configuration", () => {
   });
 
   describe("FEE_BPS_PRIVATE, IntentSwap's fee on a privately routed swap", () => {
-    it("is 20 unless it is set, whatever the public fee is, and is in the summary that goes to the log", () => {
-      expect(loadConfig(production()).feeBpsPrivate).toBe(20);
-      expect(loadConfig(production({ FEE_BPS: "60" }))).toMatchObject({ feeBps: 60, feeBpsPrivate: 20 });
-      expect(loadConfig({ NODE_ENV: "development" }).feeBpsPrivate).toBe(20);
+    it("is nothing unless it is set, as the public fee is, and is in the summary that goes to the log", () => {
+      expect(loadConfig(production()).feeBpsPrivate).toBe(0);
+      expect(loadConfig(production({ FEE_BPS: "60" }))).toMatchObject({ feeBps: 60, feeBpsPrivate: 0 });
+      expect(loadConfig({ NODE_ENV: "development" })).toMatchObject({ feeBps: 0, feeBpsPrivate: 0 });
       // Left empty is left unset.
-      for (const empty of ["", "  "]) expect(loadConfig(production({ FEE_BPS_PRIVATE: empty })).feeBpsPrivate).toBe(20);
-      expect(describeConfig(loadConfig(production()))).toMatchObject({ feeBps: 40, feeBpsPrivate: 20 });
+      for (const empty of ["", "  "]) expect(loadConfig(production({ FEE_BPS_PRIVATE: empty, FEE_BPS: empty }))).toMatchObject({ feeBps: 0, feeBpsPrivate: 0 });
+      expect(describeConfig(loadConfig(production()))).toMatchObject({ feeBps: 0, feeBpsPrivate: 0, feeRecipientSet: false });
     });
 
     it("is its own setting: a whole number from 0 to 300, and the public fee is not touched by it", () => {
-      for (const [set, held] of [["0", 0], ["1", 1], ["20", 20], ["35", 35], ["300", 300]] as const) expect(loadConfig(production({ FEE_BPS_PRIVATE: set })), set).toMatchObject({ feeBps: 40, feeBpsPrivate: held });
-      expect(describeConfig(loadConfig(production({ FEE_BPS_PRIVATE: "0" })))).toMatchObject({ feeBpsPrivate: 0 });
+      for (const [set, held] of [["0", 0], ["1", 1], ["20", 20], ["35", 35], ["300", 300]] as const) expect(loadConfig(production({ FEE_BPS_PRIVATE: set })), set).toMatchObject({ feeBps: 0, feeBpsPrivate: held });
+      for (const [set, held] of [["0", 0], ["1", 1], ["40", 40], ["300", 300]] as const) expect(loadConfig(production({ FEE_BPS: set })), set).toMatchObject({ feeBps: held, feeBpsPrivate: 0 });
+      expect(describeConfig(loadConfig(production({ FEE_BPS_PRIVATE: "20" })))).toMatchObject({ feeBpsPrivate: 20, feeRecipientSet: true });
     });
 
     it("stops the server on anything else, and names the setting", () => {
@@ -344,7 +367,7 @@ describe("configuration", () => {
 
   it("describes itself for the log without secrets or full RPC URLs", () => {
     const config = loadConfig(
-      production({
+      charging({
         ONECLICK_API_KEY: "aaaaaaaaaaaa.bbbbbbbbbbbb.cccccccccccc",
         BSC_RPC_URL: "https://bsc.example/v1/SECRET-PATH-KEY",
         ALERT_WEBHOOK_URL: "https://hooks.example/services/SECRET-HOOK",

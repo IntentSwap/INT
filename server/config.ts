@@ -27,9 +27,14 @@ export interface Config {
    * privately, cannot yet, and routes in public until a key is set. Said in the log at start.
    */
   privateRoutingWaitsForKey: boolean;
-  feeRecipient: string;
+  /**
+   * Where a fee of IntentSwap's is paid. Null when none is set, which only happens while both fee
+   * settings are 0: nothing is then sent to the provider in this site's name, and nothing needs it.
+   */
+  feeRecipient: string | null;
+  /** IntentSwap's fee on a publicly routed swap, in basis points. 0, unless it is set: no fee of ours is sent with one. */
   feeBps: number;
-  /** IntentSwap's fee on a privately routed swap, in basis points. 0 sends no fee of ours with one. */
+  /** IntentSwap's fee on a privately routed swap, in basis points. 0, unless it is set: no fee of ours is sent with one. */
   feeBpsPrivate: number;
   swapsPaused: boolean;
   /**
@@ -104,6 +109,7 @@ export const DEFAULT_BLOCKED_COUNTRIES: readonly string[] = [
   "ZW", // Zimbabwe
 ];
 
+/** Stands in for a fee address in development and tests, where a fee is set and no address is. Never accepted in production. */
 export const DEV_FEE_RECIPIENT = "0x00000000000000000000000000000000000000fe";
 
 const DEFAULT_RPC: Record<WalletChain | "sol", string> = {
@@ -218,27 +224,35 @@ export function loadConfig(env: Env = process.env): Config {
   }
   const oneClickMaxPerMin = int(env, "ONECLICK_MAX_PER_MIN", 300, 10, 6000);
 
-  let feeRecipient = read(env, "FEE_RECIPIENT");
-  if (feeRecipient === null) {
-    if (production) fail("FEE_RECIPIENT", "is required in production");
-    feeRecipient = DEV_FEE_RECIPIENT;
-  }
-  const feeCheck = checkAddress("eth", feeRecipient);
-  if (feeCheck.ok) {
-    // An all-lower-case address carries no checksum, so one wrong character would send every fee
-    // to nobody. Production wants the mixed-case form a wallet shows, which catches typos.
-    if (production && feeRecipient !== feeCheck.address) fail("FEE_RECIPIENT", "must be copied in its mixed-case (checksum) form, exactly as the wallet shows it");
-    feeRecipient = feeCheck.address.toLowerCase();
-  } else if (/^0x/i.test(feeRecipient) || !checkAddress("near", feeRecipient).ok) {
-    fail("FEE_RECIPIENT", "must be a 0x address or a NEAR account");
-  }
-  if (production && feeRecipient === DEV_FEE_RECIPIENT) fail("FEE_RECIPIENT", "is still the development placeholder");
+  // IntentSwap takes no fee unless one is set: each setting is 0 when left out. A swap routed in
+  // public and one routed privately have a setting each, because the provider treats the two
+  // differently: it halves the fee of a public swap and keeps one half, and leaves the fee of a
+  // private swap whole, adding its own beside it. With a setting at 0 no fee of ours is sent with
+  // that kind of quote at all.
+  const feeBps = int(env, "FEE_BPS", 0, 0, 300);
+  const feeBpsPrivate = int(env, "FEE_BPS_PRIVATE", 0, 0, 300);
+  const feeCharged = feeBps > 0 || feeBpsPrivate > 0;
 
-  const feeBps = int(env, "FEE_BPS", 40, 20, 300);
-  // IntentSwap's fee on a privately routed swap. The provider halves the fee of a public swap and
-  // keeps one half; on a private swap it leaves ours whole and adds its own beside it. So 20 here
-  // makes a private swap cost what a public one does at 40. 0 sends no fee of ours with a private quote.
-  const feeBpsPrivate = int(env, "FEE_BPS_PRIVATE", 20, 0, 300);
+  // Where a fee is paid. It is needed, and read, only while a fee is set: with both settings at 0
+  // the server starts without it in every environment, and whatever the variable holds is left
+  // unread, as nothing is then sent to the provider in this site's name.
+  let feeRecipient = feeCharged ? read(env, "FEE_RECIPIENT") : null;
+  if (feeCharged) {
+    if (feeRecipient === null) {
+      if (production) fail("FEE_RECIPIENT", "is required while FEE_BPS or FEE_BPS_PRIVATE is above 0");
+      feeRecipient = DEV_FEE_RECIPIENT;
+    }
+    const feeCheck = checkAddress("eth", feeRecipient);
+    if (feeCheck.ok) {
+      // An all-lower-case address carries no checksum, so one wrong character would send every fee
+      // to nobody. Production wants the mixed-case form a wallet shows, which catches typos.
+      if (production && feeRecipient !== feeCheck.address) fail("FEE_RECIPIENT", "must be copied in its mixed-case (checksum) form, exactly as the wallet shows it");
+      feeRecipient = feeCheck.address.toLowerCase();
+    } else if (/^0x/i.test(feeRecipient) || !checkAddress("near", feeRecipient).ok) {
+      fail("FEE_RECIPIENT", "must be a 0x address or a NEAR account");
+    }
+    if (production && feeRecipient === DEV_FEE_RECIPIENT) fail("FEE_RECIPIENT", "is still the development placeholder");
+  }
 
   // Swaps stay paused in production unless switched on explicitly.
   const swapsPaused = bool(env, "SWAPS_PAUSED", production);
@@ -401,7 +415,7 @@ export function describeConfig(config: Config): Record<string, unknown> {
     privateRoutingWaitsForKey: config.privateRoutingWaitsForKey,
     feeBps: config.feeBps,
     feeBpsPrivate: config.feeBpsPrivate,
-    feeRecipientSet: config.feeRecipient !== DEV_FEE_RECIPIENT,
+    feeRecipientSet: config.feeRecipient !== null && config.feeRecipient !== DEV_FEE_RECIPIENT,
     swapsPaused: config.swapsPaused,
     providerStub: config.providerStub,
     regionBlock: config.regionBlock,

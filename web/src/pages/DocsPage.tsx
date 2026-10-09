@@ -1,7 +1,7 @@
 // How the site works, in plain words, as a small documentation: one page to a subject, all in
-// one layout (see DocsLayout). Every figure on these pages is read from the running site: the fee
-// from a quote taken as the page opens, the chains from the live coin list, the deadlines and the
-// rules for points from the same constants the server uses.
+// one layout (see DocsLayout). The figures of the example on the Fees page are read from a quote
+// taken as the page opens, the chains from the live coin list, the deadlines and the rules for
+// points from the same constants the server uses.
 //
 // Where the server routes swaps privately there is one page more, "Private routing", and the
 // other pages say what it changes for them, each in a sentence or two. Where it does not, none of
@@ -20,7 +20,7 @@ import { Link } from "../components/Link.tsx";
 import { DEFAULT_PAIR, EXAMPLE_AMOUNT } from "../config.ts";
 import { docHref } from "../lib/docs-logic.ts";
 import { chainsOnList, isPrivateMode } from "../lib/site-logic.ts";
-import { minutesText } from "../lib/swap-logic.ts";
+import { appFeeWords, minutesText } from "../lib/swap-logic.ts";
 import { useApp } from "../stores/app.ts";
 import { findToken, useTokens } from "../stores/tokens.ts";
 
@@ -105,15 +105,15 @@ function Fees() {
   const paused = useApp((state) => state.config?.paused === true || state.health === "paused");
   const quote = useExampleQuote(from, to, paused);
   const privateOn = usePrivateRouting();
-  // The fee that is charged is the one a quote carries back from the provider. So the figure here is
-  // read from a quote taken as this page opened, and is left out when there is none.
-  const total = quote !== null && quote !== "none" ? quote.fees.appBps + quote.fees.providerBps : null;
+  // What a swap is charged is what its quote carries back from the provider. So the figures of the
+  // example are read from a quote taken as this page opened, and are left out when there is none.
+  const example = quote !== null && quote !== "none" ? quote : null;
   return (
-    <DocsLayout href={docHref("fees")} title="Fees" lead="Every quote lists three fees before you confirm, and the amount you receive is shown after all of them.">
-      <DocSection title="The three fees">
+    <DocsLayout href={docHref("fees")} title="Fees" lead="IntentSwap takes no fee. The only fee is the provider's 0.20%.">
+      <DocSection title="What a swap costs">
         <ul>
           <li>
-            <strong>The swap fee.</strong> {total !== null ? <>In the quote below it is {displayBps(total)} of the amount paid.</> : <>It is a share of the amount you pay.</>} Each quote shows IntentSwap's part of it and the provider's part on their own lines.
+            <strong>The provider's fee.</strong> NEAR Intents, which carries out the swap, takes 0.20% of the amount you pay, and less on a swap between two dollar coins. {example !== null ? <>In the quote below it is {displayBps(example.fees.providerBps)}. </> : null}Every quote shows it on a line of its own, before you confirm.
           </li>
           <li>
             <strong>The network fee of the chain you receive on.</strong> The provider takes it out of what you receive. It is already inside the amount the quote shows.
@@ -122,53 +122,59 @@ function Fees() {
             <strong>The network fee of the chain you pay on.</strong> Your wallet pays it when you send. IntentSwap does not set it and does not receive it.
           </li>
         </ul>
+        <p>IntentSwap adds nothing to these. A quote's "IntentSwap fee" line reads "None".</p>
         {privateOn ? <p>A privately routed swap has the same three fees, and its quote shows them the same way.</p> : null}
       </DocSection>
       <DocSection title="An example" id="example">
         {/* A real quote, taken now. If it cannot be had, the page says so and shows no numbers in its place. */}
-        {from !== undefined && to !== undefined && quote !== null && quote !== "none" ? (
+        {from !== undefined && to !== undefined && example !== null ? (
           <>
             <p className="docs-example-title">
               Quoted just now: {EXAMPLE_AMOUNT} {from.symbol} on {chainName(from.chain)} to {to.symbol} on {chainName(to.chain)}.
             </p>
             <TableFrame label="An example quote">
               <tbody className="docs-example">
+                {/* As the quote's own breakdown shows it: "None", or the figures where the server is set to take a fee. */}
                 <tr>
                   <th scope="row">IntentSwap fee</th>
-                  <td className="mono">
-                    <span className="docs-part">{displayBps(quote.fees.appBps)} ·</span>{" "}
-                    <span className="docs-part">
-                      {displayAmount(BigInt(quote.fees.appAmount), from.decimals).text} {from.symbol}
-                    </span>
-                  </td>
+                  {appFeeWords(example) !== null ? (
+                    <td>{appFeeWords(example)}</td>
+                  ) : (
+                    <td className="mono">
+                      <span className="docs-part">{displayBps(example.fees.appBps)} ·</span>{" "}
+                      <span className="docs-part">
+                        {displayAmount(BigInt(example.fees.appAmount), from.decimals).text} {from.symbol}
+                      </span>
+                    </td>
+                  )}
                 </tr>
                 <tr>
                   <th scope="row">Provider fee</th>
                   <td className="mono">
-                    <span className="docs-part">{displayBps(quote.fees.providerBps)} ·</span>{" "}
+                    <span className="docs-part">{displayBps(example.fees.providerBps)} ·</span>{" "}
                     <span className="docs-part">
-                      {displayAmount(BigInt(quote.fees.providerAmount), from.decimals).text} {from.symbol}
+                      {displayAmount(BigInt(example.fees.providerAmount), from.decimals).text} {from.symbol}
                     </span>
                   </td>
                 </tr>
-                {quote.withdrawFee !== null ? (
+                {example.withdrawFee !== null ? (
                   <tr>
                     <th scope="row">{chainName(to.chain)} network fee, included</th>
                     <td className="mono">
-                      {displayAmount(BigInt(quote.withdrawFee), to.decimals).text} {to.symbol}
+                      {displayAmount(BigInt(example.withdrawFee), to.decimals).text} {to.symbol}
                     </td>
                   </tr>
                 ) : null}
                 <tr>
                   <th scope="row">You receive, about</th>
                   <td className="mono">
-                    {displayAmount(BigInt(quote.amountOut), to.decimals, { steady: true }).text} {to.symbol}
+                    {displayAmount(BigInt(example.amountOut), to.decimals, { steady: true }).text} {to.symbol}
                   </td>
                 </tr>
                 <tr>
                   <th scope="row">Minimum received</th>
                   <td className="mono">
-                    {displayAmount(BigInt(quote.minAmountOut), to.decimals, { steady: true }).text} {to.symbol}
+                    {displayAmount(BigInt(example.minAmountOut), to.decimals, { steady: true }).text} {to.symbol}
                   </td>
                 </tr>
               </tbody>
@@ -468,7 +474,7 @@ function PrivateRouting() {
         <p>Shielded coins hide amounts and addresses on their own chain, by cryptography. Here the two ends of a swap are ordinary public transfers, with their amounts and addresses in the open. Only the link between them is kept out of public records.</p>
       </DocSection>
       <DocSection title="What it costs" id="cost">
-        <p>What a privately routed swap costs is in its quote before you confirm, as for any swap: what you pay, and what you receive after every fee. The quote lists IntentSwap's fee and the provider's fee, each on its own line.</p>
+        <p>IntentSwap takes no fee. The only fee is the provider's 0.20%. A privately routed swap costs what any swap does, and its quote shows it before you confirm: what you pay, and what you receive after the provider's fee and the network fee.</p>
         <p>
           Such a swap adds <Link href={docHref("rewards")}>points</Link> as any other does: they are counted from IntentSwap's fee on it. A weekly payout is a public transfer to the rewards address, so it shows that the address has used IntentSwap. It says nothing of either end of any swap.
         </p>

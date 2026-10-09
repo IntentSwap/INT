@@ -452,9 +452,10 @@ describe("private wording is shown only where swaps are routed privately", () =>
         expect(text).toContain("A swap made without private routing is an ordinary public swap: its deposit and its delivery can be matched to each other.");
         expect(text).not.toContain("Yes. Every transfer is recorded on its blockchain");
         // What a private swap costs and what it adds: the same fees shown the same way, and points as for any swap.
+        expect(text).toContain("IntentSwap takes no fee. The only fee is the provider's 0.20%.");
         expect(text).toContain("A privately routed swap shows the same fees, each on its own line.");
         expect(text).toContain("A privately routed swap adds points the same way.");
-        expect(text).not.toMatch(/takes no fee|adds none|adds no points/);
+        expect(text).not.toMatch(/adds none|adds no points/);
       }
       expect(wordsOf(drawnWith(config, faq)).indexOf("What is private routing?")).toBeLessThan(wordsOf(drawnWith(config, faq)).indexOf("Can other people see my swap?"));
     });
@@ -490,7 +491,7 @@ describe("private wording is shown only where swaps are routed privately", () =>
         "Private routing is not a mixer. There is no pool of other people's coins that yours are mixed with, and no waiting for a crowd.",
         "Only the link between them is kept out of public records.",
         // What it costs, and that it adds points as any swap does.
-        "The quote lists IntentSwap's fee and the provider's fee, each on its own line.",
+        "IntentSwap takes no fee. The only fee is the provider's 0.20%. A privately routed swap costs what any swap does, and its quote shows it before you confirm",
         "Such a swap adds points as any other does: they are counted from IntentSwap's fee on it.",
         // When it cannot be had: the choice is the person's, and a swap made without it is an ordinary public one.
         'the card says so and offers "Swap without private routing". That is an ordinary public swap: its deposit and its delivery can be matched to each other in public records.',
@@ -560,6 +561,31 @@ describe("private wording is shown only where swaps are routed privately", () =>
       for (const item of features(true, true)) expect(`${item.title} ${item.text}`, item.key).not.toMatch(stronger);
       for (const mode of ["public", "private"] as const) expect(JSON.stringify(POSITIONING[mode]), mode).not.toMatch(stronger);
     });
+  });
+});
+
+describe("what the site says a swap costs", () => {
+  const LINE = "IntentSwap takes no fee. The only fee is the provider's 0.20%.";
+
+  it.each([
+    ["with swaps routed in public", { ...SETTINGS, privacyMode: "public" }],
+    ["with swaps routed privately", ROUTED_PRIVATELY],
+  ] as const)("is the one line, on the home page, in the answer on cost, on the Fees page and in the Terms, %s", (_when, config) => {
+    for (const [label, page] of [["the home page", home], ["the questions", faq], ["Docs, fees", docs("fees")], ["Docs, faq", docs("faq")], ["the Terms", terms]] as const) expect(wordsOf(drawnWith(config, page)), label).toContain(LINE);
+    // The Fees page keeps it true in detail: whose fee it is, and the two network fees beside it.
+    const fees = wordsOf(drawnWith(config, docs("fees")));
+    expect(fees).toContain("NEAR Intents, which carries out the swap, takes 0.20% of the amount you pay, and less on a swap between two dollar coins.");
+    expect(fees).toContain("The network fee of the chain you receive on.");
+    expect(fees).toContain("The network fee of the chain you pay on.");
+  });
+
+  it("is said by no page as a fee of IntentSwap's own", () => {
+    // Nothing a visitor can read says that IntentSwap takes a share of a swap. (The quote's own row, "IntentSwap fee", says "None".)
+    const charging = /IntentSwap(?:'s)? fee, a percentage|lists IntentSwap's fee|shows the IntentSwap fee|IntentSwap's part of it|our fee|we (?:charge|take|keep)/i;
+    for (const config of [{ ...SETTINGS, privacyMode: "public" }, ROUTED_PRIVATELY]) {
+      for (const [label, page] of [...PAGES, PRIVATE_PAGE]) expect(wordsOf(drawnWith(config, page)), label).not.toMatch(charging);
+    }
+    for (const sentence of ["The IntentSwap fee, a percentage of what you send.", "Every quote lists IntentSwap's fee, the provider's fee and the network fee.", "Each quote shows IntentSwap's part of it."]) expect(charging.test(sentence), sentence).toBe(true);
   });
 });
 

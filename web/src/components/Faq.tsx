@@ -38,7 +38,7 @@ const FAQ: readonly Question[] = [
     question: "What does a swap cost?",
     answer: (_contact, privateRouting) => (
       <p>
-        Every quote shows the IntentSwap fee, the provider's fee, and the network fee of the chain you receive on, before you confirm. The amount you receive is shown after all three. Your wallet also pays the usual network fee of the chain you send from.
+        IntentSwap takes no fee. The only fee is the provider's 0.20%. Every quote shows it before you confirm, with the network fee of the chain you receive on, and the amount you receive is shown after both. Your wallet also pays the usual network fee of the chain you send from.
         {privateRouting ? <> A privately routed swap shows the same fees, each on its own line.</> : null}
       </p>
     ),

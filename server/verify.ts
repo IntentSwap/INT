@@ -10,9 +10,13 @@
 // echoed fees are checked here against what we asked for.
 //
 // A quote is asked for at one of two routing levels, "public" or "basic" (the
-// provider's private routing). The echo must name the level that was sent. A
-// private quote's echo holds our fee, never more than was sent, and beside it
-// one entry of the provider's own, which is bounded.
+// provider's private routing). The echo must name the level that was sent.
+//
+// IntentSwap takes no fee unless the server is set to. A quote sent with no fee
+// of ours must come back paying this site nothing: its echo holds at most one
+// entry, the provider's own, which is bounded. A quote sent with a fee is held
+// to that fee: ours is echoed once, to our own address and never for more than
+// was sent, and what the provider adds beside it is bounded.
 
 import { verifyQuoteSignature } from "@defuse-protocol/one-click-sdk-typescript";
 import { checkAddress, sameAddress } from "../shared/addresses.ts";
@@ -45,7 +49,7 @@ export interface SentQuote {
   referral: string;
   /** The routing level asked for. Always sent, never left to the provider's default, and compared with the echo. */
   confidentiality: Confidentiality;
-  /** Our fee. A private quote is sent without it: the provider's Terms say the app fee does not apply to one. */
+  /** Our fee, when the server is set to take one on this kind of swap. Left out altogether when it is not: a fee of nothing is never spelled out. */
   appFees?: Array<{ recipient: string; fee: number }>;
   depositMode?: "MEMO";
   connectedWallets?: string[];
@@ -60,7 +64,7 @@ export interface VerifiedQuote {
   timeEstimate: number;
   refundFee: string | null;
   withdrawFee: string | null;
-  /** Our share and the provider's share, from the echoed fees. Our share of a private quote is always nothing. */
+  /** Our share and the provider's share, from the echoed fees. Our share is nothing wherever no fee of ours was sent. */
   appBps: number;
   providerBps: number;
   /** The routing level the quote was asked for with, and that its echo confirmed. */
@@ -107,13 +111,14 @@ export function maxTotalFeeBps(sentBps: number): number {
 }
 
 /**
- * Highest fee of the provider's own that we accept in the echo of a private quote. There the
- * provider leaves our fee whole and adds its own beside it: 20 in the previews of 9 Oct 2026 (1
- * between two dollar coins), whatever fee of ours went with the request. If its own fee turns out
- * higher, quotes are refused (reason "echo:appFees private total") until this figure is raised on
- * purpose.
+ * Highest fee of the provider's own that we accept in an entry of its own: the one entry in the
+ * echo of a quote sent with no fee of ours, public or private, and the entry beside ours in the
+ * echo of a private quote sent with one. It was 20 in the previews of 9 Oct 2026 (1 between two
+ * dollar coins), for a public quote and a private one alike, whatever fee of ours went with the
+ * request. If its own fee turns out higher, quotes are refused (reason "echo:appFees unsent total",
+ * or "echo:appFees private total" beside a fee of ours) until this figure is raised on purpose.
  */
-export const MAX_PRIVATE_PROVIDER_FEE_BPS = maxTotalFeeBps(0);
+export const MAX_PROVIDER_FEE_BPS = maxTotalFeeBps(0);
 
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -131,10 +136,11 @@ export function verifyQuoteResponse(options: {
   /** Extra keys to accept. Only ever set for the practice provider in development and tests. */
   extraSigningKeys?: readonly string[];
   /**
-   * Where our fee is paid. A private quote is sent without a fee, so its request does not say;
-   * the echo of one must still pay this address nothing. Needed for a private quote.
+   * Where a fee of ours is paid. Left out or null when the server has no such address (both fee
+   * settings are 0). A quote sent with no fee does not name it, and the echo of one must still pay
+   * this address nothing. With none, no entry can be ours. Needed for a private quote sent with a fee.
    */
-  feeRecipient?: string;
+  feeRecipient?: string | null;
 }): VerifiedQuote {
   const { sent, response, originChain, now } = options;
   if (!isRecord(response)) reject("response is not an object");
@@ -199,15 +205,32 @@ export function verifyQuoteResponse(options: {
   // Fees are not covered by the signature, so they are checked here.
   let appBps = 0;
   let providerBps = 0;
-  if (level === "basic") {
-    // A private quote. Its echo holds our fee, to our own recipient and never more than we sent,
-    // and beside it one entry of the provider's own. The figures shown and stored are the echo's.
-    // With FEE_BPS_PRIVATE at 0 nothing of ours is sent, and the echo may then pay us nothing.
-    const ourRecipient = options.feeRecipient;
-    const sentFees = sent.appFees ?? [];
-    const sentFee = sentFees[0] ?? null;
-    if (sentFees.length > 1 || ourRecipient === undefined) reject("sent fees");
-    if (sentFee !== null && (!sameFeeRecipient(sentFee.recipient, ourRecipient) || !Number.isInteger(sentFee.fee) || sentFee.fee < 1)) reject("sent fees");
+  const ourRecipient = options.feeRecipient ?? null;
+  const sentFees = sent.appFees ?? [];
+  const sentFee = sentFees[0] ?? null;
+  // One fee of ours at most goes with a quote. A fee of nothing is never spelled out: it is left
+  // out, and the quote is then checked as one sent with no fee.
+  if (sentFees.length > 1) reject("sent fees");
+  if (sentFee === null) {
+    // No fee of ours was sent, at either level. The echo then holds one entry at most, the
+    // provider's own, and pays this site nothing. The figures shown and stored are the echo's.
+    const echoedFees = quoteRequest.appFees ?? [];
+    if (!Array.isArray(echoedFees)) reject("echo:appFees");
+    // A second entry would be a fee for somebody we never asked to pay.
+    if (echoedFees.length > 1) reject("echo:appFees unsent recipient");
+    for (const entry of echoedFees as unknown[]) {
+      if (!isRecord(entry) || !str(entry.recipient, 100)) reject("echo:appFees entry");
+      const fee = entry.fee;
+      if (typeof fee !== "number" || !Number.isInteger(fee) || fee < 0 || fee > 500) reject("echo:appFees fee");
+      // We asked for no fee. An echo that names our own address is not the quote we asked for.
+      if (ourRecipient !== null && sameFeeRecipient(entry.recipient, ourRecipient)) reject("echo:appFees unsent share");
+      providerBps += fee;
+    }
+    if (providerBps > MAX_PROVIDER_FEE_BPS) reject("echo:appFees unsent total");
+  } else if (level === "basic") {
+    // A private quote sent with our fee. Its echo holds that fee, to our own recipient and never
+    // more than we sent, and beside it one entry of the provider's own.
+    if (ourRecipient === null || !sameFeeRecipient(sentFee.recipient, ourRecipient) || !Number.isInteger(sentFee.fee) || sentFee.fee < 1) reject("sent fees");
     const echoedFees = quoteRequest.appFees ?? [];
     if (!Array.isArray(echoedFees) || echoedFees.length > 4) reject("echo:appFees");
     let ours = 0;
@@ -224,20 +247,14 @@ export function verifyQuoteResponse(options: {
         providerBps += fee;
       }
     }
-    if (sentFee === null) {
-      // We asked for no fee. An echo that pays us one is not the quote we asked for.
-      if (appBps !== 0) reject("echo:appFees private share");
-    } else {
-      if (ours !== 1) reject("echo:appFees recipient");
-      if (appBps < 1 || appBps > sentFee.fee) reject("echo:appFees share");
-    }
+    if (ours !== 1) reject("echo:appFees recipient");
+    if (appBps < 1 || appBps > sentFee.fee) reject("echo:appFees share");
     // One entry beside ours is the provider's own. A second would be a fee for somebody else.
     if (others > 1) reject("echo:appFees private recipient");
-    if (providerBps > MAX_PRIVATE_PROVIDER_FEE_BPS) reject("echo:appFees private total");
+    if (providerBps > MAX_PROVIDER_FEE_BPS) reject("echo:appFees private total");
   } else {
-    const sentFees = sent.appFees ?? [];
-    const sentFee = sentFees[0];
-    if (sentFees.length !== 1 || sentFee === undefined) reject("sent fees");
+    // A public quote sent with our fee. The provider echoes ours at a share of what was sent, and
+    // the rest beside it; the two together are bounded by what was sent.
     const echoedFees = quoteRequest.appFees;
     if (!Array.isArray(echoedFees) || echoedFees.length === 0 || echoedFees.length > 4) reject("echo:appFees");
     let ours = 0;

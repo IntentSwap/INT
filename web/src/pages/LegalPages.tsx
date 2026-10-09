@@ -65,10 +65,9 @@ export function TermsPage() {
       </Section>
 
       <Section title="4. Fees">
-        <p>Every fee is shown before you confirm, in the quote and again in the review:</p>
+        <p>IntentSwap takes no fee. The only fee is the provider's 0.20%. What a swap is charged is shown before you confirm, in the quote and again in the review:</p>
         <ul>
-          <li>The IntentSwap fee, a percentage of what you send.</li>
-          <li>The provider's fee, a percentage of what you send, taken by the swap service.</li>
+          <li>The provider's fee, a percentage of what you send, taken by the swap service. The figure for your swap is the one in its quote.</li>
           <li>The network fee of the chain you receive on. It is taken from what you receive and is already inside the amount shown.</li>
         </ul>
         <p>Your wallet also pays the usual network fee of the chain you send from. IntentSwap does not set it and does not receive it.</p>
@@ -108,7 +107,7 @@ export function TermsPage() {
 
       <Section title="9. The swap service, and the limits of responsibility">
         <p>You use the swap service at your own risk. To the fullest extent the law allows, you release it, and those who build and run it, from any claim arising from a swap made through this site, and you accept that it gives no warranty of any kind.</p>
-        <p>To the fullest extent the law allows, IntentSwap and its operator are not liable for losses that come from price changes, from a blockchain, bridge or wallet, from the swap service, from a mistake in an address, amount, network or memo, from a late payment, or from the site being unavailable. Where liability cannot be excluded, it is limited to the IntentSwap fee you paid on the swap in question.</p>
+        <p>To the fullest extent the law allows, IntentSwap and its operator are not liable for losses that come from price changes, from a blockchain, bridge or wallet, from the swap service, from a mistake in an address, amount, network or memo, from a late payment, or from the site being unavailable. Where liability cannot be excluded, it is limited to the IntentSwap fee, if any, that you paid on the swap in question.</p>
       </Section>
 
       <Section title="10. If you are in the United Kingdom">

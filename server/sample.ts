@@ -98,7 +98,8 @@ function sampleOrder(sample: Sample, owner: string, now: number): OrderRecord {
         : sample.status === "refunded"
           ? { ...none, originTxs: tx(sample.from.chain, paid), depositedAmount: sample.deposited ?? sample.amountIn, refundedAmount: sample.deposited ?? sample.amountIn, refundReason: sample.refundReason ?? null }
           : { ...none, originTxs: tx(sample.from.chain, paid), depositedAmount: sample.amountIn };
-  const appAmount = (BigInt(sample.amountIn) * 20n) / 10_000n;
+  // As on the site: no fee of IntentSwap's, and the provider's own 0.20%.
+  const providerAmount = (BigInt(sample.amountIn) * 20n) / 10_000n;
   return {
     v: 1,
     id: sampleOrderId(sample.n),
@@ -113,14 +114,14 @@ function sampleOrder(sample: Sample, owner: string, now: number): OrderRecord {
     amountOutUsd: sample.usd,
     slippageBps: 100,
     timeEstimate: 45,
-    fees: { appBps: 20, providerBps: 20, appAmount: appAmount.toString(), providerAmount: appAmount.toString() },
+    fees: { appBps: 0, providerBps: 20, appAmount: "0", providerAmount: providerAmount.toString() },
     withdrawFee: null,
     refundFee: null,
     recipient: sample.to.chain === "sol" ? "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU" : owner,
     refundTo: refund,
     sender: sample.pay === "wallet" ? owner : null,
     rewardsAddress: evm ? owner : null,
-    // Every sample order is an ordinary one: each shows a fee of ours, which a private one never has.
+    // Every sample order is an ordinary, publicly routed one.
     confidentiality: "public",
     depositAddress: evm ? address(`deposit ${sample.n}`) : `bc1q${made(`deposit ${sample.n}`, 19)}`,
     depositMemo: null,

@@ -39,7 +39,8 @@ function start(env: Record<string, string>, statfs?: () => { blocks: number; bav
   return booted;
 }
 
-const production = (extra: Record<string, string> = {}) => ({ NODE_ENV: "production", TRUST_PROXY_HOPS: "1", FEE_RECIPIENT: FEE, ...extra });
+// The live server as it is told the least it must be told. No fee is set, so no fee recipient is needed: it starts without one.
+const production = (extra: Record<string, string> = {}) => ({ NODE_ENV: "production", TRUST_PROXY_HOPS: "1", ...extra });
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "intentswap-boot-"));
@@ -412,16 +413,21 @@ describe("start-up wiring", () => {
   });
 
   it("stops on a bad setting, naming it, before anything else happens", () => {
-    expect(() => start({ NODE_ENV: "production", TRUST_PROXY_HOPS: "1" })).toThrow(ConfigError);
-    expect(() => start(production({ FEE_BPS: "5" }))).toThrow(/FEE_BPS/);
+    expect(() => start({ NODE_ENV: "production" })).toThrow(ConfigError);
+    expect(() => start(production({ FEE_BPS: "301" }))).toThrow(/FEE_BPS/);
+    // A fee with nowhere to be paid: the server does not start, for a fee on either kind of swap.
+    expect(() => start(production({ FEE_BPS: "40" }))).toThrow(/FEE_RECIPIENT: is required while FEE_BPS or FEE_BPS_PRIVATE is above 0/);
+    expect(() => start(production({ FEE_BPS_PRIVATE: "20" }))).toThrow(/FEE_RECIPIENT/);
     expect(() => start(production({ PROVIDER_STUB: "true" }))).toThrow(/PROVIDER_STUB/);
     expect(outbound).toEqual([]);
     expect(lines.some((l) => l.includes("listening"))).toBe(false);
   });
 
   it("never logs a secret while starting", async () => {
-    const b = start(production({ ONECLICK_API_KEY: "aaaaaaaaaaaa.bbbbbbbbbbbb.cccccccccccc", BASE_RPC_URL: "https://rpc.example/v2/SECRET-RPC-KEY", ALERT_WEBHOOK_URL: "https://hooks.example/SECRET-HOOK", PORT: port() }));
+    // With a fee set, so that there is a fee recipient to keep out of the log.
+    const b = start(production({ FEE_BPS: "40", FEE_RECIPIENT: FEE, ONECLICK_API_KEY: "aaaaaaaaaaaa.bbbbbbbbbbbb.cccccccccccc", BASE_RPC_URL: "https://rpc.example/v2/SECRET-RPC-KEY", ALERT_WEBHOOK_URL: "https://hooks.example/SECRET-HOOK", PORT: port() }));
     await listen(b);
+    expect(b.config.feeRecipient).toBe(FEE.toLowerCase());
     const text = lines.join("\n");
     for (const secret of ["aaaaaaaaaaaa", "SECRET-RPC-KEY", "SECRET-HOOK", "hooks.example", FEE.toLowerCase()]) expect(text).not.toContain(secret);
     expect(text).toContain('"event":"starting"');

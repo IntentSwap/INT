@@ -122,7 +122,7 @@ for (const [fromChain, fromSymbol, toChain, toSymbol, pay, dollars] of pairs) {
   const reply = await post("/api/quote", { from: from.id, to: to.id, amount: usd(from, dollars), pay });
   const quote = reply.body as unknown as QuoteView;
   const good = reply.status === 200 && reply.body.error === undefined && BigInt(quote.amountOut) > 0n && BigInt(quote.minAmountOut) <= BigInt(quote.amountOut) && quote.fees.appBps === config.feeBps / 2;
-  check(label, good, good ? `we keep ${quote.fees.appBps} bps, provider ${quote.fees.providerBps} bps, about ${quote.timeEstimate} s` : JSON.stringify(reply.body));
+  check(label, good, good ? `our fee ${quote.fees.appBps} bps, provider ${quote.fees.providerBps} bps, about ${quote.timeEstimate} s` : JSON.stringify(reply.body));
 }
 
 // The previews above used the built-in stand-in addresses. A person's quote carries their own:
@@ -174,7 +174,7 @@ if (baseEth && arbUsdc && snapshot) {
   if (result.ok) {
     const verify = (response: unknown) => {
       try {
-        verifyQuoteResponse({ sent, response, originChain: "base", now: Date.now() });
+        verifyQuoteResponse({ sent, response, originChain: "base", now: Date.now(), feeRecipient: config.feeRecipient });
         return "accepted";
       } catch (err) {
         return (err as { reason?: string }).reason ?? "error";
@@ -184,8 +184,13 @@ if (baseEth && arbUsdc && snapshot) {
     check("a genuine response passes with the pinned key alone", verify(data) === "accepted");
     check("one changed digit in the amount out is caught", verify({ ...data, quote: { ...data.quote, amountOut: `${data.quote.amountOut}0` } }) === "signature");
     check("a changed recipient is caught", verify({ ...data, quoteRequest: { ...data.quoteRequest, recipient: "0x2222222222222222222222222222222222222222" } }) === "signature");
-    const fees = data.quoteRequest.appFees as Array<{ recipient: string; fee: number }>;
-    check("a redirected fee is caught although fees are unsigned", verify({ ...data, quoteRequest: { ...data.quoteRequest, appFees: fees.map((f, i) => (i === 0 ? { ...f, recipient: "0x2222222222222222222222222222222222222222" } : f)) } }) === "echo:appFees recipient");
+    const fees = (data.quoteRequest.appFees ?? []) as Array<{ recipient: string; fee: number }>;
+    if (sent.appFees === undefined) {
+      // No fee of ours went out, as the site is set unless a fee is: the echo may hold the provider's one entry and no other.
+      check("a fee for somebody else, added to the echo, is caught although fees are unsigned", verify({ ...data, quoteRequest: { ...data.quoteRequest, appFees: [...fees, { recipient: "0x2222222222222222222222222222222222222222", fee: 20 }] } }) === "echo:appFees unsent recipient");
+    } else {
+      check("a redirected fee is caught although fees are unsigned", verify({ ...data, quoteRequest: { ...data.quoteRequest, appFees: fees.map((f, i) => (i === 0 ? { ...f, recipient: "0x2222222222222222222222222222222222222222" } : f)) } }) === "echo:appFees recipient");
+    }
   } else {
     check("a genuine response passes with the pinned key alone", false, "the provider did not answer");
   }
