@@ -1,17 +1,19 @@
-// The site in numbers: five totals, the last 30 days of volume, the pairs and chains with the most
-// of it, and a list of recent swaps. Everything is counted on the server from swaps this site saw
-// delivered. The list says of a swap only its two coins, a band for its size and a stretch of the
-// day; it is not drawn at all while the server sends none.
+// The site in numbers: five totals, the chains that have been used among all the site swaps on, the
+// pairs and chains with the most volume, and a list of recent swaps. Everything is counted on the
+// server from swaps this site saw delivered. The list says of a swap only its two coins, a band for
+// its size and a stretch of the day; it is not drawn at all while the server sends none.
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { StatsCoin, StatsResponse } from "../../../shared/api.ts";
 import { api } from "../api.ts";
 import { SecondaryButton } from "../components/Button.tsx";
-import { CoinIcon } from "../components/CoinIcon.tsx";
+import { CoinIcon, NoArtwork } from "../components/CoinIcon.tsx";
 import { Reveal } from "../components/Reveal.tsx";
 import { chainIconUrl } from "../lib/icons.ts";
 import { useCountUp, useSeen } from "../lib/reveal.ts";
-import { BAND_WORDS, coinText, dayText, durationText, usdText, WHEN_WORDS, wholeText } from "../lib/stats-logic.ts";
+import { chainsOnList } from "../lib/site-logic.ts";
+import { BAND_WORDS, chainGrid, chainLine, coinText, durationText, usdText, WHEN_WORDS, wholeText, type GridChain } from "../lib/stats-logic.ts";
+import { useTokens } from "../stores/tokens.ts";
 import "../styles/home.css";
 import "../styles/stats.css";
 
@@ -44,46 +46,59 @@ function Tile({ label, value, text }: { label: string; value: number | null | un
   );
 }
 
-/** A bar to a day, on a hairline. The bars are for the eye; the same figures follow as a table for a screen reader. */
-function Chart({ stats }: { stats: StatsResponse }) {
-  const [ref, seen] = useSeen<HTMLDivElement>();
-  const { days } = stats;
-  const largest = days.reduce((best, day) => (day.volumeUsd > best.volumeUsd ? day : best), days[0] ?? { day: "", volumeUsd: 0 });
-  if (largest.volumeUsd === 0) return <p className="muted">{stats.totals.swaps === 0 ? "No swaps have been delivered yet." : "No swaps were delivered in the last 30 days."}</p>;
+/** A chain's mark in the grid: its own artwork, the same as on the strip of chains, or the plain drawing where the site has none. */
+function GridMark({ chain }: { chain: string }) {
+  const icon = chainIconUrl(chain);
+  if (icon !== null) return <img className="stats-chains-mark" src={icon} alt="" width={32} height={32} decoding="async" />;
   return (
-    <figure className="stats-chart">
-      <figcaption className="muted">
-        Largest day: <span className="mono stats-figure">{usdText(largest.volumeUsd)}</span> on {dayText(largest.day)}
-      </figcaption>
-      <div ref={ref} className="stats-bars" aria-hidden="true" data-in={seen ? "" : undefined}>
-        {days.map((day) => (
-          <span key={day.day} className="stats-bar" data-top={day === largest ? "" : undefined} style={bar(day.volumeUsd, largest.volumeUsd)} title={`${dayText(day.day)}: ${usdText(day.volumeUsd)}`} />
-        ))}
-      </div>
-      <p className="stats-axis mono" aria-hidden="true">
-        <span>{dayText(days[0]?.day ?? "")}</span>
-        <span>{dayText(days.at(-1)?.day ?? "")}</span>
+    <span className="stats-chains-mark" aria-hidden="true">
+      <NoArtwork />
+    </span>
+  );
+}
+
+/**
+ * Every chain the site swaps on, each as its mark over its name, with nothing round it. A chain that
+ * has been used is in full colour and can be chosen; the others are faded and cannot. One line above
+ * the grid holds the chosen chain's figures; it keeps its room while it holds none, so nothing moves.
+ * The used chains light up one after another, once, when the grid first comes into view.
+ */
+export function ChainGrid({ chains, count, chosen, onChoose }: { chains: readonly GridChain[]; count: number; chosen: string | null; onChoose(chain: string): void }) {
+  const [ref, seen] = useSeen<HTMLUListElement>();
+  // Hovering is spoken of only where there is something to hover with.
+  const [pointer] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
+  const picked = chains.find((chain) => chain.key === chosen);
+  // A used chain's place among the used ones, which is its turn to light up.
+  const turns = new Map(chains.filter((chain) => chain.used !== null).map((chain, index) => [chain.key, index]));
+  return (
+    <>
+      <p className="muted">
+        <span className="mono stats-figure">{wholeText(count)}</span> of <span className="mono stats-figure">{wholeText(chains.length)}</span> chains used
       </p>
-      <div className="sr-only">
-        <table>
-          <caption>Volume by day, by the clock in UTC</caption>
-          <thead>
-            <tr>
-              <th scope="col">Day</th>
-              <th scope="col">Volume</th>
-            </tr>
-          </thead>
-          <tbody>
-            {days.map((day) => (
-              <tr key={day.day}>
-                <th scope="row">{dayText(day.day)}</th>
-                <td>{usdText(day.volumeUsd)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </figure>
+      <p className="stats-chains-line muted" aria-live="polite">
+        {picked !== undefined && picked.used !== null ? chainLine(picked.name, picked.used.swaps, picked.used.share) : `${pointer ? "Hover or tap" : "Tap"} a chain to see its swaps and its share of volume.`}
+      </p>
+      <ul ref={ref} className="stats-chains" data-in={seen ? "" : undefined}>
+        {chains.map((chain) => (
+          <li key={chain.key}>
+            {chain.used !== null ? (
+              <button type="button" className="stats-chains-item" data-used="" aria-pressed={chain.key === chosen} style={{ "--i": turns.get(chain.key) } as CSSProperties} onPointerEnter={() => onChoose(chain.key)} onFocus={() => onChoose(chain.key)} onClick={() => onChoose(chain.key)}>
+                <GridMark chain={chain.key} />
+                <span>{chain.name}</span>
+              </button>
+            ) : (
+              <span className="stats-chains-item">
+                <GridMark chain={chain.key} />
+                <span>
+                  {chain.name}
+                  <span className="sr-only">, not used yet</span>
+                </span>
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -136,9 +151,13 @@ function Chain({ chain, name }: { chain: string; name: string }) {
   );
 }
 
-/** The page under its head. `null` is the figures on their way: each keeps its place. */
-export function StatsContent({ stats }: { stats: StatsResponse | null }) {
+/**
+ * The page under its head. `null` is the figures on their way: each of the five keeps its place.
+ * `chains` is every chain on the coin list, in the order the coin picker offers them.
+ */
+export function StatsContent({ stats, chains }: { stats: StatsResponse | null; chains: readonly { key: string; name: string }[] }) {
   const totals = stats?.totals;
+  const [chosen, setChosen] = useState<string | null>(null);
   return (
     <>
       <Reveal as="dl" className="stats-tiles">
@@ -149,12 +168,15 @@ export function StatsContent({ stats }: { stats: StatsResponse | null }) {
         <Tile label="Average delivery time" value={totals?.deliverySeconds} text={durationText} />
       </Reveal>
 
-      <section className="stats-part" aria-labelledby="stats-daily">
-        <h2 id="stats-daily" className="stats-heading">
-          Daily volume, last 30 days
-        </h2>
-        {stats === null ? <span className="skeleton stats-chart-waiting" aria-hidden="true" /> : <Chart stats={stats} />}
-      </section>
+      {/* Drawn once both are known: the figures, and the list of chains they are set against. The count is the very number of the tile above. */}
+      {stats !== null && chains.length > 0 ? (
+        <section className="stats-part" aria-labelledby="stats-used">
+          <h2 id="stats-used" className="stats-heading">
+            Chains used
+          </h2>
+          <ChainGrid chains={chainGrid(chains, stats.chainsUsed)} count={stats.totals.chains} chosen={chosen} onChoose={setChosen} />
+        </section>
+      ) : null}
 
       {stats !== null && (stats.pairs.length > 0 || stats.chains.length > 0) ? (
         <div className="stats-tops">
@@ -188,6 +210,8 @@ export function StatsContent({ stats }: { stats: StatsResponse | null }) {
 export default function StatsPage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const tokens = useTokens((state) => state.tokens);
+  const chains = useMemo(() => chainsOnList(tokens), [tokens]);
   const load = useCallback(async () => {
     setFailed(false);
     try {
@@ -221,7 +245,7 @@ export default function StatsPage() {
           <SecondaryButton onClick={() => void load()}>Try again</SecondaryButton>
         </div>
       ) : (
-        <StatsContent stats={stats} />
+        <StatsContent stats={stats} chains={chains} />
       )}
     </section>
   );

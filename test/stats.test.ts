@@ -13,12 +13,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { boot, type Booted } from "../server/boot.ts";
 import { createLogger, hashId } from "../server/log.ts";
-import { bandOf, createStats, showQuarter, whenOf, QUARTER_MS, type Stats, type StatsFile } from "../server/stats.ts";
+import { bandOf, createStats, shareOf, showQuarter, whenOf, QUARTER_MS, type Stats, type StatsFile } from "../server/stats.ts";
 import { createOrderStore, type OrderRecord, type OrderState, type OrderStore } from "../server/store.ts";
 import { formatExact } from "../shared/amounts.ts";
 import type { CoinRef, Confidentiality, OrderStatus, StatsResponse } from "../shared/api.ts";
-import { statsPageOn } from "../web/src/lib/stats-logic.ts";
-import { StatsContent } from "../web/src/pages/StatsPage.tsx";
+import { chainGrid, statsPageOn } from "../web/src/lib/stats-logic.ts";
+import { ChainGrid, StatsContent } from "../web/src/pages/StatsPage.tsx";
 import { navItems } from "../web/src/router.ts";
 import { FIXTURE_TOKENS, harness, type Harness } from "./helpers.ts";
 
@@ -168,7 +168,7 @@ function site(options: { dir?: string; feedMin?: number; random?: () => number; 
 }
 
 describe("the totals", () => {
-  it("count delivered swaps: how many, their dollar value, the chains, the time taken, the days, the pairs", () => {
+  it("count delivered swaps: how many, their dollar value, the chains, the time taken, the pairs", () => {
     const s = site();
     s.clock.t = NOON + 2 * MINUTE;
     s.end(1, { usd: "1240.82", took: 40 });
@@ -186,10 +186,6 @@ describe("the totals", () => {
     expect(s.at(NOON + 14 * MINUTE + 59_999).totals.swaps).toBe(0);
     const shown = s.at(NOON + 15 * MINUTE);
     expect(shown.totals).toEqual({ swaps: 4, volumeUsd: 1590, volume24hUsd: 1590, chains: 4, deliverySeconds: 58 });
-    expect(shown.days).toHaveLength(30);
-    expect(shown.days[0]).toEqual({ day: "2026-09-09", volumeUsd: 0 });
-    expect(shown.days.at(-1)).toEqual({ day: "2026-10-08", volumeUsd: 1590 });
-    expect(shown.days.slice(0, -1).every((day) => day.volumeUsd === 0)).toBe(true);
     expect(shown.pairs).toEqual([
       { from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" }, volumeUsd: 1340 },
       { from: { symbol: "USDC", chain: "arb" }, to: { symbol: "ETH", chain: "base" }, volumeUsd: 249 },
@@ -202,7 +198,91 @@ describe("the totals", () => {
     ]);
   });
 
-  it("the last 24 hours end on the hour, and days and hours that have aged out are dropped while the totals stay", () => {
+  it("a chain's swaps: one for the chain a swap left and one for the chain it arrived on, one only when both are the same chain, none for an order that was not delivered", () => {
+    const s = site();
+    s.end(1, { usd: "600", from: ETH, to: USDT });
+    // From Base to Base.
+    s.end(2, { usd: "300", from: ETH, to: { ...USDC, chain: "base" } });
+    s.end(3, { usd: "100", from: USDC, to: BTC });
+    // The provider gave no dollar value: the swap is counted for its chains, with no volume.
+    s.end(4, { usd: "", from: BTC, to: { ...ETH, chain: "eth" } });
+    // What was refunded, failed or ran out is counted for no chain, a chain nothing else used among them.
+    s.end(5, { from: { ...ETH, chain: "op" }, to: USDT }, "refunded");
+    s.end(6, { from: BTC, to: USDT }, "failed");
+    s.end(7, { from: USDC, to: BTC }, "expired");
+
+    const shown = s.at(NOON + 15 * MINUTE);
+    // In the order of the chains' codes, each with its share of the $1,000 delivered.
+    expect(shown.chainsUsed).toEqual([
+      { chain: "arb", swaps: 1, share: 10 },
+      { chain: "base", swaps: 2, share: 90 },
+      { chain: "btc", swaps: 2, share: 10 },
+      { chain: "eth", swaps: 1, share: 0 },
+      { chain: "sol", swaps: 1, share: 60 },
+    ]);
+    // The "Chains used" figure is the length of that list.
+    expect(shown.totals.chains).toBe(5);
+    expect(shown.totals.chains).toBe(shown.chainsUsed.length);
+    // The share is of the very sum the list of top chains shows in dollars.
+    expect(shown.chains.map((item) => [item.chain, item.volumeUsd])).toEqual([["base", 900], ["sol", 600], ["arb", 100], ["btc", 100]]);
+    // Kept beside the volume, and whole after a restart.
+    expect(s.file().chainSwaps).toEqual({ base: 2, sol: 1, arb: 1, btc: 2, eth: 1 });
+    expect(site({ dir: s.dir, t: NOON + 15 * MINUTE }).stats.view().chainsUsed).toEqual(shown.chainsUsed);
+  });
+
+  it("a chain's share of volume is whole per cent, rounded down; under one per cent it is said to be under one, and not nothing", () => {
+    expect([shareOf(31n, 100n), shareOf(319_999n, 1_000_000n), shareOf(999_999n, 1_000_000n), shareOf(1_000_000n, 1_000_000n), shareOf(10_000n, 1_000_000n)]).toEqual([31, 31, 99, 100, 1]);
+    expect([shareOf(1n, 1_000_000n), shareOf(9_999n, 1_000_000n)]).toEqual(["<1", "<1"]);
+    // No volume: nothing of something, and anything of nothing.
+    expect([shareOf(0n, 1_000_000n), shareOf(0n, 0n)]).toEqual([0, 0]);
+
+    const s = site();
+    s.end(1, { usd: "99999.5", from: ETH, to: USDT });
+    s.end(2, { usd: "0.5", from: USDC, to: BTC });
+    expect(s.at(NOON + 15 * MINUTE).chainsUsed).toEqual([
+      { chain: "arb", swaps: 1, share: "<1" },
+      { chain: "base", swaps: 1, share: 99 },
+      { chain: "btc", swaps: 1, share: "<1" },
+      { chain: "sol", swaps: 1, share: 99 },
+    ]);
+    // Swaps with no dollar value at all: each chain has its swaps, and no share of nothing.
+    const none = site();
+    none.end(1, { usd: "" });
+    expect(none.at(NOON + 15 * MINUTE)).toMatchObject({ totals: { swaps: 1, volumeUsd: 0, chains: 2 }, chainsUsed: [{ chain: "base", swaps: 1, share: 0 }, { chain: "sol", swaps: 1, share: 0 }] });
+  });
+
+  it("a file kept before swaps were counted by chain is read: its totals stand, its chains begin with no swaps, and what it kept by the day is dropped", () => {
+    const dir = tempDir();
+    fs.mkdirSync(path.join(dir, "stats"), { recursive: true });
+    const coin = (symbol: string, chain: string) => ({ symbol, chain });
+    const before = {
+      v: 1,
+      swaps: 7,
+      volumeMicro: "2000000000",
+      deliverySeconds: 280,
+      deliveriesTimed: 7,
+      chains: { base: "2000000000", sol: "500000000" },
+      pairs: [{ from: coin("ETH", "base"), to: coin("USDT", "sol"), volumeMicro: "500000000" }],
+      days: { [String(Math.floor(NOON / DAY))]: "2000000000" },
+      hours: { [String(Math.floor(NOON / HOUR) - 1)]: { swaps: 7, volumeMicro: "2000000000" } },
+      rows: [],
+    };
+    fs.writeFileSync(path.join(dir, "stats", "stats.json"), JSON.stringify(before));
+    const s = site({ dir });
+    expect(s.stats.setAside).toBe(false);
+    expect(fs.readdirSync(path.join(dir, "stats"))).toEqual(["stats.json"]);
+    const shown = s.at(NOON + 15 * MINUTE);
+    expect(shown.totals).toEqual({ swaps: 7, volumeUsd: 2000, volume24hUsd: 2000, chains: 2, deliverySeconds: 40 });
+    expect(shown.chainsUsed).toEqual([{ chain: "base", swaps: 0, share: 100 }, { chain: "sol", swaps: 0, share: 25 }]);
+    // Written again, it is a file of today's kind: counts by chain, and nothing by the day.
+    expect(Object.keys(s.file()).sort()).toEqual(["chainSwaps", "chains", "deliveriesTimed", "deliverySeconds", "hours", "pairs", "rows", "swaps", "v", "volumeMicro"]);
+    expect(s.file().chainSwaps).toEqual({ base: 0, sol: 0 });
+    // A swap delivered from now on is counted on top of what was there.
+    s.end(1, { usd: "2000", from: ETH, to: BTC });
+    expect(s.at(NOON + 30 * MINUTE).chainsUsed).toEqual([{ chain: "base", swaps: 1, share: 100 }, { chain: "btc", swaps: 1, share: 50 }, { chain: "sol", swaps: 0, share: 12 }]);
+  });
+
+  it("the last 24 hours end on the hour, and hours that have aged out are dropped while the totals stay", () => {
     const s = site();
     s.clock.t = NOON + 10 * MINUTE;
     s.end(1, { usd: "500" });
@@ -211,14 +291,12 @@ describe("the totals", () => {
     expect(s.at(NOON + DAY - 15 * MINUTE).totals.volume24hUsd).toBe(500);
     const next = s.at(NOON + DAY);
     expect(next.totals).toMatchObject({ swaps: 1, volumeUsd: 500, volume24hUsd: 0 });
-    expect(next.days.at(-2)).toEqual({ day: "2026-10-08", volumeUsd: 500 });
-    // A month on: the day is off the chart. A swap delivered then is alone in the days and hours that are kept.
+    // A month on, a swap delivered then is alone in the hours that are kept.
     const later = NOON + 31 * DAY;
-    expect(s.at(later).days.every((day) => day.volumeUsd === 0)).toBe(true);
+    expect(s.at(later).totals).toMatchObject({ swaps: 1, volumeUsd: 500, volume24hUsd: 0 });
     s.clock.t = later + MINUTE;
     s.end(2, { usd: "20" });
     expect(s.at(later + 15 * MINUTE).totals).toMatchObject({ swaps: 2, volumeUsd: 520, volume24hUsd: 20 });
-    expect(Object.keys(s.file().days)).toHaveLength(1);
     expect(Object.keys(s.file().hours)).toHaveLength(1);
   });
 
@@ -316,7 +394,8 @@ describe("what is kept and sent holds nothing of any one order", () => {
       }
 
       // What is there instead, part by part.
-      expect(Object.keys(reply.body).sort()).toEqual(["chains", "days", "feed", "pairs", "totals"]);
+      expect(Object.keys(reply.body).sort()).toEqual(["chains", "chainsUsed", "feed", "pairs", "totals"]);
+      for (const used of reply.body.chainsUsed) expect(Object.keys(used).sort()).toEqual(["chain", "share", "swaps"]);
       for (const row of reply.body.feed) {
         expect(Object.keys(row).sort()).toEqual(["band", "from", "to", "when"]);
         expect(Object.keys(row.from).sort()).toEqual(["chain", "symbol"]);
@@ -324,7 +403,7 @@ describe("what is kept and sent holds nothing of any one order", () => {
       }
       expect(reply.body.feed.map((row: { band: string }) => row.band).sort()).toEqual(["100-1k", "1k-10k", "over-10k", "under-100"]);
       const file = JSON.parse(fs.readFileSync(path.join(statsDir, "stats.json"), "utf8")) as StatsFile;
-      expect(Object.keys(file).sort()).toEqual(["chains", "days", "deliveriesTimed", "deliverySeconds", "hours", "pairs", "rows", "swaps", "v", "volumeMicro"]);
+      expect(Object.keys(file).sort()).toEqual(["chainSwaps", "chains", "deliveriesTimed", "deliverySeconds", "hours", "pairs", "rows", "swaps", "v", "volumeMicro"]);
       for (const row of file.rows) {
         expect(Object.keys(row).sort()).toEqual(["band", "from", "quarter", "to"]);
         expect(Object.keys(row.from).sort()).toEqual(["chain", "symbol"]);
@@ -344,6 +423,55 @@ describe("what is kept and sent holds nothing of any one order", () => {
     expect(text).not.toContain(SECRET.refundTo);
     expect(text).not.toContain(SECRET.recipient);
     expect(text).not.toMatch(/[A-Za-z0-9_-]{24,}/);
+  });
+});
+
+/** A page's words, without its markup. */
+const words = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+/** A coin list's chains, as the page is handed them: in the order the coin picker offers them. */
+const LISTED = [{ key: "bsc", name: "BNB Chain" }, { key: "eth", name: "Ethereum" }, { key: "sol", name: "Solana" }, { key: "base", name: "Base" }, { key: "qtc", name: "Quantus" }];
+
+describe("chains used", () => {
+  const stats: StatsResponse = { totals: { swaps: 13, volumeUsd: 1500, volume24hUsd: 400, chains: 2, deliverySeconds: 72 }, pairs: [], chains: [], chainsUsed: [{ chain: "base", swaps: 12, share: 31 }, { chain: "sol", swaps: 1, share: "<1" }], feed: null };
+  /** The grid's chains as they are drawn, in order: what each says, and whether it can be pressed. */
+  const drawn = (markup: string) => {
+    const grid = /<ul class="stats-chains">(.*?)<\/ul>/.exec(markup)?.[1] ?? "";
+    return [...grid.matchAll(/<li>(.*?)<\/li>/g)].map((item) => ({ says: words(item[1]!).trim(), button: item[1]!.startsWith('<button type="button" class="stats-chains-item" data-used=""'), faded: item[1]!.startsWith('<span class="stats-chains-item">') }));
+  };
+
+  it("the page draws every chain on the coin list in the list's order: a used one in full colour, to be pressed, and any other faded and said to be not used", () => {
+    const markup = renderToStaticMarkup(createElement(StatsContent, { stats, chains: LISTED }));
+    expect(drawn(markup)).toEqual([
+      { says: "BNB Chain , not used yet", button: false, faded: true },
+      { says: "Ethereum , not used yet", button: false, faded: true },
+      { says: "Solana", button: true, faded: false },
+      { says: "Base", button: true, faded: false },
+      { says: "Quantus , not used yet", button: false, faded: true },
+    ]);
+    // Above the grid, the count: the very number of the "Chains used" tile.
+    expect(words(markup)).toContain("Chains used 2 of 5 chains used");
+    expect(markup).toContain('<dt class="fact-label mono">Chains used</dt><dd class="stats-number mono"><span aria-hidden="true">0</span><span class="sr-only">2</span></dd>');
+    // Nothing is chosen yet: the line says what choosing does, and is read out when it changes.
+    expect(markup).toContain('<p class="stats-chains-line muted" aria-live="polite">Tap a chain to see its swaps and its share of volume.</p>');
+    expect(markup).not.toContain('aria-pressed="true"');
+    // Only a used chain's mark lights up, each in its turn.
+    expect([...markup.matchAll(/data-used="" aria-pressed="false" style="--i:(\d+)"/g)].map((match) => match[1])).toEqual(["0", "1"]);
+    // While the coin list is not there, there is no grid to set the figures against.
+    expect(renderToStaticMarkup(createElement(StatsContent, { stats, chains: [] }))).not.toContain("stats-chains");
+  });
+
+  it("a chosen chain's swaps and share of volume are said in the one line above the grid, and nothing of an unused chain", () => {
+    const line = (chosen: string | null, used = stats.chainsUsed) => /<p class="stats-chains-line muted" aria-live="polite">(.*?)<\/p>/.exec(renderToStaticMarkup(createElement(ChainGrid, { chains: chainGrid(LISTED, used), count: used.length, chosen, onChoose: () => undefined })))?.[1];
+    expect(line("base")).toBe("Base: 12 swaps, 31% of volume");
+    expect(line("sol")).toBe("Solana: 1 swap, under 1% of volume");
+    expect(line("base", [{ chain: "base", swaps: 12_345, share: 0 }])).toBe("Base: 12,345 swaps, 0% of volume");
+    expect(line("eth")).toBe("Tap a chain to see its swaps and its share of volume.");
+    expect(line(null)).toBe("Tap a chain to see its swaps and its share of volume.");
+    // The chosen chain is marked as the one pressed.
+    const markup = renderToStaticMarkup(createElement(ChainGrid, { chains: chainGrid(LISTED, stats.chainsUsed), count: 2, chosen: "base", onChoose: () => undefined }));
+    expect([...markup.matchAll(/aria-pressed="true"[^>]*>.*?<span>([^<]+)<\/span>/g)].map((match) => match[1])).toEqual(["Base"]);
+    // A used chain that is not on the coin list follows the list's own, so that as many are lit as the count says.
+    expect(chainGrid(LISTED, [...stats.chainsUsed, { chain: "zec", swaps: 2, share: 4 }]).map((chain) => `${chain.key} ${chain.used === null ? "faded" : "lit"}`)).toEqual(["bsc faded", "eth faded", "sol lit", "base lit", "qtc faded", "zec lit"]);
   });
 });
 
@@ -440,13 +568,12 @@ describe("recent swaps", () => {
   });
 
   it("the page draws no list, and nothing in its place, while it is sent none", () => {
-    const stats: StatsResponse = { totals: { swaps: 3, volumeUsd: 1500, volume24hUsd: 400, chains: 2, deliverySeconds: 72 }, days: [{ day: "2026-10-07", volumeUsd: 1100 }, { day: "2026-10-08", volumeUsd: 400 }], pairs: [{ from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" }, volumeUsd: 1500 }], chains: [{ chain: "base", name: "Base", volumeUsd: 1500 }], feed: null };
-    const words = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    const without = renderToStaticMarkup(createElement(StatsContent, { stats }));
+    const stats: StatsResponse = { totals: { swaps: 3, volumeUsd: 1500, volume24hUsd: 400, chains: 2, deliverySeconds: 72 }, pairs: [{ from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" }, volumeUsd: 1500 }], chains: [{ chain: "base", name: "Base", volumeUsd: 1500 }], chainsUsed: [{ chain: "base", swaps: 3, share: 100 }, { chain: "sol", swaps: 3, share: 100 }], feed: null };
+    const without = renderToStaticMarkup(createElement(StatsContent, { stats, chains: LISTED }));
     expect(words(without)).toContain("Top pairs");
     expect(words(without)).not.toMatch(/Recent swaps|rounded|in the last hour/);
     expect(without).not.toContain("stats-swap");
-    const withRows = words(renderToStaticMarkup(createElement(StatsContent, { stats: { ...stats, feed: [{ from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" }, band: "100-1k", when: "earlier-today" }] } })));
+    const withRows = words(renderToStaticMarkup(createElement(StatsContent, { stats: { ...stats, feed: [{ from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" }, band: "100-1k", when: "earlier-today" }] }, chains: LISTED })));
     expect(withRows).toContain("Recent swaps");
     expect(withRows).toContain("ETH on Base to USDT on Solana $100 to $1k earlier today");
   });
@@ -519,9 +646,12 @@ describe("the switch, and practice mode", () => {
     const stats = (await practice.get("/api/stats")).json as StatsResponse;
     expect(stats.totals.swaps).toBeGreaterThan(2000);
     expect(stats.totals.volume24hUsd).toBeGreaterThan(1000);
-    expect(stats.days.every((day) => day.volumeUsd > 0)).toBe(true);
     expect(stats.pairs).toHaveLength(5);
     expect(stats.chains).toHaveLength(5);
+    // Several chains have been used, each with its swaps, so the grid of chains shows some lit and some not.
+    expect(stats.chainsUsed.length).toBeGreaterThanOrEqual(5);
+    expect(stats.totals.chains).toBe(stats.chainsUsed.length);
+    expect(stats.chainsUsed.every((used) => used.swaps > 100)).toBe(true);
     expect(stats.feed?.length).toBeGreaterThanOrEqual(10);
     // The folder says what it holds, and the live site does not start on it (see boot.test.ts).
     expect(fs.existsSync(path.join(practice.dataDir, "rewards", "SAMPLE-CONTENT"))).toBe(true);
@@ -531,7 +661,7 @@ describe("the switch, and practice mode", () => {
     expect(((await again.get("/api/stats")).json as StatsResponse).totals).toEqual(stats.totals);
 
     const plain = await server({});
-    expect((await plain.get("/api/stats")).json).toMatchObject({ totals: { swaps: 0, volumeUsd: 0, volume24hUsd: 0, chains: 0, deliverySeconds: null }, pairs: [], chains: [], feed: null });
+    expect((await plain.get("/api/stats")).json).toMatchObject({ totals: { swaps: 0, volumeUsd: 0, volume24hUsd: 0, chains: 0, deliverySeconds: null }, pairs: [], chains: [], chainsUsed: [], feed: null });
     expect(fs.readdirSync(path.join(plain.dataDir, "stats")).filter((name) => name !== "stats.json")).toEqual([]);
   });
 });

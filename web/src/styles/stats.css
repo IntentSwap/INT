@@ -1,5 +1,5 @@
-/* The Stats page. Figures, a chart and three lists: type, room and hairlines, with the accent kept
-   for the chart's largest day and the lines under the ranked lists. Nothing is a box. */
+/* The Stats page. Figures, a grid of chains and three lists: type, room and hairlines, with the
+   accent kept for the lines under the ranked lists. Nothing is a box. */
 .stats {
   /* A coin's chain badge is ringed in the colour of what it sits on: here, the page itself. */
   --coin-ring: var(--bg);
@@ -73,51 +73,73 @@
   color: var(--text);
 }
 
-/* ---- The chart: a bar to a day, standing on a hairline. A bar grows from its foot, once, when the chart comes into view. ---- */
-.stats-chart {
+/* ---- Chains used: every chain as its own mark over its name, with nothing round it, as on the
+   strip of chains. A chain that has been used is in full colour; the others are faded. ---- */
+
+/* The chosen chain's figures. The line keeps room for two lines of words on a phone, where it may
+   take two, so that nothing under it moves when what it says changes. On a phone the grid is taller
+   than the screen: the line stays under the header while the grid is scrolled past, on the page's
+   own colour, so that what a tap brings up is always in view. */
+.stats-chains-line {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 1;
+  min-height: calc(var(--line-14) * 2 + var(--space-16));
+  margin: calc(var(--space-8) * -1) 0;
+  padding: var(--space-8) 0;
+  background: var(--bg);
+}
+
+.stats-chains {
   display: grid;
-  gap: var(--space-12);
-  min-width: 0;
+  grid-template-columns: repeat(auto-fill, minmax(var(--space-64), 1fr));
+  gap: var(--space-16) var(--space-8);
 }
 
-.stats-bars {
+/* One chain. A used one is a button, and so at least as tall as a finger needs. */
+.stats-chains-item {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  align-items: end;
-  gap: var(--space-4);
-  height: var(--space-160);
-  border-bottom: var(--border-width) solid var(--border-strong);
-}
-
-.stats-bar {
-  /* How tall this bar is, as a share of the tallest. Each bar sets its own. */
-  --bar: 0;
-  height: 100%;
-  background: var(--border-strong);
-  transform: scaleY(0);
-  transform-origin: bottom;
-  transition: transform var(--motion-draw) var(--ease-out);
-}
-
-.stats-bars[data-in] .stats-bar {
-  transform: scaleY(var(--bar));
-}
-
-.stats-bar[data-top] {
-  background: var(--accent);
-}
-
-.stats-axis {
-  display: flex;
-  justify-content: space-between;
+  justify-items: center;
+  align-content: start;
+  gap: var(--space-8);
+  width: 100%;
+  min-height: var(--height-44);
+  border-radius: var(--radius-8);
   color: var(--text-faint);
   font-size: var(--text-12);
   line-height: var(--line-12);
+  text-align: center;
+  text-wrap: balance;
 }
 
-.stats-chart-waiting {
-  height: var(--space-160);
+.stats-chains-item[data-used] {
+  color: var(--text);
+}
+
+/* The chain whose figures the line above holds. */
+.stats-chains-item[aria-pressed="true"] {
+  text-decoration: underline;
+  text-underline-offset: var(--space-4);
+}
+
+.stats-chains-mark {
+  width: var(--coin-32);
+  height: var(--coin-32);
+  border-radius: var(--radius-8);
+  opacity: var(--opacity-disabled);
+}
+
+/* A used chain's mark waits faded until the grid has come into view, then comes up to full colour,
+   each a step after the one before it. Only its opacity changes. */
+.stats-chains[data-in] [data-used] .stats-chains-mark {
+  opacity: 1;
+  animation: stats-chain-light var(--motion-reveal) var(--ease-out) calc(var(--i) * var(--stagger)) backwards;
+}
+
+@keyframes stats-chain-light {
+  from {
+    opacity: var(--opacity-disabled);
+  }
 }
 
 /* ---- Top pairs and top chains: two ranked lists, side by side where there is room ---- */
@@ -261,13 +283,14 @@
     height: var(--line-28);
   }
 
-  .stats-bars {
-    gap: var(--space-8);
-    height: var(--tile-column);
+  .stats-chains-line {
+    min-height: calc(var(--line-14) + var(--space-16));
   }
 
-  .stats-chart-waiting {
-    height: var(--tile-column);
+  /* Wide enough for every chain's name on one line. */
+  .stats-chains {
+    grid-template-columns: repeat(auto-fill, minmax(var(--space-96), 1fr));
+    gap: var(--space-24) var(--space-16);
   }
 
   .stats-tops {
@@ -335,9 +358,9 @@
   }
 }
 
-/* Less movement: the bars stand at their height at once. */
+/* Less movement: the used chains are in full colour at once. */
 @media (prefers-reduced-motion: reduce) {
-  .stats-bar {
-    transition: none;
+  .stats-chains[data-in] [data-used] .stats-chains-mark {
+    animation: none;
   }
 }

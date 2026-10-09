@@ -127,6 +127,9 @@ export interface StatsCoin {
   chain: string;
 }
 
+/** A share of the total volume as the Stats page says it: whole per cent, rounded down, or "<1" for a share that is more than nothing and under one per cent. */
+export type StatsShare = number | "<1";
+
 /** One line of "Recent swaps". These four things and nothing else: no address, no transaction, no amount, no time, no order. */
 export interface StatsFeedRow {
   from: StatsCoin;
@@ -147,12 +150,16 @@ export interface StatsResponse {
     /** The average, in seconds. Null while no delivery has been timed. */
     deliverySeconds: number | null;
   };
-  /** The last 30 days by the clock in UTC, oldest first. A day without a swap is there with nothing. */
-  days: { day: string; volumeUsd: number }[];
   /** The five pairs with the most volume, largest first. */
   pairs: { from: StatsCoin; to: StatsCoin; volumeUsd: number }[];
   /** The five chains with the most volume, largest first. A swap counts for the chain it starts on and the chain it ends on. */
   chains: { chain: string; name: string; volumeUsd: number }[];
+  /**
+   * Every chain a delivered swap has started or ended on, by its code: how many swaps, and its share
+   * of the total volume. A swap counts once for each of its two chains, and once only when they are
+   * the same chain. As many entries as `totals.chains` says.
+   */
+  chainsUsed: { chain: string; swaps: number; share: StatsShare }[];
   /** Null while too few swaps were delivered in the last 24 hours for a list of them to be shown. */
   feed: StatsFeedRow[] | null;
 }

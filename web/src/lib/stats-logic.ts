@@ -1,6 +1,6 @@
 // What the Stats page says, kept apart from how it is drawn.
 
-import type { StatsBand, StatsCoin, StatsWhen } from "../../../shared/api.ts";
+import type { StatsBand, StatsCoin, StatsResponse, StatsShare, StatsWhen } from "../../../shared/api.ts";
 import { chainName } from "../../../shared/chains.ts";
 
 /**
@@ -32,13 +32,31 @@ export function durationText(seconds: number): string {
   return `${Math.floor(whole / 3600)}h ${Math.floor((whole % 3600) / 60)}m`;
 }
 
-const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-
-/** "2026-10-08" as "8 Oct". */
-export function dayText(day: string): string {
-  const at = Date.parse(`${day}T00:00:00Z`);
-  return Number.isFinite(at) ? DAY.format(at) : day;
-}
-
 /** "ETH on Base". */
 export const coinText = (coin: StatsCoin): string => `${coin.symbol} on ${chainName(coin.chain)}`;
+
+/** One chain of the "Chains used" grid. `used` is null for a chain no delivered swap has started or ended on. */
+export interface GridChain {
+  key: string;
+  name: string;
+  used: { swaps: number; share: StatsShare } | null;
+}
+
+/**
+ * The chains of the "Chains used" grid: every chain on the coin list, in the order the list gives
+ * them (the order of the coin picker and of the strip of chains), each with its figures if it has
+ * been used. A chain that has been used and is not on the list follows them, by name, so that as
+ * many chains are lit as the count of used chains says.
+ */
+export function chainGrid(listed: readonly { key: string; name: string }[], used: StatsResponse["chainsUsed"]): GridChain[] {
+  const figures = new Map(used.map((item) => [item.chain, { swaps: item.swaps, share: item.share }]));
+  const onList = new Set(listed.map((chain) => chain.key));
+  const others = used.filter((item) => !onList.has(item.chain)).map((item) => ({ key: item.chain, name: chainName(item.chain) }));
+  others.sort((a, b) => a.name.localeCompare(b.name));
+  return [...listed, ...others].map((chain) => ({ key: chain.key, name: chain.name, used: figures.get(chain.key) ?? null }));
+}
+
+/** A used chain's figures, in one line: "Base: 12 swaps, 31% of volume". */
+export function chainLine(name: string, swaps: number, share: StatsShare): string {
+  return `${name}: ${wholeText(swaps)} ${swaps === 1 ? "swap" : "swaps"}, ${share === "<1" ? "under 1%" : `${share}%`} of volume`;
+}

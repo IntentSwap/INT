@@ -542,16 +542,16 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // The Stats page with a practice server's made-up swaps: the five figures, the chart, the two ranked lists and the list of recent swaps.
+    // The Stats page with a practice server's made-up swaps: the five figures, the grid of chains, the two ranked lists and the list of recent swaps.
     name: "page-stats",
     path: "/stats",
     noCard: true,
     practice: true,
     async run(page) {
       await page.getByRole("heading", { name: "IntentSwap in numbers", level: 1 }).waitFor();
-      await page.locator(".stats-bars").waitFor({ timeout: 20_000 });
+      await page.locator(".stats-chains").waitFor({ timeout: 20_000 });
       await page.getByRole("heading", { name: "Recent swaps" }).waitFor();
-      // The figures have counted up and the bars have grown before anything is measured or photographed.
+      // The figures have counted up and the used chains have lit up before anything is measured or photographed.
       await page.waitForTimeout(1200);
       // A size and a stretch of the day to each swap, and nothing that could name one.
       const text = await page.locator("main#main").innerText();

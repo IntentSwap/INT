@@ -5,8 +5,8 @@
 // kept (one small file, DATA_DIR/stats/stats.json) is sums and rounded rows only:
 //
 //   - totals: how many swaps, their dollar value, how long delivery took (a sum and a count), the
-//     dollar value by chain and by pair of coins;
-//   - the dollar value by UTC day for the last 30 days, and by hour (with a count) for the last 48;
+//     dollar value and the number of swaps by chain, and the dollar value by pair of coins;
+//   - the dollar value by hour (with a count) for the last 48 hours;
 //   - for 48 hours, one row for each swap: the two coins and their chains, a band for its size, and
 //     the quarter of an hour from which it may be shown.
 //
@@ -24,7 +24,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { STATS_BANDS, type StatsBand, type StatsCoin, type StatsFeedRow, type StatsResponse, type StatsWhen } from "../shared/api.ts";
+import { STATS_BANDS, type StatsBand, type StatsCoin, type StatsFeedRow, type StatsResponse, type StatsShare, type StatsWhen } from "../shared/api.ts";
 import { chainName } from "../shared/chains.ts";
 import { MICRO, usdToMicro } from "../shared/rewards.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
@@ -35,8 +35,7 @@ const DAY_MS = 24 * HOUR_MS;
 /** A quarter of an hour, counted in quarters of a day. */
 const QUARTERS_A_DAY = DAY_MS / QUARTER_MS;
 
-/** How many days the chart covers, how many hours are kept by the hour, and how long a row is kept (in quarters of an hour: 48 hours). */
-const DAYS_KEPT = 30;
+/** How many hours are kept by the hour, and how long a row is kept (in quarters of an hour: 48 hours). */
 const HOURS_KEPT = 48;
 const ROW_QUARTERS_KEPT = (48 * HOUR_MS) / QUARTER_MS;
 /** The most rows kept, and the most sent to a page. */
@@ -53,7 +52,7 @@ export interface StoredRow {
   quarter: number;
 }
 
-/** The file, as it is written. Dollar values are whole millionths of a US dollar, as text. Days and hours are counted from 1970 in UTC. */
+/** The file, as it is written. Dollar values are whole millionths of a US dollar, as text. Hours are counted from 1970 in UTC. */
 export interface StatsFile {
   v: 1;
   swaps: number;
@@ -63,8 +62,9 @@ export interface StatsFile {
   deliveriesTimed: number;
   /** Every chain a delivered swap started or ended on, with the dollar value of those swaps. */
   chains: Record<string, string>;
+  /** The same chains, with how many swaps those were. A swap from a chain to the same chain is one. */
+  chainSwaps: Record<string, number>;
   pairs: { from: StatsCoin; to: StatsCoin; volumeMicro: string }[];
-  days: Record<string, string>;
   hours: Record<string, { swaps: number; volumeMicro: string }>;
   rows: StoredRow[];
 }
@@ -145,29 +145,27 @@ interface Sums {
   volume: bigint;
   seconds: number;
   timed: number;
-  chains: Map<string, bigint>;
+  chains: Map<string, { swaps: number; volume: bigint }>;
   pairs: Map<string, { from: StatsCoin; to: StatsCoin; volume: bigint }>;
-  days: Map<number, bigint>;
   hours: Map<number, { swaps: number; volume: bigint }>;
   rows: StoredRow[];
 }
 
-const empty = (): Sums => ({ swaps: 0, volume: 0n, seconds: 0, timed: 0, chains: new Map(), pairs: new Map(), days: new Map(), hours: new Map(), rows: [] });
+const empty = (): Sums => ({ swaps: 0, volume: 0n, seconds: 0, timed: 0, chains: new Map(), pairs: new Map(), hours: new Map(), rows: [] });
 const pairKey = (from: StatsCoin, to: StatsCoin) => JSON.stringify([from.symbol, from.chain, to.symbol, to.chain]);
 /** Rows are kept in an order that says nothing of the order they were delivered in: by quarter, then by what they say. */
 const rowOrder = (a: StoredRow, b: StoredRow) => a.quarter - b.quarter || (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0);
 
 function toFile(sums: Sums): StatsFile {
-  const text = (entries: Iterable<[string | number, bigint]>) => Object.fromEntries([...entries].map(([key, value]) => [String(key), value.toString()]));
   return {
     v: 1,
     swaps: sums.swaps,
     volumeMicro: sums.volume.toString(),
     deliverySeconds: sums.seconds,
     deliveriesTimed: sums.timed,
-    chains: text(sums.chains),
+    chains: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, held.volume.toString()])),
+    chainSwaps: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, held.swaps])),
     pairs: [...sums.pairs.values()].map((pair) => ({ from: pair.from, to: pair.to, volumeMicro: pair.volume.toString() })),
-    days: text(sums.days),
     hours: Object.fromEntries([...sums.hours].map(([hour, held]) => [String(hour), { swaps: held.swaps, volumeMicro: held.volume.toString() }])),
     rows: sums.rows,
   };
@@ -179,28 +177,29 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 const isCoin = (value: unknown): value is StatsCoin => isObject(value) && typeof value.symbol === "string" && value.symbol.length >= 1 && value.symbol.length <= 16 && typeof value.chain === "string" && /^[a-z0-9_-]{1,16}$/.test(value.chain);
 const isRow = (value: unknown): value is StoredRow => isObject(value) && isCoin(value.from) && isCoin(value.to) && (STATS_BANDS as readonly unknown[]).includes(value.band) && isCount(value.quarter);
 
-/** The sums a file holds, or null for anything that is not such a file in every part. */
+/**
+ * The sums a file holds, or null for anything that is not such a file in every part. A file written
+ * before swaps were counted by chain has no counts: its chains start from none. What such a file
+ * kept by the day is not read, and so is gone the next time the file is written.
+ */
 function fromFile(value: unknown): Sums | null {
   if (!isObject(value) || value.v !== 1) return null;
-  const { swaps, volumeMicro, deliverySeconds, deliveriesTimed, chains, pairs, days, hours, rows } = value;
+  const { swaps, volumeMicro, deliverySeconds, deliveriesTimed, chains, chainSwaps = {}, pairs, hours, rows } = value;
   if (!isCount(swaps) || !isMicro(volumeMicro) || !isCount(deliverySeconds) || !isCount(deliveriesTimed)) return null;
-  if (!isObject(chains) || !isObject(days) || !isObject(hours) || !Array.isArray(pairs) || !Array.isArray(rows)) return null;
+  if (!isObject(chains) || !isObject(chainSwaps) || !isObject(hours) || !Array.isArray(pairs) || !Array.isArray(rows)) return null;
   const sums = empty();
   sums.swaps = swaps;
   sums.volume = BigInt(volumeMicro);
   sums.seconds = deliverySeconds;
   sums.timed = deliveriesTimed;
   for (const [chain, volume] of Object.entries(chains)) {
-    if (!/^[a-z0-9_-]{1,16}$/.test(chain) || !isMicro(volume)) return null;
-    sums.chains.set(chain, BigInt(volume));
+    const count = Object.hasOwn(chainSwaps, chain) ? chainSwaps[chain] : 0;
+    if (!/^[a-z0-9_-]{1,16}$/.test(chain) || !isMicro(volume) || !isCount(count)) return null;
+    sums.chains.set(chain, { swaps: count, volume: BigInt(volume) });
   }
   for (const pair of pairs as unknown[]) {
     if (!isObject(pair) || !isCoin(pair.from) || !isCoin(pair.to) || !isMicro(pair.volumeMicro)) return null;
     sums.pairs.set(pairKey(pair.from, pair.to), { from: { symbol: pair.from.symbol, chain: pair.from.chain }, to: { symbol: pair.to.symbol, chain: pair.to.chain }, volume: BigInt(pair.volumeMicro) });
-  }
-  for (const [day, volume] of Object.entries(days)) {
-    if (!/^\d{1,9}$/.test(day) || !isMicro(volume)) return null;
-    sums.days.set(Number(day), BigInt(volume));
   }
   for (const [hour, held] of Object.entries(hours)) {
     if (!/^\d{1,9}$/.test(hour) || !isObject(held) || !isCount(held.swaps) || !isMicro(held.volumeMicro)) return null;
@@ -216,10 +215,8 @@ function fromFile(value: unknown): Sums | null {
 
 const copyOf = (sums: Sums): Sums => fromFile(toFile(sums)) ?? empty();
 
-/** Drops what has aged out: days before the chart's first, hours older than are kept, rows older than 48 hours, and rows beyond the most that are kept (the oldest first). */
+/** Drops what has aged out: hours older than are kept, rows older than 48 hours, and rows beyond the most that are kept (the oldest first). */
 function prune(sums: Sums, now: number): void {
-  const firstDay = Math.floor(now / DAY_MS) - DAYS_KEPT + 1;
-  for (const day of sums.days.keys()) if (day < firstDay) sums.days.delete(day);
   const firstHour = Math.floor(now / HOUR_MS) - HOURS_KEPT + 1;
   for (const hour of sums.hours.keys()) if (hour < firstHour) sums.hours.delete(hour);
   const firstQuarter = Math.floor(now / QUARTER_MS) - ROW_QUARTERS_KEPT;
@@ -227,7 +224,7 @@ function prune(sums: Sums, now: number): void {
   if (sums.rows.length > ROWS_KEPT) sums.rows = sums.rows.slice(sums.rows.length - ROWS_KEPT);
 }
 
-/** Adds one delivery to the sums. What falls outside the days, hours or rows that are kept adds to the totals alone. */
+/** Adds one delivery to the sums. What falls outside the hours or rows that are kept adds to the totals alone. */
 function add(sums: Sums, delivery: Delivery, now: number): void {
   const usd = delivery.usdMicro ?? 0n;
   sums.swaps += 1;
@@ -236,15 +233,17 @@ function add(sums: Sums, delivery: Delivery, now: number): void {
     sums.seconds += delivery.seconds;
     sums.timed += 1;
   }
-  for (const chain of new Set([delivery.from.chain, delivery.to.chain])) sums.chains.set(chain, (sums.chains.get(chain) ?? 0n) + usd);
+  // Once for the chain it left and once for the chain it arrived on: once only when they are the same chain.
+  for (const chain of new Set([delivery.from.chain, delivery.to.chain])) {
+    const held = sums.chains.get(chain) ?? { swaps: 0, volume: 0n };
+    sums.chains.set(chain, { swaps: held.swaps + 1, volume: held.volume + usd });
+  }
   if (delivery.usdMicro !== null) {
     const key = pairKey(delivery.from, delivery.to);
     const held = sums.pairs.get(key);
     if (held === undefined) sums.pairs.set(key, { from: delivery.from, to: delivery.to, volume: usd });
     else held.volume += usd;
   }
-  const day = Math.floor(delivery.at / DAY_MS);
-  if (day > Math.floor(now / DAY_MS) - DAYS_KEPT) sums.days.set(day, (sums.days.get(day) ?? 0n) + usd);
   const hour = Math.floor(delivery.at / HOUR_MS);
   if (hour > Math.floor(now / HOUR_MS) - HOURS_KEPT) {
     const held = sums.hours.get(hour) ?? { swaps: 0, volume: 0n };
@@ -260,6 +259,17 @@ function add(sums: Sums, delivery: Delivery, now: number): void {
 }
 
 const dollars = (micro: bigint): number => Number(micro / MICRO);
+
+/**
+ * A part of a whole, in whole per cent, rounded down. A part that is more than nothing and under
+ * one per cent is "<1", so that it is never said to be nothing. Nothing of anything is 0, and so is
+ * anything of nothing.
+ */
+export function shareOf(part: bigint, whole: bigint): StatsShare {
+  if (part <= 0n || whole <= 0n) return 0;
+  const percent = (part * 100n) / whole;
+  return percent === 0n ? "<1" : Number(percent);
+}
 
 /** The hour now running and the 23 before it: never anything older than 24 hours. */
 function lastDay(sums: Sums, now: number): { swaps: number; volume: bigint } {
@@ -303,14 +313,11 @@ function shuffled<T>(items: readonly T[], random: () => number): T[] {
 function render(sums: Sums, quarter: number, feedMin: number, random: () => number): StatsResponse {
   const now = quarter * QUARTER_MS;
   const recent = lastDay(sums, now);
-  const today = Math.floor(now / DAY_MS);
-  const days = Array.from({ length: DAYS_KEPT }, (_, index) => {
-    const day = today - DAYS_KEPT + 1 + index;
-    return { day: new Date(day * DAY_MS).toISOString().slice(0, 10), volumeUsd: dollars(sums.days.get(day) ?? 0n) };
-  });
   const byVolume = <T extends { volumeUsd: number; name: string }>(list: T[]): T[] => list.filter((item) => item.volumeUsd > 0).sort((a, b) => b.volumeUsd - a.volumeUsd || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).slice(0, TOP);
   const pairs = byVolume([...sums.pairs.entries()].map(([name, pair]) => ({ name, from: pair.from, to: pair.to, volumeUsd: dollars(pair.volume) }))).map(({ from, to, volumeUsd }) => ({ from, to, volumeUsd }));
-  const chains = byVolume([...sums.chains].map(([chain, volume]) => ({ chain, name: chainName(chain), volumeUsd: dollars(volume) })));
+  const chains = byVolume([...sums.chains].map(([chain, held]) => ({ chain, name: chainName(chain), volumeUsd: dollars(held.volume) })));
+  // Every chain that has been used, in the order of their codes. Its share is worked out from the same sum the list above shows in dollars.
+  const chainsUsed = [...sums.chains].map(([chain, held]) => ({ chain, swaps: held.swaps, share: shareOf(held.volume, sums.volume) })).sort((a, b) => (a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0));
 
   let feed: StatsFeedRow[] | null = null;
   // The list is there only while enough swaps were delivered in the last 24 hours for a row to be one among several.
@@ -325,10 +332,11 @@ function render(sums: Sums, quarter: number, feedMin: number, random: () => numb
   }
 
   return {
-    totals: { swaps: sums.swaps, volumeUsd: dollars(sums.volume), volume24hUsd: dollars(recent.volume), chains: sums.chains.size, deliverySeconds: sums.timed === 0 ? null : Math.round(sums.seconds / sums.timed) },
-    days,
+    // How many chains have been used is the length of the list of them, so that the two are one number.
+    totals: { swaps: sums.swaps, volumeUsd: dollars(sums.volume), volume24hUsd: dollars(recent.volume), chains: chainsUsed.length, deliverySeconds: sums.timed === 0 ? null : Math.round(sums.seconds / sums.timed) },
     pairs,
     chains,
+    chainsUsed,
     feed,
   };
 }
