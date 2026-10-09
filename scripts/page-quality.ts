@@ -134,7 +134,17 @@ try {
     }
   } else console.log("page-quality: left out: an order's page (an order can only be made up on a site in practice mode)");
   let slowdown: number | null = null;
-  const measure = (page: string) => lighthouse(new URL(page, site).toString(), { port: DEBUG_PORT, output: "json", logLevel: "error", onlyCategories: ["performance", "accessibility"], ...(slowdown === null ? {} : { throttling: throttled(slowdown) }) });
+  const once = (page: string) => lighthouse(new URL(page, site).toString(), { port: DEBUG_PORT, output: "json", logLevel: "error", onlyCategories: ["performance", "accessibility"], ...(slowdown === null ? {} : { throttling: throttled(slowdown) }) });
+  // A measurement that came back empty (the browser never reported a paint, say) is not a measurement of the page:
+  // it is made again, twice at most, and the log says what the tool gave as the reason.
+  const measure = async (page: string) => {
+    let result = await once(page);
+    for (let again = 0; again < 2 && result !== undefined && typeof result.lhr.categories.performance?.score !== "number"; again++) {
+      console.log(`page-quality: ${named(page)}: a measurement came back empty (${result.lhr.runtimeError?.code ?? "no reason given"}); measuring again`);
+      result = (await once(page)) ?? result;
+    }
+    return result;
+  };
   for (const page of pages) {
     let result = await measure(page);
     if (result === undefined) {
