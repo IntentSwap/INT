@@ -146,6 +146,8 @@ export function createGeo(options: {
         await pipeline(Readable.fromWeb(res.body as WebReadableStream), zlib.createGunzip(), cap, fs.createWriteStream(tmp));
         const fresh = await open(tmp);
         fs.renameSync(tmp, file);
+        // The file's age is read from its own date, by the same clock that later asks how old it is.
+        fs.utimesSync(file, new Date(now()), new Date(now()));
         reader = fresh;
         log.info("geo_updated", { month, bytes });
         return;
