@@ -1,0 +1,14 @@
+node_modules/
+web/dist/
+data/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.tsbuildinfo
+# Local notes and screen recordings: not part of the product.
+notes/
+# Working notes and screenshots from building and checking the site: kept on disk, not part of the product.
+docs/

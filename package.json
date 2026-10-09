@@ -1,0 +1,55 @@
+{
+  "name": "intentswap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "test": "vitest run",
+    "lint": "eslint . && tsc --noEmit",
+    "build": "vite build --config web/vite.config.ts && tsx scripts/check-build.ts",
+    "check:pages": "tsx scripts/page-quality.ts",
+    "start": "tsx server/index.ts",
+    "rewards:export": "tsx scripts/rewards-export.ts",
+    "rewards:record": "tsx scripts/rewards-record.ts"
+  },
+  "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
+    "@noble/hashes": "1.8.0",
+    "@reown/appkit": "1.8.24",
+    "@reown/appkit-adapter-wagmi": "1.8.24",
+    "@reown/appkit-controllers": "1.8.24",
+    "@scure/base": "1.2.6",
+    "@tanstack/react-query": "5.104.1",
+    "@vitejs/plugin-react": "6.1.2",
+    "@wagmi/core": "3.6.5",
+    "@walletconnect/universal-provider": "2.23.7",
+    "lucide-react": "1.53.0",
+    "maxmind": "5.0.7",
+    "qrcode-generator": "2.0.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "viem": "2.57.4",
+    "vite": "8.3.3",
+    "wagmi": "3.7.7",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "axe-core": "4.14.0",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "lighthouse": "13.5.0",
+    "playwright-core": "1.64.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1",
+    "vitest": "5.0.3"
+  }
+}
