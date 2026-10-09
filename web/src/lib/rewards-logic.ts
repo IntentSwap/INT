@@ -1,0 +1,59 @@
+// What the Rewards page says, kept apart from how it is drawn so that it can be tested.
+
+import { chainName } from "../../../shared/chains.ts";
+import { REWARDS, type PointsReason } from "../../../shared/rewards.ts";
+
+/** Time left as days and a clock: "3d 04:12:55". Nothing left reads "0d 00:00:00". */
+export function countdownText(msLeft: number): string {
+  const seconds = Math.max(0, Math.floor(msLeft / 1000));
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${Math.floor(seconds / 86_400)}d ${pad(Math.floor((seconds % 86_400) / 3600))}:${pad(Math.floor((seconds % 3600) / 60))}:${pad(seconds % 60)}`;
+}
+
+const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const MOMENT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
+
+/** A week's dates in words, by the clock in UTC: "Mon 5 Oct to Sun 11 Oct". The end given is the moment the next week begins. */
+export function weekDates(startIso: string, endIso: string): string {
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "";
+  return `Mon ${DAY.format(start)} to Sun ${DAY.format(end - 1)}`;
+}
+
+/** A moment as a date and a time in UTC: "8 Oct, 14:05". */
+export function momentText(iso: string): string {
+  const at = Date.parse(iso);
+  return Number.isFinite(at) ? MOMENT.format(at) : "";
+}
+
+/** "2026-W41" as "Week 41, 2026". */
+export function weekName(week: string): string {
+  const match = /^(\d{4})-W(\d{2})$/.exec(week);
+  return match ? `Week ${Number(match[2])}, ${match[1]}` : week;
+}
+
+const REASON_WORDS: Record<PointsReason, string> = {
+  dollar_pair: `Counts at ${REWARDS.reducedShareBps / 100}%: a swap between two dollar coins.`,
+  same_coin: `Counts at ${REWARDS.reducedShareBps / 100}%: the same coin on both sides, wrapped or not.`,
+  no_usd_value: "No points: the swap had no dollar value on record.",
+};
+
+/** Why a swap counted for less than in full, in words. Nothing when it counted in full. */
+export function reasonWords(reasons: readonly PointsReason[]): string {
+  return reasons.map((reason) => REASON_WORDS[reason]).join(" ");
+}
+
+/** "ETH on Base to USDT on Solana". */
+export function pairText(from: { symbol: string; chain: string }, to: { symbol: string; chain: string }): string {
+  return `${from.symbol} on ${chainName(from.chain)} to ${to.symbol} on ${chainName(to.chain)}`;
+}
+
+/** The rules in short, each one a sentence, from the same numbers the server counts by. */
+export const RULES_IN_SHORT: readonly string[] = [
+  `A delivered swap adds ${REWARDS.pointsPerUsd} points for each $1 of IntentSwap's fee on it. A swap that is refunded, fails or runs out adds none.`,
+  `A swap between two dollar coins, or of a coin for the same coin, wrapped or not, counts at ${REWARDS.reducedShareBps / 100}%.`,
+  `In one week the first $${REWARDS.weeklyFullFeeUsd} of fee counts in full, and fee beyond it counts for less.`,
+  "A week runs from Monday 00:00 to Sunday 23:59 UTC. After it closes, its payout is shared out by points and sent by hand on BNB Chain.",
+  "Points have no money value. A payout is at IntentSwap's discretion and can change or stop.",
+];

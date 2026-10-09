@@ -1,0 +1,120 @@
+/* The page of component states. Only ever loaded at /states. */
+.states {
+  align-items: stretch;
+  gap: var(--space-32);
+  max-width: var(--content-width);
+  margin: 0 auto;
+}
+
+.states-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.states-heading {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-600);
+}
+
+.states-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--tile-min)), 1fr));
+  gap: var(--space-16);
+  align-items: start;
+}
+
+.states-title {
+  grid-column: 1 / -1;
+  padding-bottom: var(--space-8);
+  border-bottom: var(--border-width) solid var(--border);
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-600);
+}
+
+.states-case {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+  padding: var(--space-16);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-16);
+  background: var(--surface);
+}
+
+.states-label {
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.states-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+/* These normally sit where their parent places them; here they stand in line. */
+.states-flip {
+  position: static;
+  transform: none;
+}
+
+.states-list {
+  padding: 0;
+  overflow: visible;
+}
+
+.states-banner,
+.states-toast {
+  position: static;
+}
+
+.states-skeleton {
+  width: var(--space-64);
+}
+
+.states-case .address-field,
+.states-case .quote {
+  margin-top: 0;
+}
+
+/* An amount field is shown with the room it has on the card: on a phone the card's own padding is 12 px. */
+.states-case:has(> .field) {
+  padding: var(--space-12);
+}
+
+/* An order is wider than a tile: it takes a row to itself, at its own width. */
+.states-case[data-wide] {
+  grid-column: 1 / -1;
+  justify-items: start;
+}
+
+/* A quote is shown as wide as it is inside the card at the card's tightest (a 480 px screen), not as narrow as a tile. */
+.states-case[data-wide] > .quote {
+  width: 100%;
+  max-width: calc(var(--card-width) - var(--space-96));
+}
+
+.states-case .notice-page {
+  padding: 0;
+}
+
+/* Coin icons side by side, each with its name, for looking at. */
+.states-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--chip-width)), 1fr));
+  gap: var(--space-16);
+}
+
+.states-icons li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--height-44);
+}
+

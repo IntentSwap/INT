@@ -1,0 +1,1346 @@
+/* The home page around the swap card, and the small parts the other pages share with it
+   (section headings, the Help button). Tokens only. Nothing here is a box: sections are set apart
+   by space and thin rules, and each has one thing to look at. */
+
+/* ---- Behind the first screen: a soft grid and a faint light, both barely moving ---- */
+.app {
+  position: relative;
+  isolation: isolate;
+}
+
+.backdrop {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: calc(50% - var(--bleed) / 2);
+  width: var(--bleed);
+  height: var(--hero-backdrop);
+  overflow: hidden;
+  pointer-events: none;
+  /* It thins out towards its edges and is gone before the first section begins. */
+  mask-image: radial-gradient(ellipse 70% 75% at 50% 20%, black 15%, transparent 75%);
+}
+
+/* One cell larger than its frame on every side, so that moving it by one cell shows no seam. */
+.backdrop-grid {
+  position: absolute;
+  inset: calc(var(--grid-cell) * -1);
+  background-image: linear-gradient(var(--grid-line) var(--border-width), transparent var(--border-width)), linear-gradient(90deg, var(--grid-line) var(--border-width), transparent var(--border-width));
+  background-size: var(--grid-cell) var(--grid-cell);
+  animation: backdrop-drift var(--motion-drift) linear infinite;
+}
+
+.backdrop-light {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 45% 55% at 50% 30%, var(--glow), transparent 70%);
+  animation: backdrop-breathe var(--motion-drift) ease-in-out infinite alternate;
+}
+
+@keyframes backdrop-drift {
+  to {
+    transform: translate3d(var(--grid-cell), var(--grid-cell), 0);
+  }
+}
+
+@keyframes backdrop-breathe {
+  from {
+    opacity: 0.55;
+    transform: translate3d(-3%, 0, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(3%, 0, 0);
+  }
+}
+
+/* ---- The first screen: the headline, and the card ---- */
+.hero {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-24);
+  width: 100%;
+}
+
+.hero > .under-card {
+  order: 3;
+}
+
+.headline {
+  display: grid;
+  gap: var(--space-8);
+  width: 100%;
+  max-width: var(--card-width);
+  text-align: center;
+}
+
+.headline-title {
+  font-size: var(--text-32);
+  line-height: var(--line-32);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+
+/* Each word comes up a moment after the one before it, once. --elapsed is how far in the entrance
+   already was when this copy of the words was drawn (see Headline): they carry on, never start again. */
+.headline-word {
+  display: inline-block;
+  animation: word-in var(--motion-reveal) var(--ease-out) both;
+  animation-delay: calc(var(--i) * var(--stagger-word) - var(--elapsed));
+}
+
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise));
+  }
+}
+
+@keyframes word-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.headline-accent {
+  color: var(--accent);
+}
+
+/* The headline's two halves each start a line of their own. */
+.headline-line {
+  display: block;
+  text-wrap: balance;
+}
+
+.headline-sub {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  text-wrap: pretty;
+}
+
+/* ---- Beneath the first screen ---- */
+.home {
+  display: grid;
+  gap: var(--space-96);
+  width: 100%;
+  max-width: var(--wide-width);
+  margin-top: var(--space-48);
+}
+
+.section {
+  display: grid;
+  gap: var(--space-32);
+  min-width: 0;
+}
+
+.section-head {
+  display: grid;
+  gap: var(--space-12);
+}
+
+/* A small label in capitals, with a short accent rule above it. */
+.section-tag {
+  display: grid;
+  gap: var(--space-12);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.section-tag::before {
+  content: "";
+  width: var(--rule-width);
+  height: var(--rule-height);
+  background: var(--accent);
+}
+
+.section-title {
+  font-size: var(--text-28);
+  line-height: var(--line-28);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+
+.section-lead {
+  max-width: var(--prose-width);
+  font-size: var(--text-16);
+  line-height: var(--line-relaxed);
+  text-wrap: pretty;
+}
+
+/* ---- The chains, passing slowly ---- */
+.strip {
+  width: 100%;
+  height: var(--height-44);
+  overflow: hidden;
+  /* It fades at both edges instead of being cut. */
+  mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+}
+
+/* Two copies end to end, moved by the width of one: the second arrives where the first began. */
+.strip-track {
+  display: flex;
+  width: max-content;
+  animation: strip-move var(--motion-strip) linear infinite;
+}
+
+.strip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-48);
+  height: var(--height-44);
+  padding-right: var(--space-48);
+}
+
+.strip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Each chain's own mark, in its own colours, all one height. The name beside it is in the quiet text colour. */
+.strip-item img {
+  display: block;
+  width: var(--icon-20);
+  height: var(--icon-20);
+  border-radius: var(--coin-badge-radius);
+}
+
+@keyframes strip-move {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@media (hover: hover) {
+  .strip:hover .strip-track {
+    animation-play-state: paused;
+  }
+}
+
+/* ---- Three facts: large type, a small label, a thin rule between them ---- */
+.facts {
+  display: grid;
+}
+
+.fact {
+  display: grid;
+  align-content: start;
+  gap: var(--space-8);
+  padding: var(--space-24) 0;
+  border-top: var(--border-width) solid var(--border);
+}
+
+.fact:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.fact:last-child {
+  padding-bottom: 0;
+}
+
+.fact-label {
+  color: var(--text-faint);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.fact-title {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-tight);
+  text-wrap: balance;
+}
+
+/* A number keeps the width of its last value while it counts up to it, so the words beside it stand still. */
+.fact-number {
+  display: inline-block;
+  min-width: calc(var(--digits) * var(--digit));
+  color: var(--accent);
+  text-align: right;
+}
+
+.fact-waiting {
+  display: inline-block;
+  width: var(--tile-column);
+  max-width: 100%;
+  height: var(--line-14);
+  vertical-align: middle;
+}
+
+/* ---- What IntentSwap does: one stage, one thing at a time ---- */
+.stage {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.stage-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--space-12);
+}
+
+.stage-tab {
+  display: grid;
+  align-content: start;
+  gap: var(--space-8);
+  min-height: var(--height-44);
+  padding-bottom: var(--space-8);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.stage-tab[aria-selected="true"] {
+  color: var(--text);
+}
+
+/* The line over each item. On the one on show it fills in the time the stage stays there. */
+.stage-progress {
+  order: -1;
+  display: block;
+  height: var(--rule-height);
+  border-radius: var(--rule-height);
+  background: var(--border-strong);
+  overflow: hidden;
+}
+
+.stage-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.stage-tab[aria-selected="true"] .stage-progress-fill {
+  transform: none;
+}
+
+.stage[data-running] .stage-tab[aria-selected="true"] .stage-progress-fill {
+  animation: stage-fill var(--stage-dwell) linear both;
+}
+
+/* Under the pointer or the keyboard's focus the line stops where it is, and so the stage waits.
+   (Written as fully as the rule above, which would otherwise set it running again.) */
+.stage[data-running][data-waiting] .stage-tab[aria-selected="true"] .stage-progress-fill {
+  animation-play-state: paused;
+}
+
+@keyframes stage-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.stage-number {
+  color: var(--text-faint);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+/* On a phone the rail is its numbers; the names are in the panel, and still in each button's name. */
+.stage-tab-title {
+  position: absolute;
+  width: var(--border-width);
+  height: var(--border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The one panel on the page: a raised surface with a lighter top edge and no outline. */
+.stage-view {
+  position: relative;
+  display: grid;
+  min-height: var(--stage-min);
+  border-radius: var(--radius-16);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+/* Every item lies in the same place. The one on show is opaque; the others wait a little to one side, unseen. */
+.stage-panel {
+  grid-area: 1 / 1;
+  display: grid;
+  align-content: center;
+  gap: var(--space-24);
+  padding: var(--space-24);
+  opacity: 0;
+  transform: translate3d(var(--space-24), 0, 0);
+  pointer-events: none;
+  transition: opacity var(--motion-reveal) var(--ease-out), transform var(--motion-reveal) var(--ease-out);
+}
+
+.stage-panel[data-side="before"] {
+  transform: translate3d(calc(var(--space-24) * -1), 0, 0);
+}
+
+.stage-panel[data-active] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.stage-words {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-12);
+  max-width: var(--prose-width);
+}
+
+.stage-count {
+  color: var(--accent);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.stage-title {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-tight);
+  text-wrap: balance;
+}
+
+.stage-text {
+  font-size: var(--text-16);
+  line-height: var(--line-relaxed);
+  text-wrap: pretty;
+}
+
+.stage-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--height-44);
+  color: var(--text);
+  font-weight: var(--weight-500);
+}
+
+/* The drawing, with a soft light behind it. */
+.stage-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.stage-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(closest-side, var(--glow), transparent);
+}
+
+.stage-arrows {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-8);
+}
+
+.stage-arrow {
+  border: var(--border-width) solid var(--border-control);
+  color: var(--text);
+}
+
+/* ---- The drawings. Each plays once when its item comes on show, and then rests. ---- */
+.art {
+  position: relative;
+  width: 100%;
+  max-width: var(--stage-art);
+  height: auto;
+  fill: none;
+  stroke-width: var(--stroke-icon);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.art-quiet {
+  stroke: var(--border-strong);
+}
+
+.art-line {
+  stroke: var(--text-faint);
+}
+
+.art-ink {
+  stroke: var(--text);
+}
+
+.art-accent {
+  stroke: var(--accent);
+}
+
+.art-accent-fill {
+  fill: var(--accent);
+  stroke: none;
+}
+
+.art-word {
+  fill: var(--text);
+  stroke: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-20);
+  font-weight: var(--weight-500);
+}
+
+/* A coin crosses from one mark to the other along an arc, by turning about the arc's centre, and changes face on the way. */
+.art-traveller {
+  transform-box: view-box;
+  transform-origin: 50% 100%;
+  transform: rotate(-50deg);
+}
+
+.art-coin-in {
+  opacity: 0;
+}
+
+.stage[data-seen] [data-active] .art-traveller {
+  animation: art-cross var(--motion-draw) var(--ease-out) var(--motion-base) both;
+}
+
+.stage[data-seen] [data-active] .art-coin-out {
+  animation: art-off var(--motion-base) var(--ease-out) calc(var(--motion-base) + var(--motion-draw) / 3) both;
+}
+
+.stage[data-seen] [data-active] .art-coin-in {
+  animation: art-on var(--motion-base) var(--ease-out) calc(var(--motion-base) + var(--motion-draw) / 3) both;
+}
+
+@keyframes art-cross {
+  to {
+    transform: rotate(50deg);
+  }
+}
+
+@keyframes art-on {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes art-off {
+  to {
+    opacity: 0;
+  }
+}
+
+/* A line of four stops fills from the left; each stop lights as the line reaches it; a tick lands on the last. */
+.art-fill-line {
+  transform-box: fill-box;
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+.art-stop-ring {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+}
+
+.art-stop-on {
+  fill: var(--accent);
+  stroke: none;
+  opacity: 0;
+}
+
+.art-stop[data-stop="1"] {
+  --i: 1;
+}
+
+.art-stop[data-stop="2"] {
+  --i: 2;
+}
+
+.art-stop[data-stop="3"] {
+  --i: 3;
+}
+
+.art-tick {
+  stroke: var(--bg);
+  stroke-width: var(--rule-height);
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.stage[data-seen] [data-active] .art-fill-line {
+  animation: art-grow var(--motion-draw) linear var(--motion-base) both;
+}
+
+.stage[data-seen] [data-active] .art-stop-on {
+  animation: art-on var(--motion-fast) var(--ease-out) calc(var(--motion-base) + var(--motion-draw) / 3 * var(--i)) both;
+}
+
+.stage[data-seen] [data-active] .art-tick {
+  animation: art-land var(--motion-base) var(--ease-out) calc(var(--motion-base) + var(--motion-draw)) both;
+}
+
+@keyframes art-grow {
+  to {
+    transform: none;
+  }
+}
+
+@keyframes art-land {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Seven bars rise one after another, the fullest in the accent; then a ring closes beside them. */
+.art-bar {
+  fill: var(--text-faint);
+  stroke: none;
+  transform-box: fill-box;
+  transform-origin: bottom;
+  transform: scaleY(0.15);
+}
+
+.art-bar[data-bar="5"] {
+  fill: var(--accent);
+}
+
+.art-bar[data-bar="1"] {
+  --i: 1;
+}
+
+.art-bar[data-bar="2"] {
+  --i: 2;
+}
+
+.art-bar[data-bar="3"] {
+  --i: 3;
+}
+
+.art-bar[data-bar="4"] {
+  --i: 4;
+}
+
+.art-bar[data-bar="5"] {
+  --i: 5;
+}
+
+.art-bar[data-bar="6"] {
+  --i: 6;
+}
+
+.art-count {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.stage[data-seen] [data-active] .art-bar {
+  animation: art-grow var(--motion-draw) var(--ease-out) calc(var(--motion-base) + var(--stagger) * var(--i)) both;
+}
+
+.stage[data-seen] [data-active] .art-count {
+  animation: art-land var(--motion-draw) var(--ease-out) calc(var(--motion-base) + var(--motion-draw) / 2) both;
+}
+
+/* ---- How it works: three steps, a line drawn between them, and one drawing lit part by part ---- */
+.how {
+  display: grid;
+  gap: var(--space-48);
+}
+
+.how-steps {
+  display: grid;
+}
+
+/* A step waits just below its place until it is scrolled to. */
+.how-step {
+  position: relative;
+  display: flex;
+  gap: var(--space-24);
+  padding-bottom: var(--space-48);
+  opacity: 0;
+  transform: translateY(var(--rise));
+  transition: opacity var(--motion-reveal) var(--ease-out), transform var(--motion-reveal) var(--ease-out);
+}
+
+.how-step:last-child {
+  padding-bottom: 0;
+}
+
+.how-step[data-in] {
+  opacity: 1;
+  transform: none;
+}
+
+/* The line from this step's number down to the next. It draws itself once the step is on screen. */
+.how-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: var(--space-32);
+  bottom: 0;
+  left: calc(var(--space-32) / 2);
+  width: var(--border-width);
+  background: var(--border-strong);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--motion-draw) var(--ease-out) var(--motion-base);
+}
+
+.how-step[data-in]::before {
+  transform: none;
+}
+
+.how-number {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--space-32);
+  height: var(--space-32);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-16);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.how-step[data-in] .how-number {
+  border-color: var(--accent);
+}
+
+.how-words {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+  padding-top: var(--space-4);
+}
+
+.how-title {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-tight);
+}
+
+.how-words p {
+  max-width: var(--prose-width);
+  font-size: var(--text-16);
+  line-height: var(--line-relaxed);
+  text-wrap: pretty;
+}
+
+.diagram {
+  position: relative;
+  display: grid;
+  gap: var(--space-12);
+  width: 100%;
+  max-width: var(--diagram-width);
+  margin: 0;
+  justify-self: center;
+}
+
+/* A soft light behind the drawing. */
+.diagram::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(closest-side, var(--glow-faint), transparent);
+  pointer-events: none;
+}
+
+.diagram svg {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.diagram-line {
+  stroke: var(--text);
+}
+
+.diagram-accent {
+  stroke: var(--accent);
+}
+
+/* A part is faint until its step has been reached, and the arrow leading to it is drawn then. */
+.diagram-part {
+  opacity: 0.2;
+  transition: opacity var(--motion-reveal) var(--ease-out);
+}
+
+.diagram-arrow {
+  transform-box: fill-box;
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform var(--motion-draw) var(--ease-out);
+}
+
+.diagram[data-reached="1"] [data-part="1"],
+.diagram[data-reached="2"] [data-part="1"],
+.diagram[data-reached="2"] [data-part="2"],
+.diagram[data-reached="3"] .diagram-part {
+  opacity: 1;
+}
+
+.diagram[data-reached="2"] [data-part="2"] .diagram-arrow,
+.diagram[data-reached="3"] .diagram-arrow {
+  transform: none;
+}
+
+/* The three words sit under the three shapes they name. */
+.diagram-caption {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4) var(--space-8);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  text-align: center;
+}
+
+.diagram-caption > :first-child {
+  text-align: left;
+}
+
+.diagram-caption > :nth-child(3) {
+  text-align: right;
+}
+
+.diagram-note {
+  grid-column: 1 / -1;
+  padding-top: var(--space-8);
+  text-align: left;
+}
+
+/* ---- What we do, and what we don't: a ruled list, two columns where there is room ---- */
+.statements {
+  display: grid;
+}
+
+.statement {
+  display: flex;
+  gap: var(--space-16);
+  padding: var(--space-24) 0;
+  border-top: var(--border-width) solid var(--border);
+}
+
+.statement > svg {
+  flex: none;
+  margin-top: var(--space-4);
+  color: var(--text-muted);
+}
+
+.statement[data-kind="do"] > svg {
+  color: var(--accent);
+}
+
+.statement > div {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.statement-title {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+  text-wrap: balance;
+}
+
+/* ---- What private means here: three rows, each a label and a sentence or two, with a thin rule
+   between them. Shown only where swaps are routed privately. ---- */
+.means {
+  display: grid;
+  margin: 0;
+}
+
+.means-row {
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-24) 0;
+  border-top: var(--border-width) solid var(--border);
+}
+
+.means-row:last-child {
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+.means-label {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+}
+
+.means-row dd {
+  max-width: var(--read-width);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* The link under the rows is as wide as its words, so the line drawn under it is too. */
+.means-more {
+  justify-self: start;
+}
+
+/* ---- The token: facts only, as a ruled list ---- */
+.token-facts {
+  display: grid;
+  margin: 0;
+}
+
+.token-fact {
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-16) 0;
+  border-top: var(--border-width) solid var(--border);
+}
+
+.token-fact:last-child {
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+.token-fact dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-12);
+  margin: 0;
+  min-width: 0;
+}
+
+.token-address {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.token-risk {
+  max-width: var(--prose-width);
+  color: var(--warning);
+}
+
+.outbound {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--height-44);
+}
+
+/* The questions follow the sections at the same distance as the sections follow each other. */
+.home + .faq {
+  margin-top: var(--space-96);
+}
+
+/* The token's facts on a page of their own. */
+.token-page {
+  width: 100%;
+  max-width: var(--order-width);
+}
+
+/* ---- A page with one thing on it: Track order. A large title, room, and the one thing, with a soft light behind it. ---- */
+.focus-page {
+  position: relative;
+  display: grid;
+  gap: var(--space-32);
+  width: 100%;
+  max-width: var(--order-width);
+  padding-top: var(--space-32);
+}
+
+.focus-head {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.focus-title {
+  font-size: var(--text-32);
+  line-height: var(--line-32);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+
+.focus-lead {
+  max-width: var(--prose-width);
+  font-size: var(--text-16);
+  line-height: var(--line-relaxed);
+  text-wrap: pretty;
+}
+
+.focus-stage {
+  position: relative;
+  display: grid;
+  gap: var(--space-16);
+}
+
+.focus-stage::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc(var(--space-48) * -1) 0;
+  background: radial-gradient(closest-side, var(--glow-faint), transparent);
+  pointer-events: none;
+}
+
+.track-form {
+  display: grid;
+  gap: var(--space-8);
+}
+
+/* The field is the card's own address field, on the page instead of on the card. */
+.track-form .address-field {
+  margin-top: 0;
+}
+
+/* One line under the field for what a look found. Its height is kept whether or not it has anything to say. */
+.track-message {
+  min-height: calc(var(--line-14) * 3);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.track-message[data-tone="attention"] {
+  color: var(--warning);
+}
+
+/* Under the field: the orders made in this browser. Rows with hairlines between them, no box. */
+.track-recent {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.track-recent-title {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  font-weight: var(--weight-500);
+}
+
+.track-recent .recent {
+  padding: 0;
+}
+
+/* ---- The Help button ----
+   It floats in the corner of every page at every width: as an icon below 1024 px, with its label
+   above that. Two exceptions, both on a phone, both because it must never lie over a control or
+   over something that has to be read: while the swap card's main button is pinned to the bottom
+   of the screen it waits until the card has been scrolled past; and on an order's page, where the
+   whole first screen is the pay step, it does not float at all. In both places Help is in the
+   menu and in the footer. Any open sheet hides it. And everywhere, at every width, it steps out
+   of the way while it would lie over something to press or type into (see HelpButton). */
+.help {
+  position: fixed;
+  right: max(var(--space-16), env(safe-area-inset-right));
+  bottom: calc(var(--space-16) + env(safe-area-inset-bottom));
+  z-index: var(--layer-header);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-width: var(--height-44);
+  min-height: var(--height-44);
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-12);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: var(--weight-500);
+  text-decoration: none;
+}
+
+:root:has(.card-submit[data-stuck]) .app[data-page="swap"] .help,
+.app[data-page="order"] .help {
+  display: none;
+}
+
+/* The label is there for a screen reader at every width, and for the eye where there is room. */
+.help-label {
+  position: absolute;
+  width: var(--border-width);
+  height: var(--border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+:root[data-sheet] .help,
+.help[data-over] {
+  visibility: hidden;
+}
+
+@media (hover: hover) {
+  .help:hover {
+    background: var(--raised);
+  }
+}
+
+@media (min-width: 768px) {
+  .headline {
+    gap: var(--space-12);
+  }
+
+  .focus-page {
+    gap: var(--space-48);
+    padding-top: var(--space-64);
+  }
+
+  .focus-title {
+    font-size: var(--text-48);
+    line-height: var(--line-48);
+  }
+
+  .headline-title {
+    font-size: var(--text-48);
+    line-height: var(--line-48);
+  }
+
+  .home {
+    gap: var(--space-160);
+    margin-top: var(--space-64);
+  }
+
+  .home + .faq {
+    margin-top: var(--space-160);
+  }
+
+  .section {
+    gap: var(--space-48);
+  }
+
+  .section-title {
+    font-size: var(--text-40);
+    line-height: var(--line-40);
+  }
+
+  /* The facts side by side, of equal width, whether there are three or (when the coin list cannot be had) two; a thin rule between them, nothing round them. */
+  .facts {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+
+  .fact,
+  .fact:first-child,
+  .fact:last-child {
+    padding: 0 var(--space-32);
+    border-top: 0;
+    border-left: var(--border-width) solid var(--border);
+  }
+
+  .fact:first-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .fact-title {
+    font-size: var(--text-28);
+    line-height: var(--line-28);
+    letter-spacing: var(--tracking-display);
+  }
+
+  .stage-rail {
+    gap: var(--space-24);
+  }
+
+  .stage-tab-title {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    font-weight: var(--weight-500);
+  }
+
+  .stage-panel {
+    grid-template-columns: minmax(0, 1fr) var(--stage-art);
+    align-items: center;
+    gap: var(--space-48);
+    padding: var(--space-48);
+  }
+
+  .stage-title {
+    font-size: var(--text-28);
+    line-height: var(--line-28);
+    letter-spacing: var(--tracking-display);
+  }
+
+  .how {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-64);
+  }
+
+  /* The drawing stays beside the steps while they are read. */
+  .diagram {
+    position: sticky;
+    top: calc(var(--header-height) + var(--space-48));
+  }
+
+  /* Four statements: two and two, never three and one left over. */
+  .statements {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--space-64);
+  }
+
+  .statement-title {
+    font-size: var(--text-20);
+    line-height: var(--line-20);
+  }
+
+  /* Three statements (where swaps are routed privately, the fourth is a section of its own): one
+     under another here, never two and one left over. */
+  .statements[data-count="3"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The label to the left of its sentences, every label the same width. */
+  .means-row {
+    grid-template-columns: var(--docs-nav-width) minmax(0, 1fr);
+    column-gap: var(--space-32);
+    align-items: baseline;
+  }
+
+  .means-label {
+    font-size: var(--text-20);
+    line-height: var(--line-20);
+  }
+
+  .token-fact {
+    grid-template-columns: var(--docs-nav-width) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  /* From here up there is room beside the card: Help is on every page, pinned button or not. */
+  .help,
+  .app[data-page="order"] .help,
+  :root:has(.card-submit[data-stuck]) .app[data-page="swap"] .help {
+    display: inline-flex;
+    right: max(var(--space-24), env(safe-area-inset-right));
+    bottom: calc(var(--space-24) + env(safe-area-inset-bottom));
+  }
+}
+
+@media (min-width: 1024px) {
+  /* The first screen in two columns: the words on the left, the card on the right, and the card's
+     footnote under the words. The words keep their place whatever the card's height. */
+  .hero {
+    grid-template-columns: minmax(0, 1fr) var(--card-width);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "words card" "note card";
+    justify-items: start;
+    align-items: start;
+    gap: var(--space-24) var(--space-64);
+    max-width: var(--wide-width);
+  }
+
+  .hero > .headline {
+    grid-area: words;
+    max-width: none;
+    padding-top: var(--space-48);
+    text-align: left;
+  }
+
+  .hero > .under-card {
+    grid-area: note;
+    order: 0;
+    text-align: left;
+  }
+
+  .hero > .card,
+  .hero > .notice-page {
+    grid-area: card;
+  }
+
+  .headline-title {
+    font-size: var(--text-56);
+    line-height: var(--line-56);
+  }
+
+  .headline-sub {
+    max-width: var(--prose-width);
+    font-size: var(--text-18);
+    line-height: var(--line-relaxed);
+  }
+
+  /* Three statements side by side, where there is room for three. */
+  .statements[data-count="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: var(--space-48);
+  }
+
+  .help {
+    padding: 0 var(--space-16);
+  }
+
+  .help-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+}
+
+/* Where the system asks for less movement: nothing drifts, passes, slides or rises. What comes
+   and goes does so by fading; the stage stays where it is put (it is never set running: see Stage). */
+@media (prefers-reduced-motion: reduce) {
+  .backdrop-grid,
+  .backdrop-light,
+  .strip-track {
+    animation: none;
+  }
+
+  /* The strip stands still, as one centred row of as many chains as fit. */
+  .strip-track {
+    width: auto;
+    justify-content: center;
+  }
+
+  .strip-row + .strip-row {
+    display: none;
+  }
+
+  .headline-word {
+    animation-name: word-fade;
+  }
+
+  .stage-panel,
+  .stage-panel[data-side="before"],
+  .how-step {
+    transform: none;
+  }
+
+  .how-step:not(:last-child)::before,
+  .diagram-arrow {
+    transform: none;
+    transition: none;
+  }
+
+  .stage[data-seen] [data-active] .art-traveller,
+  .stage[data-seen] [data-active] .art-fill-line,
+  .stage[data-seen] [data-active] .art-bar,
+  .stage[data-seen] [data-active] .art-tick,
+  .stage[data-seen] [data-active] .art-count {
+    animation-duration: var(--motion-instant);
+    animation-delay: var(--motion-instant);
+  }
+}

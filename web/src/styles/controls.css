@@ -1,0 +1,334 @@
+/* Buttons, chips, checkboxes, notices, skeletons and other small parts. */
+
+/* ---- Primary button: near-white on near-black in the dark theme, the reverse in light. Never green. ---- */
+.button-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--height-48);
+  padding: var(--space-12) var(--space-16);
+  border-radius: var(--radius-12);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+  text-align: center;
+  /* Colours change at once; what moves is the button itself, which gives a little under a press. */
+  transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
+}
+
+/* When the button cannot act, its label says why, so the label must stay easy to read: a quiet fill, not a faded button. */
+.button-primary:disabled {
+  background: var(--fill-blocked);
+  color: var(--text-muted);
+}
+
+.button-primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 80%, var(--bg));
+  transform: scale(var(--press));
+}
+
+/* ---- Secondary button ---- */
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: var(--height-44);
+  padding: 0 var(--space-16);
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-12);
+  background: transparent;
+  color: var(--text);
+  font-weight: var(--weight-500);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+/* A link drawn as a button looks like the other buttons: no underline. */
+a.button-secondary {
+  text-decoration: none;
+}
+
+.button-secondary:disabled {
+  opacity: var(--opacity-disabled);
+}
+
+.button-secondary:active:not(:disabled) {
+  background: var(--raised);
+  transform: scale(var(--press));
+}
+
+/* ---- Text button and chip: 36 high, with the hit area stretched to 44 ---- */
+.button-text,
+.button-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: var(--height-36);
+  padding: 0 var(--space-12);
+  border-radius: var(--radius-8);
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.button-text::after,
+.button-chip::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--space-4) * -1) 0;
+}
+
+.button-text {
+  justify-self: center;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: var(--space-4);
+}
+
+.button-chip {
+  border: var(--border-width) solid var(--border-control);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.button-chip[aria-pressed="true"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+.button-chip:active:not(:disabled),
+.button-text:active:not(:disabled) {
+  background: var(--raised);
+  transform: scale(var(--press));
+}
+
+.button-chip:disabled,
+.button-text:disabled {
+  opacity: var(--opacity-disabled);
+}
+
+/* ---- Icon button ---- */
+.button-icon {
+  display: inline-grid;
+  place-items: center;
+  width: var(--height-44);
+  height: var(--height-44);
+  border-radius: var(--radius-12);
+  color: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.button-icon:disabled {
+  opacity: var(--opacity-disabled);
+}
+
+.button-icon:active {
+  background: var(--raised);
+  transform: scale(var(--press));
+}
+
+@media (hover: hover) {
+  .button-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 88%, var(--bg));
+  }
+
+  .button-secondary:hover:not(:disabled),
+  .button-chip:hover:not([aria-pressed="true"]):not(:disabled),
+  .button-icon:hover {
+    background: var(--raised);
+  }
+
+  .button-icon:hover:not(:disabled) {
+    color: var(--text);
+  }
+
+  .button-text:hover:not(:disabled) {
+    background: var(--raised);
+  }
+
+  .check:hover input:not(:disabled):not(:checked) {
+    border-color: var(--text);
+  }
+}
+
+/* ---- Checkbox ---- */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-12);
+  min-height: var(--height-44);
+  padding: var(--space-12) 0;
+  cursor: pointer;
+}
+
+.check input {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-content: center;
+  width: var(--icon-20);
+  height: var(--icon-20);
+  margin: 0;
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-8);
+  background: transparent;
+  cursor: pointer;
+}
+
+.check input:checked {
+  background: var(--text);
+  border-color: var(--text);
+}
+
+.check input:active:not(:disabled) {
+  background: var(--raised);
+}
+
+.check input:checked:active:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 80%, var(--bg));
+}
+
+/* A tick-box that cannot be changed right now: faded, with the plain pointer. */
+.check:has(input:disabled) {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+
+.check input:disabled {
+  cursor: default;
+}
+
+.check input:checked::after {
+  content: "";
+  width: var(--tick-size);
+  height: var(--tick-size);
+  background: var(--bg);
+  clip-path: polygon(14% 44%, 0 65%, 43% 100%, 100% 20%, 84% 6%, 40% 68%);
+}
+
+/* ---- Notices: inline, next to their cause. Never colour alone: each has an icon and words. ---- */
+/* A note to stop at: a rule down its side and a tint. Not a box. */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+  padding: var(--space-12) var(--space-16);
+  border-left: var(--rule-height) solid var(--border-strong);
+  border-radius: 0 var(--radius-8) var(--radius-8) 0;
+  background: var(--tint-neutral);
+}
+
+.notice > svg {
+  flex: none;
+  margin-top: var(--space-4);
+  margin-bottom: calc(var(--space-4) * -1);
+}
+
+.notice-warning > svg {
+  color: var(--warning);
+}
+
+.notice-warning {
+  border-left-color: var(--warning);
+  background: var(--tint-warning);
+}
+
+.notice-danger > svg {
+  color: var(--danger);
+}
+
+.notice-danger {
+  border-left-color: var(--danger);
+}
+
+/* ---- Skeletons: shaped like what they stand for, on first load only ---- */
+.skeleton {
+  display: block;
+  border-radius: var(--radius-8);
+  background: var(--border-strong);
+  animation: skeleton-pulse var(--skeleton-pulse) ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: var(--opacity-disabled);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* ---- Numbers fade in when they change; they never count up ---- */
+.fade-in {
+  animation: fade-in var(--motion-base) var(--ease-out);
+}
+
+/* The number being replaced: it fades out underneath while the new one fades in. */
+.fade-out {
+  animation: fade-out var(--motion-base) var(--ease-out) forwards;
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Less movement: a skeleton stands still. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+[data-stale] {
+  opacity: var(--opacity-stale);
+}
+
+.amount {
+  white-space: nowrap;
+}
+
+/* The count of leading zeros in a very small number, set low and small. */
+.amount-sub {
+  position: relative;
+  top: var(--space-4);
+  font-size: var(--text-12);
+}
+
+/* ---- Toast ---- */
+.toast-area {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(var(--space-24), env(safe-area-inset-bottom));
+  z-index: var(--layer-toast);
+  display: grid;
+  justify-items: center;
+  pointer-events: none;
+}
+
+.toast {
+  padding: var(--space-12) var(--space-16);
+  border-radius: var(--radius-12);
+  background: var(--text);
+  color: var(--bg);
+  font-weight: var(--weight-500);
+  animation: fade-in var(--motion-fast) var(--ease-out);
+}

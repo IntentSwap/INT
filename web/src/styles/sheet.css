@@ -1,0 +1,661 @@
+/* Dialogs: a bottom sheet on a narrow screen, a centred panel from 768 px. Only one is ever open. */
+
+/* The page behind stays where it is while a sheet is open. The rule is on the body, not the root:
+   on the root it would also unpin the main button, and the card would shift behind the sheet. */
+:root[data-sheet] body {
+  overflow: hidden;
+}
+
+/* The card's pinned button would otherwise show through beneath a sheet, like a second button. Its room is kept. */
+:root[data-sheet] .card-submit {
+  visibility: hidden;
+}
+
+.sheet {
+  position: fixed;
+  inset: auto 0 var(--keyboard-inset) 0;
+  width: 100%;
+  max-width: none;
+  /* Never taller than the room above the keyboard. */
+  max-height: min(var(--sheet-max-height), calc(var(--viewport-height) - var(--keyboard-inset) - var(--space-16)));
+  margin: 0;
+  padding: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  border: 0;
+  border-top: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-16) var(--radius-16) 0 0;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--sheet-shadow);
+  overflow: hidden;
+  transition: transform var(--motion-base) var(--ease-out);
+}
+
+.sheet[open] {
+  display: flex;
+  animation: sheet-up var(--motion-sheet) var(--ease-out);
+}
+
+.sheet[data-tall] {
+  height: var(--sheet-max-height);
+}
+
+/* While a finger is dragging it, the sheet follows at once. */
+.sheet[data-dragging] {
+  transition: none;
+}
+
+.sheet[data-closing] {
+  animation: sheet-down var(--motion-sheet) var(--ease-out) forwards;
+}
+
+.sheet::backdrop {
+  background: var(--scrim);
+  opacity: var(--opacity-scrim);
+  animation: scrim-in var(--motion-sheet) var(--ease-out);
+}
+
+.sheet[data-closing]::backdrop {
+  animation: scrim-out var(--motion-sheet) var(--ease-out) forwards;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* What is inside settles a moment after the sheet itself, which is what makes it land softly. */
+@keyframes sheet-settle {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-16));
+  }
+}
+
+@keyframes sheet-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes scrim-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.sheet-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sheet[open]:not([data-closing]) .sheet-panel {
+  animation: sheet-settle var(--motion-sheet) var(--ease-out);
+}
+
+.sheet-head {
+  flex: none;
+  padding: var(--space-8) var(--space-16) 0;
+  /* A hairline, so whatever scrolls beneath the title has an edge to go under. */
+  border-bottom: var(--border-width) solid var(--border);
+  /* The head is what a finger drags; the browser must not scroll or zoom instead. */
+  touch-action: none;
+}
+
+/* The close button's own padding puts its cross 8 px from the edge, in line with everything else. */
+.sheet-title-row .button-icon {
+  margin-right: calc(var(--space-8) * -1);
+}
+
+.sheet-handle {
+  display: block;
+  width: var(--handle-width);
+  height: var(--handle-height);
+  margin: 0 auto var(--space-4);
+  border-radius: var(--radius-8);
+  background: var(--border-control);
+}
+
+.sheet-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  min-height: var(--height-44);
+}
+
+.sheet-title {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-600);
+}
+
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The sheet's one button stays in view while the rest scrolls. */
+.sheet-foot {
+  flex: none;
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-16) var(--space-16);
+  border-top: var(--border-width) solid var(--border);
+  background: var(--surface);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ---- Review ---- */
+.review {
+  display: grid;
+  gap: var(--space-16);
+  padding: var(--space-8) var(--space-16) var(--space-24);
+}
+
+.review-sentence {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+  text-wrap: pretty;
+}
+
+/* An old quote is not thrown away: its numbers stay, dimmed once to 60%, until new ones arrive. The
+   labels and the box stay as they are. The numbers' colour thins out; nothing else does (see the
+   same rule on the card). */
+.review-rows[data-stale],
+.review-sentence[data-stale] {
+  opacity: 1;
+}
+
+.review-sentence[data-stale],
+.review-rows[data-stale] dd {
+  color: var(--text-stale);
+}
+
+.review-rows {
+  /* Coins shown in these rows sit on the raised tone: their badge's ring takes it. */
+  --coin-ring: var(--raised);
+  margin: 0;
+  padding: var(--space-4) var(--space-16);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--raised);
+}
+
+/* An amount with its coin's icon in front of it. */
+.review-coin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+/* On a phone the two main rows give their room to the numbers: the icon is left out there. */
+.review-coin .coin-icon {
+  display: none;
+}
+
+@media (min-width: 480px) {
+  .review-coin .coin-icon {
+    display: block;
+  }
+}
+
+.review-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-8) 0;
+}
+
+.review-row + .review-row {
+  border-top: var(--border-width) solid var(--border);
+}
+
+.review-row dt {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* Exact values can be long: they wrap inside their own column rather than squeeze the label. */
+.review-row dd {
+  display: grid;
+  justify-items: end;
+  min-width: 0;
+  max-width: 70%;
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.review-sub {
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.review-address {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.review-address-label {
+  font-weight: var(--weight-500);
+}
+
+.review-address-label .muted {
+  font-weight: var(--weight-400);
+}
+
+.review-address-value {
+  padding: var(--space-12) var(--space-16);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--raised);
+}
+
+.review-address .address-field {
+  margin-top: 0;
+}
+
+/* A text button standing alone on its line starts where the text above it starts: its own side room is taken back. */
+.review-address-note > .button-text:only-child {
+  margin-left: calc(var(--space-12) * -1);
+}
+
+.review-plain {
+  text-wrap: pretty;
+}
+
+.review-problem {
+  min-height: var(--line-14);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.review-problem[data-kind="error"] {
+  color: var(--danger);
+}
+
+.review-impact[data-level="warning"] {
+  color: var(--warning);
+}
+
+.review-impact[data-level="danger"] {
+  color: var(--danger);
+}
+
+/* A full address: wrapped, never shortened; the ends people compare stand out. */
+.address {
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+/* Kept in one piece: the six characters people compare are never split over two lines. */
+.address-end {
+  display: inline-block;
+  color: var(--text);
+  font-weight: var(--weight-600);
+}
+
+/* ---- Recent orders ---- */
+.recent {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-12);
+  padding: var(--space-8) var(--space-16) var(--space-24);
+}
+
+.recent-list {
+  display: grid;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--height-52);
+  padding: var(--space-8) 0;
+  border-bottom: var(--border-width) solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.recent-empty {
+  padding: var(--space-16) 0;
+  font-weight: var(--weight-500);
+}
+
+.recent-note {
+  text-wrap: pretty;
+}
+
+@media (hover: hover) {
+  .recent-row:hover .picker-row-symbol {
+    text-decoration: underline;
+    text-underline-offset: var(--space-4);
+  }
+}
+
+/* ---- Coin picker ---- */
+.picker {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.picker-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--height-52);
+  margin: var(--space-8) var(--space-16) 0;
+  padding: 0 var(--space-16);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--raised);
+  color: var(--text-muted);
+}
+
+/* Being typed in, its hairline comes up a little. Nothing else. */
+.picker-search:focus-within {
+  border-color: var(--border-strong);
+}
+
+.picker-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--height-44);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  /* 16 px: a phone does not zoom in on a field whose text is at least this size. */
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+}
+
+.picker-input:focus-visible,
+:root[data-keys] .picker-input:focus-visible {
+  outline: none;
+}
+
+/* Reached by the keyboard, the quiet line goes round the whole search field, not the words inside it. */
+:root[data-keys] .picker-search:has(.picker-input:focus-visible) {
+  outline: var(--border-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.picker-input::placeholder {
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+.picker-chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-16);
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+.picker-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-8);
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--height-52);
+  /* A long list: rows far from the screen are neither laid out nor painted until they come near it. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--height-52);
+  padding: var(--space-8);
+  border-radius: var(--radius-12);
+  cursor: pointer;
+}
+
+.picker-row:active {
+  --coin-ring: var(--raised);
+  background: var(--raised);
+}
+
+/* The row Enter would choose (the one the arrow keys or the pointer are on): a soft tint, and never a border.
+   On a touch screen, where there is neither, nothing is highlighted until it is pressed. */
+@media (hover: hover) {
+  .picker-row[data-active] {
+    --coin-ring: var(--raised);
+    background: var(--raised);
+  }
+}
+
+.picker-row-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.picker-row-main,
+.picker-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-row-symbol {
+  font-weight: var(--weight-500);
+}
+
+.picker-row-name {
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+/* What the connected wallet holds of a coin, at the end of its row. */
+.picker-row-balance {
+  flex: none;
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  white-space: nowrap;
+}
+
+.picker-row-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.picker-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-8);
+  padding: var(--space-24) var(--space-16);
+}
+
+.picker-empty-title {
+  font-weight: var(--weight-500);
+}
+
+.skeleton-icon {
+  flex: none;
+  width: var(--coin-32);
+  height: var(--coin-32);
+  border-radius: var(--radius-16);
+}
+
+.skeleton-line {
+  width: var(--space-64);
+  height: var(--line-12);
+  margin: calc(var(--space-4) / 2) 0;
+}
+
+.skeleton-line-short {
+  width: var(--space-48);
+}
+
+@media (min-width: 768px) {
+  .sheet {
+    inset: 0;
+    width: var(--sheet-width);
+    max-width: calc(100% - var(--space-48));
+    margin: auto;
+    padding-bottom: 0;
+    border: var(--border-width) solid var(--border-strong);
+    border-radius: var(--radius-16);
+  }
+
+  .sheet[open] {
+    animation-name: sheet-fade-in;
+  }
+
+  .sheet[data-closing] {
+    animation-name: sheet-fade-out;
+  }
+
+  .sheet[data-tall] {
+    height: min(var(--sheet-max-height), var(--sheet-tall));
+  }
+
+  .sheet-handle {
+    display: none;
+  }
+
+  .sheet-head {
+    padding-top: var(--space-12);
+  }
+}
+
+/* Less movement: a sheet fades in and out where it stands instead of sliding, and does not glide back after a drag. */
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    transition: none;
+  }
+
+  .sheet[open]:not([data-closing]) .sheet-panel {
+    animation: none;
+  }
+
+  .sheet[open] {
+    animation-name: sheet-fade-in;
+  }
+
+  .sheet[data-closing] {
+    animation-name: sheet-fade-out;
+  }
+}
+
+/* ---- Slippage limit ---- */
+.slippage {
+  display: grid;
+  gap: var(--space-16);
+  padding: var(--space-16) var(--space-16) var(--space-8);
+}
+
+.slippage-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.slippage-choices .button-chip {
+  min-height: var(--height-44);
+  padding: 0 var(--space-16);
+}
+
+.slippage-own {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.slippage-own label {
+  font-weight: var(--weight-500);
+}
+
+.slippage-input:focus {
+  border-color: var(--border-strong);
+}
+
+.slippage-input {
+  width: 100%;
+  min-height: var(--height-52);
+  padding: 0 var(--space-16);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--raised);
+  color: var(--text);
+}
+
+.slippage-input::placeholder {
+  font-family: var(--font-sans);
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+/* One line kept for what there is to say about the limit chosen. */
+.slippage-note {
+  min-height: calc(var(--line-14) * 2);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.slippage-note[data-tone="attention"] {
+  color: var(--warning);
+}
+
+/* ---- Private routing in the review ----
+   The row that says how the swap is routed. Its value may be the small tag, which is a little
+   taller than a line of text: the label is centred beside it. */
+.review-row[data-row="routing"] {
+  align-items: center;
+}

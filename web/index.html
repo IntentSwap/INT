@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Swap any coin to any coin, across chains." />
+    <meta name="color-scheme" content="dark light" />
+    <title>IntentSwap</title>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="IntentSwap" />
+    <meta property="og:title" content="IntentSwap" />
+    <meta property="og:description" content="Swap any coin to any coin, across chains." />
+    <meta property="og:image" content="/share.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="IntentSwap. Swap any coin to any coin, across chains." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preload" as="font" type="font/woff2" href="/src/assets/fonts/geist-latin.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/src/assets/fonts/geist-mono-latin.woff2" crossorigin />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <script>
+      (function () {
+        var theme = null;
+        try {
+          theme = localStorage.getItem("theme");
+        } catch (e) {}
+        if (theme !== "dark" && theme !== "light") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.dataset.theme = theme;
+        // The words below are the home page's; any other page starts empty.
+        if (location.pathname === "/") document.documentElement.dataset.first = "home";
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root">
+      <!-- What is on screen before the scripts arrive: the banner if the server has one to show, the
+           header's place, and on the home page its first words. The app draws over all of it. -->
+      <div class="app first-paint">
+        <!--banner-->
+        <div class="header"></div>
+        <main class="main">
+          <div class="backdrop" aria-hidden="true"><div class="backdrop-grid"></div><div class="backdrop-light"></div></div>
+          <div class="hero">
+            <div class="headline">
+              <p class="headline-title"><span class="headline-line"><span class="headline-word" style="--i: 0">Swap</span> <span class="headline-word" style="--i: 1">anything.</span></span> <span class="headline-line"><span class="headline-word headline-accent" style="--i: 2">On</span> <span class="headline-word headline-accent" style="--i: 3">NEAR</span> <span class="headline-word headline-accent" style="--i: 4">Intents.</span></span></p>
+              <p class="headline-sub muted">One coin in, another out, across chains. Every fee is shown before you confirm.</p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

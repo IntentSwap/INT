@@ -1,0 +1,102 @@
+/* Long text: the Docs, the Terms and the Privacy Policy. A column of about 68 characters, on a
+   generous line, with a clear order of headings. */
+.prose {
+  display: grid;
+  gap: var(--space-32);
+  width: 100%;
+  max-width: var(--read-width);
+  padding: var(--space-16) 0 var(--space-32);
+}
+
+.prose h1 {
+  font-size: var(--text-32);
+  line-height: var(--line-32);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+
+/* A section's heading, with a link to itself beside it. */
+.prose h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-tight);
+}
+
+.prose h2:focus {
+  outline: none;
+}
+
+.prose-section {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.prose p,
+.prose li {
+  color: var(--text-muted);
+  font-size: var(--text-16);
+  line-height: var(--line-relaxed);
+  text-wrap: pretty;
+}
+
+.prose strong {
+  color: var(--text);
+  font-weight: var(--weight-500);
+}
+
+.prose ul {
+  display: grid;
+  gap: var(--space-12);
+  margin: 0;
+  padding-left: var(--space-24);
+  list-style: disc;
+}
+
+.prose li::marker {
+  color: var(--text-faint);
+}
+
+/* The link to a heading: there for the keyboard and for a finger at all times, and for the pointer when it is over the heading. */
+.heading-anchor {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--mark-24);
+  height: var(--mark-24);
+  border-radius: var(--radius-8);
+  color: var(--text-faint);
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .heading-anchor {
+    opacity: 0;
+  }
+
+  .prose h2:hover .heading-anchor,
+  .heading-anchor:focus-visible {
+    opacity: 1;
+  }
+
+  .heading-anchor:hover {
+    color: var(--text);
+  }
+}
+
+@media (min-width: 768px) {
+  .prose h1 {
+    font-size: var(--text-40);
+    line-height: var(--line-40);
+  }
+
+  .prose h2 {
+    padding-top: var(--space-16);
+    font-size: var(--text-24);
+    line-height: var(--line-24);
+  }
+}

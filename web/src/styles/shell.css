@@ -1,0 +1,543 @@
+/* Page frame: banner, header, main column, footer. */
+
+/* Each part has its own row by name, so the page keeps its shape when there is no banner:
+   the main column takes whatever height is left, and the footer sits at the bottom. */
+.app {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  grid-template-areas: "banner" "header" "main" "footer";
+  min-height: var(--viewport-height);
+}
+
+/* What the page holds before its scripts arrive (web/index.html): the banner, when the server has
+   one to show, and the header's place, so that nothing moves when the app draws over them; and
+   the home page's first words, on the home page and nowhere else. */
+.first-paint .headline {
+  display: none;
+}
+
+:root[data-first="home"] .first-paint .headline {
+  display: grid;
+}
+
+/* The light and the grid behind the home page's first screen are part of that first paint too. */
+.first-paint .backdrop {
+  display: none;
+}
+
+:root[data-first="home"] .first-paint .backdrop {
+  display: block;
+}
+
+.app > .banner {
+  grid-area: banner;
+}
+
+.app > .header {
+  grid-area: header;
+}
+
+.app > .main {
+  grid-area: main;
+}
+
+.app > .footer {
+  grid-area: footer;
+}
+
+.banner {
+  position: relative;
+  z-index: var(--layer-banner);
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-16);
+  border-bottom: var(--border-width) solid var(--border-strong);
+  background: var(--raised);
+  text-align: center;
+}
+
+/* The header stays at the top of the screen. Until the page has scrolled under it, it is only its
+   contents; then a see-through veil comes up behind it, with a hairline along its foot. The veil
+   is a layer of its own, as wide as the screen, so that only its opacity changes. */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-header);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  width: 100%;
+  max-width: calc(var(--wide-width) + var(--space-48));
+  min-height: var(--header-height);
+  margin: 0 auto;
+  padding: 0 var(--space-16);
+  padding-left: max(var(--space-16), env(safe-area-inset-left));
+  padding-right: max(var(--space-16), env(safe-area-inset-right));
+}
+
+.header::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - var(--bleed) / 2);
+  width: var(--bleed);
+  border-bottom: var(--border-width) solid var(--border);
+  background: var(--veil);
+  backdrop-filter: blur(var(--blur-veil));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-base) var(--ease-out);
+}
+
+.header[data-scrolled]::before {
+  opacity: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--height-44);
+  color: var(--text);
+  font-size: var(--text-18);
+  line-height: var(--line-18);
+  font-weight: var(--weight-600);
+  letter-spacing: var(--tracking-tight);
+  text-decoration: none;
+  border-radius: var(--radius-8);
+}
+
+/* The mark is a picture of its own size: it is never stretched or squeezed, and holds its place before it has loaded. */
+.wordmark picture {
+  display: flex;
+  flex: none;
+}
+
+.mark {
+  display: block;
+  flex: none;
+}
+
+/* The name. Below 360 px there is no room for it beside the wallet button, and the mark stands alone. */
+.wordmark-text {
+  display: none;
+}
+
+/* On a phone the header's room goes to the name: the theme is changed from the menu there. */
+.header-theme {
+  display: none;
+}
+
+@media (min-width: 360px) {
+  .wordmark-text {
+    display: inline;
+  }
+
+  /* A connected wallet's address, or "Connecting…", is wider than "Connect": on a phone the mark then stands alone again. */
+  .header:not([data-wallet="disconnected"]) .wordmark-text {
+    display: none;
+  }
+}
+
+.wide-only {
+  display: none;
+}
+
+/* ---- The four pages. Links across the header where there is room; a menu where there is not. ---- */
+.nav {
+  display: none;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-8);
+  margin-left: var(--space-24);
+}
+
+.nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--height-44);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+  font-weight: var(--weight-500);
+  text-decoration: none;
+}
+
+/* A line under the link: drawn from the left under the pointer, and there to stay, in the accent, on the page you are on. Never colour alone. */
+.nav-link::after {
+  content: "";
+  position: absolute;
+  right: var(--space-8);
+  bottom: var(--space-8);
+  left: var(--space-8);
+  height: var(--rule-height);
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--motion-base) var(--ease-out);
+}
+
+.nav-link[aria-current="page"] {
+  color: var(--text);
+}
+
+.nav-link[aria-current="page"]::after {
+  background: var(--accent);
+  transform: none;
+}
+
+@media (hover: hover) {
+  .nav-link:hover {
+    color: var(--text);
+  }
+
+  .nav-link:hover::after {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-link::after,
+  .header::before {
+    transition: none;
+  }
+}
+
+/* ---- The three icon links: DexScreener, GitHub, X ----
+   One row, the same icons wherever it stands: in the header from 768 px up, at the foot of the menu
+   on a phone, and in the footer. 36 px to press with a mouse, 44 px with a finger. An icon with no
+   address yet looks and answers the pointer exactly like one that has. */
+.social {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.social-link {
+  display: grid;
+  place-items: center;
+  width: var(--height-36);
+  height: var(--height-36);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.social-link:active {
+  background: var(--raised);
+  transform: scale(var(--press));
+}
+
+@media (pointer: coarse) {
+  .social-link {
+    width: var(--height-44);
+    height: var(--height-44);
+  }
+}
+
+/* On a phone the header has no room for them: they are in the menu. */
+.social[data-where="header"] {
+  display: none;
+}
+
+.social[data-where="menu"] {
+  gap: var(--space-8);
+  margin: 0 var(--space-16);
+  padding: var(--space-12) 0 var(--space-16);
+  border-top: var(--border-width) solid var(--border);
+}
+
+/* In the footer the first icon's drawing stands in line with the words above it. */
+.social[data-where="footer"] {
+  margin: var(--space-8) 0 0 calc(var(--space-8) * -1);
+}
+
+/* ---- The menu sheet ---- */
+.menu {
+  display: grid;
+  padding-bottom: var(--space-16);
+}
+
+.menu-list {
+  display: grid;
+}
+
+.menu-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  width: 100%;
+  min-height: var(--height-52);
+  padding: 0 var(--space-16);
+  color: var(--text);
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+  text-align: left;
+  text-decoration: none;
+}
+
+.menu-link[aria-current="page"] > svg {
+  color: var(--accent);
+}
+
+.menu-link:active {
+  background: var(--raised);
+}
+
+.menu-rule {
+  height: var(--border-width);
+  margin: var(--space-8) var(--space-16);
+  background: var(--border);
+}
+
+@media (hover: hover) {
+  .menu-link:hover {
+    background: var(--raised);
+  }
+
+  .social-link:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+}
+
+.button-wallet {
+  margin-left: var(--space-4);
+  padding: 0 var(--space-12);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-24);
+  width: 100%;
+  padding: var(--space-16) var(--space-16) var(--space-48);
+  padding-left: max(var(--space-16), env(safe-area-inset-left));
+  padding-right: max(var(--space-16), env(safe-area-inset-right));
+}
+
+.under-card {
+  max-width: var(--card-width);
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.notice-page {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-12);
+  width: 100%;
+  max-width: var(--card-width);
+  padding: var(--space-32) 0;
+}
+
+.notice-page h1 {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-600);
+}
+
+.notice-page-body {
+  max-width: var(--prose-width);
+}
+
+/* The foot of every page: the name and one line on the left, the links on the right, a hairline above. */
+.footer {
+  padding: var(--space-48) var(--space-16);
+  /* Room beneath its links for the Help button, which floats in the corner: with the page scrolled to its end, nothing to press lies under it. */
+  padding-bottom: max(var(--space-80), env(safe-area-inset-bottom));
+  padding-left: max(var(--space-16), env(safe-area-inset-left));
+  padding-right: max(var(--space-16), env(safe-area-inset-right));
+  border-top: var(--border-width) solid var(--border);
+}
+
+.footer-inner {
+  display: grid;
+  gap: var(--space-24);
+  width: 100%;
+  max-width: var(--wide-width);
+  margin: 0 auto;
+}
+
+.footer-brand {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+}
+
+.footer-note {
+  max-width: var(--prose-width);
+  text-wrap: pretty;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-24);
+}
+
+.footer-links a,
+.footer-links span {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--height-44);
+  color: var(--text-muted);
+}
+
+@media (hover: hover) {
+  .footer-links a:hover {
+    color: var(--text);
+  }
+}
+
+@media (min-width: 480px) {
+  .wide-only,
+  .header:not([data-wallet="disconnected"]) .wordmark-text {
+    display: inline;
+  }
+
+  .header-theme {
+    display: inline-grid;
+  }
+
+  .menu-theme {
+    display: none;
+  }
+
+  .header,
+  .main {
+    padding-left: max(var(--space-24), env(safe-area-inset-left));
+    padding-right: max(var(--space-24), env(safe-area-inset-right));
+  }
+
+  .main {
+    padding-top: var(--space-32);
+  }
+}
+
+@media (min-width: 1024px) {
+  .faq {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+    align-items: start;
+    gap: var(--space-64);
+  }
+
+  .nav {
+    display: flex;
+  }
+
+  .header-menu {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .social[data-where="header"] {
+    display: flex;
+    margin-right: var(--space-4);
+  }
+
+  .main {
+    padding-top: var(--space-48);
+    padding-bottom: var(--space-96);
+  }
+
+  .footer-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .footer-links {
+    justify-content: flex-end;
+  }
+}
+
+/* ---- The questions: a ruled list. On the home page, where there is room, its heading stands to its left. ---- */
+.faq {
+  display: grid;
+  width: 100%;
+  margin-top: var(--space-32);
+}
+
+.faq {
+  gap: var(--space-32);
+  max-width: var(--wide-width);
+}
+
+.faq-title {
+  padding-bottom: var(--space-12);
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-600);
+}
+
+.faq-list {
+  display: grid;
+  min-width: 0;
+}
+
+.faq-item {
+  border-top: var(--border-width) solid var(--border);
+}
+
+.faq-item:last-child {
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+.faq-item > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  min-height: var(--space-64);
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+  cursor: pointer;
+  list-style: none;
+}
+
+/* An answer fades in as its question opens. */
+.faq-item[open] > .faq-answer {
+  animation: fade-in var(--motion-sheet) var(--ease-out);
+}
+
+.faq-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The chevron says the line opens, and turns when it has. The same one on a question and on an order's folds. */
+.fold-chevron {
+  flex: none;
+  color: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.faq-item[open] > summary .fold-chevron {
+  transform: rotate(180deg);
+}
+
+.faq-answer {
+  max-width: var(--prose-width);
+  padding-bottom: var(--space-16);
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  text-wrap: pretty;
+}

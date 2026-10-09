@@ -1,0 +1,281 @@
+/* Design tokens. Components use these variables only: no raw colour, size or
+   radius values anywhere else (a test enforces it). The look they describe: depth from
+   light, space and type instead of boxes. */
+
+:root {
+  /* Radius: 8, 12, 16 only. */
+  --radius-8: 8px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+
+  /* Spacing: 4, 8, 12, 16, 24, 32, 48, 64 only. */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --space-64: 64px;
+
+  /* Control heights: 24 (a small chip that only tells), 32 (the card's icon buttons), 36 (chips, the flip button),
+     44 (default controls and the smallest hit area), 48 (the primary button), 52 (one row of an amount field). */
+  --height-24: 24px;
+  --height-32: 32px;
+  --height-36: 36px;
+  --height-44: 44px;
+  --height-48: 48px;
+  --height-52: 52px;
+
+  /* Fixed sizes of things that are not spacing. */
+  --icon-16: 16px;
+  --icon-20: 20px;
+  /* A coin's icon, and the small square that names its chain. Two sizes; the same shapes in both. */
+  --coin-32: 32px;
+  --coin-24: 24px;
+  --coin-badge-14: 14px;
+  --coin-badge-10: 10px;
+  --coin-badge-radius: 4px;
+  --coin-badge-radius-small: 3px;
+  /* How far the badge reaches past the icon, right and down. */
+  --coin-badge-out: 4px;
+  /* The two letters of a coin without artwork, at the small size: smaller, so that the badge does not cover them. */
+  --coin-letters-small: 10px;
+  --coin-badge-out-small: 3px;
+  /* The ring round the badge, in the colour of whatever it sits on, so it reads as cut out. Thinner round the small badge. */
+  --coin-ring-width: 2px;
+  --coin-ring-width-small: 1.5px;
+  /* A coin selector is one fixed size at any one screen width, so the two of them always line up. */
+  --chip-width: 132px;
+  --chip-width-wide: 148px;
+  --dot-8: 8px;
+  --handle-width: 32px;
+  --handle-height: 4px;
+  --qr-size: 200px;
+  /* A QR code is black on white in both themes: scanners read that best. */
+  --qr-paper: #ffffff;
+  --qr-ink: #000000;
+  --row-quote: 24px;
+  --row-quote-tall: 40px;
+  /* The pinned main button with its padding and hairline: 8 + 48 + 8 + 1. */
+  --submit-bar: 65px;
+  --header-height: 64px;
+
+  --border-width: 1px;
+  /* The mark that shows a keyboard user where they are: one pixel, a little off the thing itself. */
+  --focus-offset: 2px;
+  --stroke-icon: 1.5;
+
+  --opacity-disabled: 0.4;
+  --opacity-stale: 0.6;
+  /* The text colour at that 60%. Used where only the numbers are to thin out, and the small grey
+     notes beside them must stay readable. */
+  --text-stale: color-mix(in srgb, var(--text) 60%, transparent);
+  --opacity-scrim: 0.64;
+
+  --layer-base: 0;
+  --layer-header: 10;
+  --layer-banner: 20;
+  --layer-scrim: 30;
+  --layer-sheet: 40;
+  --layer-toast: 50;
+
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Type scale (size/line): 12/16, 14/20, 16/24, 20/28, 28/34, 40/44.
+     18 is the wordmark; 32 is a step of the shrinking amount field. */
+  /* The smallest step of the shrinking amount field: only ever for a number of some twenty figures on a narrow phone. */
+  --text-11: 11px;
+  --text-12: 12px;
+  --line-12: 16px;
+  --text-14: 14px;
+  --line-14: 20px;
+  --text-16: 16px;
+  --line-16: 24px;
+  --text-18: 18px;
+  --line-18: 24px;
+  --text-20: 20px;
+  --line-20: 28px;
+  --text-24: 24px;
+  --line-24: 32px;
+  --text-28: 28px;
+  --line-28: 34px;
+  --text-32: 32px;
+  --line-32: 38px;
+  --text-40: 40px;
+  --line-40: 44px;
+  /* Display sizes: the home page's headline on a wide screen, and the large figures of the fact strip. */
+  --text-48: 48px;
+  --line-48: 52px;
+  --text-56: 56px;
+  --line-56: 60px;
+  /* Body text in a reading column: 16 px on a looser line. */
+  --line-relaxed: 27px;
+
+  --weight-400: 400;
+  --weight-500: 500;
+  --weight-600: 600;
+  --tracking-tight: -0.02em;
+  /* Large type is set tighter still, and lighter (weight 500), than headings in the flow of a page. */
+  --tracking-display: -0.03em;
+
+  /* Motion. Interface changes take 150 to 250 ms; a section coming into view, or a drawing, 400 to
+     700 ms; everything eases the same way. Only transform and opacity are ever animated (a test
+     holds the stylesheets to it). */
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-sheet: 250ms;
+  --motion-reveal: 600ms;
+  --motion-draw: 700ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* One step of a staggered entrance: between the children of a section, and between a headline's words. */
+  --stagger: 60ms;
+  --stagger-word: 40ms;
+  /* How far something rises as it comes into view. */
+  --rise: 16px;
+  /* A pressed button, as a scale. */
+  --press: 0.98;
+  /* How far the flip button has turned. The swap card sets it; here it only has its resting value. */
+  --turn: 0deg;
+  /* An element's place in a staggered entrance. Set per child where the entrance is declared. */
+  --i: 0;
+  /* Wide enough to reach both edges of any screen from inside a centred column. */
+  --bleed: 100vw;
+  /* How far into its entrance the home page's headline already is when it is drawn. The home page sets it. */
+  --elapsed: 0ms;
+  /* For a drawing that must not move: it is at its end at once. */
+  --motion-instant: 0ms;
+  /* The width of one figure, and how many figures a counted number has (set where the number is drawn). */
+  --digit: 1ch;
+  --digits: 1;
+  /* The two things that move without being asked: the strip of chains, and the light behind the hero. Slow. */
+  --motion-strip: 80s;
+  --motion-drift: 48s;
+  /* How long the stage stays on one item before it moves to the next. */
+  --stage-dwell: 6s;
+
+  /* The home page beneath the card, and the docs: wider than the card, with more air between sections. */
+  --wide-width: 1200px;
+  --space-80: 80px;
+  --space-96: 96px;
+  --space-128: 128px;
+  --space-160: 160px;
+  /* The soft grid behind the hero: the size of one cell, and how far down the page it reaches. */
+  --grid-cell: 56px;
+  --hero-backdrop: 720px;
+  /* The stage and its drawing. */
+  --stage-art: 280px;
+  --stage-min: 320px;
+  /* A reading column of about 68 characters at 16 px, the contents beside it and the page's own headings on the far side. */
+  --read-width: 560px;
+  --docs-side: 240px;
+  --docs-width: 1320px;
+  /* The blur behind the header once the page has scrolled under it, and behind the swap card. */
+  --blur-veil: 12px;
+  --blur-card: 20px;
+  --mark-24: 24px;
+  --tile-column: 240px;
+  --docs-nav-width: 200px;
+  --rule-width: 24px;
+  --rule-height: 2px;
+  --tracking-wide: 0.08em;
+  --diagram-width: 440px;
+
+  --card-width: 480px;
+  --order-width: 560px;
+  /* About 64 characters of body text to a line (a "ch" is the width of a zero, which is wider than most letters). */
+  --prose-width: 480px;
+  --sheet-width: 480px;
+  --sheet-max-height: 86dvh;
+  --sheet-tall: 640px;
+  /* The narrowest a tile in a grid of tiles may be before the grid drops a column. */
+  --tile-min: 320px;
+  --viewport-height: 100dvh;
+  --toast-life: 1500ms;
+  --skeleton-pulse: 1400ms;
+  --content-width: 1024px;
+  --tick-size: 12px;
+  --drag-dismiss: 80px;
+  /* How much of the screen the on-screen keyboard covers. Kept up to date by the page (see lib/use-stuck.ts). */
+  --keyboard-inset: 0px;
+}
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0b0d;
+  --surface: #111317;
+  --raised: #181b20;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-control: rgba(255, 255, 255, 0.34);
+  --text: #f2f3f5;
+  --text-muted: #9ba1ab;
+  --text-faint: #7f8794;
+  --accent: #00ec97;
+  --warning: #f5b544;
+  --danger: #f2555a;
+  --fill-blocked: rgba(255, 255, 255, 0.1);
+  --scrim: #000000;
+  --sheet-shadow: none;
+  /* Depth without outlines: a faint green light, a soft grid, a lighter top edge on raised surfaces. */
+  --glow: rgba(0, 236, 151, 0.13);
+  --glow-faint: rgba(0, 236, 151, 0.06);
+  --grid-line: rgba(255, 255, 255, 0.045);
+  --highlight: rgba(255, 255, 255, 0.08);
+  --veil: rgba(10, 11, 13, 0.72);
+  --shadow-raised: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 32px 64px -32px rgba(0, 0, 0, 0.9);
+  --tint-warning: rgba(245, 181, 68, 0.08);
+  --tint-accent: rgba(0, 236, 151, 0.07);
+  --tint-neutral: rgba(255, 255, 255, 0.04);
+  /* The swap card is see-through: the page's grid and light show softly behind it. Its fields are a
+     shade lighter again, and what is under the pointer a shade more. The "solid" colours are what
+     those layers come to on the plain page: the ring round a coin's chain badge is drawn in them, so
+     that the badge reads as cut out (a test recomputes them from the layers). */
+  /* Where the keyboard is: a neutral tone, never the accent. Shown only while Tab or an arrow key is moving about. */
+  --focus-ring: rgba(255, 255, 255, 0.45);
+  --card-tint: rgba(17, 19, 23, 0.65);
+  --field-tint: rgba(255, 255, 255, 0.03);
+  --hover-tint: rgba(255, 255, 255, 0.05);
+  --card-solid: #0f1014;
+  --field-solid: #16171b;
+  --field-solid-hover: #212326;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --raised: #f1f1ee;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --border-control: rgba(0, 0, 0, 0.45);
+  --text: #111317;
+  --text-muted: #5b616b;
+  --text-faint: #5f656f;
+  --accent: #006e46;
+  --warning: #8a5a00;
+  --danger: #c4262e;
+  --fill-blocked: rgba(0, 0, 0, 0.1);
+  --scrim: #000000;
+  --sheet-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  /* The same grid and the same soft green light as the dark theme, tuned for a light page: a fresher green,
+     so that it reads as light and not as grey, and lines a little firmer, so that they are seen at all. */
+  --glow: rgba(0, 196, 125, 0.16);
+  --glow-faint: rgba(0, 196, 125, 0.08);
+  --grid-line: rgba(17, 19, 23, 0.07);
+  --highlight: rgba(255, 255, 255, 0.9);
+  --veil: rgba(247, 247, 245, 0.8);
+  --shadow-raised: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 28px 56px -32px rgba(17, 19, 23, 0.28);
+  --tint-warning: rgba(138, 90, 0, 0.07);
+  --tint-accent: rgba(0, 110, 70, 0.06);
+  --tint-neutral: rgba(0, 0, 0, 0.03);
+  --focus-ring: rgba(0, 0, 0, 0.45);
+  --card-tint: rgba(255, 255, 255, 0.7);
+  --field-tint: rgba(0, 0, 0, 0.03);
+  --hover-tint: rgba(0, 0, 0, 0.05);
+  --card-solid: #fdfdfc;
+  --field-solid: #f5f5f4;
+  --field-solid-hover: #e9e9e8;
+}

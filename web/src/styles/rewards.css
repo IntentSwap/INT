@@ -1,0 +1,217 @@
+/* The Rewards page. One thing to look at: this week, on a raised surface with a soft light behind
+   it. Everything under it is type, hairlines and room. */
+.rewards {
+  position: relative;
+  display: grid;
+  gap: var(--space-48);
+  width: 100%;
+  max-width: var(--content-width);
+  padding-top: var(--space-32);
+}
+
+/* The week on the left, your part in it on the right; one above the other on a phone. */
+.rewards-week {
+  position: relative;
+  display: grid;
+  gap: var(--space-32);
+  padding: var(--space-24);
+  border-radius: var(--radius-16);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+}
+
+.rewards-week::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 80% at 20% 0%, var(--glow), transparent 70%);
+  pointer-events: none;
+}
+
+.rewards-clock,
+.rewards-mine {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.rewards-label {
+  color: var(--text-faint);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+/* The time left, and the points: the two large figures of the page. Fixed-width figures, so that a ticking clock moves nothing. */
+.rewards-count,
+.rewards-points {
+  font-size: var(--text-32);
+  line-height: var(--line-32);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+}
+
+.rewards-points {
+  color: var(--accent);
+}
+
+.rewards-waiting {
+  width: var(--tile-column);
+  max-width: 100%;
+  height: var(--line-32);
+}
+
+.rewards-ask {
+  max-width: var(--prose-width);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.rewards-mine .button-primary {
+  margin-top: var(--space-8);
+}
+
+/* One line for what a sign-in came to. Its height is kept whether or not it has anything to say. */
+.rewards-message {
+  min-height: var(--line-14);
+  color: var(--warning);
+}
+
+.rewards-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-8);
+}
+
+/* ---- Under the week ---- */
+.rewards-part {
+  display: grid;
+  gap: var(--space-16);
+  min-width: 0;
+}
+
+.rewards-heading {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-500);
+  letter-spacing: var(--tracking-tight);
+}
+
+.rewards-note {
+  white-space: normal;
+  min-width: var(--tile-column);
+}
+
+.rewards-txs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-16);
+}
+
+/* The rules: a numbered, ruled list. */
+.rewards-rules {
+  display: grid;
+}
+
+.rewards-rules li {
+  display: flex;
+  gap: var(--space-16);
+  padding: var(--space-16) 0;
+  border-top: var(--border-width) solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-16);
+  line-height: var(--line-relaxed);
+  text-wrap: pretty;
+}
+
+.rewards-rules li:last-child {
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+.rewards-rule-number {
+  flex: none;
+  color: var(--text-faint);
+  font-size: var(--text-12);
+  line-height: var(--line-relaxed);
+}
+
+/* The reserve: three figures side by side with a thin rule between them, then the wallet's address. */
+.rewards-facts {
+  display: grid;
+  margin: 0;
+}
+
+.rewards-fact {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-16) 0;
+  border-top: var(--border-width) solid var(--border);
+}
+
+.rewards-fact dd {
+  margin: 0;
+}
+
+.rewards-figure {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-500);
+  overflow-wrap: anywhere;
+}
+
+.rewards-address {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-12);
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .rewards {
+    gap: var(--space-64);
+    padding-top: var(--space-64);
+  }
+
+  .rewards-week {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-48);
+    padding: var(--space-48);
+  }
+
+  .rewards-count,
+  .rewards-points {
+    font-size: var(--text-48);
+    line-height: var(--line-48);
+    letter-spacing: var(--tracking-display);
+  }
+
+  .rewards-waiting {
+    height: var(--line-48);
+  }
+
+  .rewards-facts {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    border-top: var(--border-width) solid var(--border);
+    border-bottom: var(--border-width) solid var(--border);
+  }
+
+  .rewards-fact,
+  .rewards-fact:first-child {
+    padding: var(--space-16) var(--space-24);
+    border-top: 0;
+    border-left: var(--border-width) solid var(--border);
+  }
+
+  .rewards-fact:first-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+}

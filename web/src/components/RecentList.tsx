@@ -1,0 +1,59 @@
+import { headingAmount } from "../lib/order-logic.ts";
+import { chainName } from "../../../shared/chains.ts";
+import type { RecentOrder } from "../stores/orders.ts";
+import { SecondaryButton } from "./Button.tsx";
+import { CoinIcon } from "./CoinIcon.tsx";
+
+/** "2026-10-08, 14:05" on this device's clock: numbers only, so it reads the same everywhere. */
+function when(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}, ${two(date.getHours())}:${two(date.getMinutes())}`;
+}
+
+/** The orders made in this browser, newest first, or the one line that says there are none. The list is kept in this browser and nowhere else. It is shown on the Track order page. */
+export function RecentList({ orders, onOpen, onClear }: { orders: RecentOrder[]; onOpen(id: string): void; onClear(): void }) {
+  return (
+    <div className="recent">
+      {orders.length === 0 ? (
+        <p className="recent-empty">No swaps yet in this browser.</p>
+      ) : (
+        <ul className="recent-list">
+          {orders.map((order) => (
+            <li key={order.id}>
+              <a
+                className="recent-row"
+                href={`/order/${order.id}`}
+                onClick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                  event.preventDefault();
+                  onOpen(order.id);
+                }}
+              >
+                <CoinIcon symbol={order.to.symbol} chain={order.to.chain} />
+                <span className="picker-row-text">
+                  <span className="picker-row-main">
+                    <span className="picker-row-symbol">
+                      {/* The amount paid, exactly or not at all: a row never gives a shortened amount to pay (see headingAmount). */}
+                      {headingAmount(order.amountIn, order.from.decimals) !== null ? <span className="mono">{headingAmount(order.amountIn, order.from.decimals)}</span> : null}
+                      {headingAmount(order.amountIn, order.from.decimals) !== null ? " " : null}
+                      {order.from.symbol} to {order.to.symbol}
+                    </span>
+                  </span>
+                  <span className="picker-row-name muted">
+                    {chainName(order.from.chain)} to {chainName(order.to.chain)} · {when(order.createdAt)}
+                  </span>
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="recent-note muted">This list is kept only in this browser. Clearing it does not change the orders: each can still be opened with its link.</p>
+      <SecondaryButton onClick={onClear} disabled={orders.length === 0}>
+        Clear history
+      </SecondaryButton>
+    </div>
+  );
+}

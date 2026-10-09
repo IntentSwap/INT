@@ -1,0 +1,328 @@
+/* The documentation's layout, shared by the Docs, the Terms, the Privacy Policy and the questions.
+   One column on a narrow screen, with the contents folded into a line at the top; from 1024 px the
+   contents stand on the left and stay there; from 1280 px the page's own headings stand on the
+   right. No boxes: hairlines, a marker beside what is being read, and room. */
+.docs {
+  display: grid;
+  gap: var(--space-24);
+  width: 100%;
+  max-width: var(--read-width);
+}
+
+.docs-contents,
+.docs-here {
+  display: none;
+}
+
+/* ---- The contents ---- */
+.docs-fold {
+  border-top: var(--border-width) solid var(--border);
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+.docs-fold > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  min-height: var(--height-52);
+  font-weight: var(--weight-500);
+  cursor: pointer;
+  list-style: none;
+}
+
+.docs-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.docs-fold[open] > summary .fold-chevron {
+  transform: rotate(180deg);
+}
+
+.docs-group {
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-24);
+}
+
+.docs-group-title {
+  padding: var(--space-8) 0;
+  color: var(--text-faint);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.docs-group ul,
+.docs-here ul {
+  display: grid;
+}
+
+/* A page in the contents. The one being read has a quiet fill behind it and full-strength text. */
+.docs-page-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--height-44);
+  margin: 0 calc(var(--space-12) * -1);
+  padding: 0 var(--space-12);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.docs-page-link[aria-current="page"] {
+  background: var(--tint-neutral);
+  color: var(--text);
+  font-weight: var(--weight-500);
+}
+
+/* A page's own sections, on a hairline rail. The one on screen has the accent beside it. */
+.docs-group .docs-sections,
+.docs-here ul {
+  margin: var(--space-4) 0 var(--space-8);
+  border-left: var(--border-width) solid var(--border);
+}
+
+.docs-section-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--height-36);
+  margin-left: calc(var(--border-width) * -1);
+  padding: var(--space-4) 0 var(--space-4) var(--space-16);
+  border-left: var(--border-width) solid transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  text-wrap: balance;
+}
+
+.docs-section-link[aria-current="location"] {
+  border-left-color: var(--accent);
+  color: var(--text);
+}
+
+@media (hover: hover) {
+  .docs-page-link:hover,
+  .docs-section-link:hover {
+    color: var(--text);
+  }
+}
+
+/* ---- The page ---- */
+.docs-body {
+  min-width: 0;
+  max-width: var(--read-width);
+  padding-top: 0;
+}
+
+.docs-head {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.docs-crumb {
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+}
+
+.prose .docs-lead {
+  color: var(--text);
+  font-size: var(--text-18);
+  line-height: var(--line-relaxed);
+}
+
+.prose .docs-version {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.prose .docs-example-title {
+  color: var(--text);
+  font-weight: var(--weight-500);
+}
+
+/* ---- A warning or a tip: a rule down its side and a tint ---- */
+.callout {
+  display: flex;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-16);
+  border-left: var(--rule-height) solid var(--border-strong);
+  border-radius: 0 var(--radius-8) var(--radius-8) 0;
+  background: var(--tint-neutral);
+}
+
+.callout > svg {
+  flex: none;
+  margin-top: var(--space-4);
+}
+
+.callout > div {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.callout[data-tone="warning"] {
+  border-left-color: var(--warning);
+  background: var(--tint-warning);
+}
+
+.callout[data-tone="warning"] > svg {
+  color: var(--warning);
+}
+
+.callout[data-tone="tip"] {
+  border-left-color: var(--accent);
+  background: var(--tint-accent);
+}
+
+.callout[data-tone="tip"] > svg {
+  color: var(--accent);
+}
+
+.prose .callout-title {
+  color: var(--text);
+  font-weight: var(--weight-500);
+}
+
+/* ---- A table, in a frame of its own: the frame scrolls sideways on a narrow screen, the page never does ---- */
+.table-frame {
+  /* Its own frame of reference: words kept for screen readers alone inside a wide table (they are placed
+     out of the flow) scroll with the table, and cannot reach past the frame and widen the page. */
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  border-top: var(--border-width) solid var(--border);
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+.table-frame table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+}
+
+.table-frame th,
+.table-frame td {
+  padding: var(--space-12) var(--space-24) var(--space-12) 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table-frame th:last-child,
+.table-frame td:last-child {
+  padding-right: 0;
+}
+
+.table-frame tr + tr > *,
+.table-frame tbody:not(:first-child) > tr:first-child > * {
+  border-top: var(--border-width) solid var(--border);
+}
+
+.table-frame thead th {
+  color: var(--text-faint);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  font-weight: var(--weight-400);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.table-frame tbody th {
+  color: var(--text);
+  font-weight: var(--weight-500);
+}
+
+.table-frame td {
+  color: var(--text-muted);
+}
+
+/* ---- The page before and the page after ---- */
+.docs-turn {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-16);
+  margin-top: var(--space-48);
+  padding-top: var(--space-24);
+  border-top: var(--border-width) solid var(--border);
+}
+
+.docs-turn-link {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-height: var(--height-44);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.docs-turn-link[data-way="next"] {
+  grid-column: 2;
+  justify-items: end;
+  text-align: right;
+}
+
+.docs-turn-way {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.docs-turn-title {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+  text-wrap: balance;
+}
+
+@media (hover: hover) {
+  .docs-turn-link:hover .docs-turn-title {
+    text-decoration: underline;
+    text-underline-offset: var(--space-4);
+  }
+}
+
+@media (min-width: 1024px) {
+  .docs {
+    grid-template-columns: var(--docs-side) minmax(0, var(--read-width));
+    justify-content: center;
+    gap: var(--space-64);
+    max-width: var(--docs-width);
+  }
+
+  .docs-fold {
+    display: none;
+  }
+
+  /* The contents stay beside the text while it is read. */
+  .docs-contents,
+  .docs-here {
+    position: sticky;
+    top: calc(var(--header-height) + var(--space-32));
+    align-self: start;
+    max-height: calc(var(--viewport-height) - var(--header-height) - var(--space-64));
+    overflow-y: auto;
+  }
+
+  .docs-contents {
+    display: block;
+  }
+
+  .docs-page-link {
+    min-height: var(--height-36);
+  }
+}
+
+@media (min-width: 1280px) {
+  .docs {
+    grid-template-columns: var(--docs-side) minmax(0, var(--read-width)) var(--docs-side);
+  }
+
+  .docs-here {
+    display: block;
+  }
+}

@@ -1,0 +1,991 @@
+/* The swap card: two small tools, two amount fields with the flip button on the seam between them,
+   the receiving address, the quote in one line, and one button. Light and close-set. The card is
+   see-through, so the page's grid shows softly behind it, and every edge on it is a one-pixel
+   hairline: nothing here has a heavier border than that. Radii: 16 the card, 12 its fields and its
+   button, 8 the small controls. */
+
+.card {
+  --card-pad: var(--space-12);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--card-width);
+  padding: var(--card-pad);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-16);
+  background: var(--card-tint);
+  -webkit-backdrop-filter: blur(var(--blur-card));
+  backdrop-filter: blur(var(--blur-card));
+  /* A lighter line along its top edge and a soft shadow under it: the card stands a little off the page. */
+  box-shadow: var(--shadow-raised);
+}
+
+/* Where nothing behind a surface can be blurred, the card is simply solid. */
+@supports not ((backdrop-filter: none) or (-webkit-backdrop-filter: none)) {
+  .card {
+    background: var(--card-solid);
+  }
+}
+
+/* ---- The tools above the fields: the slippage limit, and a fresh quote ---- */
+.card-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  margin-bottom: var(--space-8);
+}
+
+.tool {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--height-32);
+  height: var(--height-32);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+/* 44 px to press. The room is taken from the card's own edge above, never from the field beneath. */
+.tool::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--space-12) * -1) calc(var(--space-4) * -1) 0;
+}
+
+.tool:disabled {
+  opacity: var(--opacity-disabled);
+}
+
+.tool:active:not(:disabled) {
+  background: var(--hover-tint);
+  transform: scale(var(--press));
+}
+
+/* Each quote that arrives turns the arrows once. */
+.tool-turn {
+  animation: tool-turn var(--motion-reveal) var(--ease-out);
+}
+
+@keyframes tool-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- An amount field: its label and the balance on one line, then the coin on the left and the amount on the right ---- */
+.field {
+  /* What a coin's chain badge is ringed in: the colour the field comes to on the plain page. */
+  --coin-ring: var(--field-solid);
+  padding: var(--space-12);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--field-tint);
+}
+
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  /* As tall as the smallest thing that may be pressed (24 px): "Max" stands on this line. */
+  min-height: var(--height-24);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.field-label {
+  flex: none;
+  color: var(--text-muted);
+  font-weight: var(--weight-500);
+}
+
+.balance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.balance-max {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--height-24);
+  min-height: var(--height-24);
+  border-radius: var(--radius-8);
+  color: var(--accent);
+  font-weight: var(--weight-500);
+}
+
+/* 44 px to press, reaching up and out of the field, never down onto the amount. */
+.balance-max::after {
+  content: "";
+  position: absolute;
+  inset: calc((var(--space-16) + var(--space-4)) * -1) calc(var(--space-8) * -1) 0;
+}
+
+.field-row {
+  display: flex;
+  align-items: stretch;
+  min-height: var(--height-52);
+}
+
+/* The amount and its value in dollars, set to the right. A hairline stands between them and the coin. */
+.field-value {
+  flex: 1;
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  /* Close-set on a narrow screen, where the amount needs every pixel: sixteen figures must fit at 360 px. */
+  margin-left: var(--space-4);
+  padding-left: var(--space-8);
+  border-left: var(--border-width) solid var(--border);
+}
+
+/* Fixed height: the number changes size, the row never does. */
+.amount-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--line-28);
+}
+
+.amount-input,
+.amount-output {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--text);
+  font-weight: var(--weight-500);
+  font-size: var(--text-28);
+  line-height: var(--line-28);
+  text-align: right;
+  white-space: nowrap;
+  caret-color: var(--accent);
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.amount-input::placeholder,
+.amount-empty {
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+.amount-output {
+  overflow: hidden;
+}
+
+/* A long number steps down in size. Its line stays as tall as it was. */
+.amount-input[data-size="24"],
+.amount-output[data-size="24"] {
+  font-size: var(--text-24);
+}
+
+.amount-input[data-size="20"],
+.amount-output[data-size="20"] {
+  font-size: var(--text-20);
+}
+
+.amount-input[data-size="16"],
+.amount-output[data-size="16"] {
+  font-size: var(--text-16);
+}
+
+.amount-input[data-size="14"],
+.amount-output[data-size="14"] {
+  font-size: var(--text-14);
+}
+
+.amount-input[data-size="12"],
+.amount-output[data-size="12"] {
+  font-size: var(--text-12);
+}
+
+.amount-input[data-size="11"],
+.amount-output[data-size="11"] {
+  font-size: var(--text-11);
+}
+
+.skeleton-amount {
+  width: 50%;
+  height: var(--line-14);
+}
+
+.usd {
+  display: block;
+  min-height: var(--line-12);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  text-align: right;
+}
+
+/* The old number and the new one share one place while they cross-fade. */
+.amount-stack {
+  display: grid;
+}
+
+.amount-stack > * {
+  grid-area: 1 / 1;
+  align-self: center;
+}
+
+/* ---- The coin selector: one fixed size, so the two of them line up. No border and no fill: a tint
+   under the pointer, and the hairline beside it, are enough. ---- */
+.coin-button {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: var(--coin-24) minmax(0, 1fr) var(--icon-16);
+  align-items: center;
+  column-gap: var(--space-8);
+  width: var(--chip-width);
+  /* Its icon stands in line with the label above it; the tint under the pointer reaches a little further out. */
+  margin-left: calc(var(--space-8) * -1);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-8);
+  color: var(--text);
+  text-align: left;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.coin-button:active {
+  --coin-ring: var(--field-solid-hover);
+  background: var(--hover-tint);
+  transform: scale(var(--press));
+}
+
+.coin-button > svg {
+  color: var(--text-muted);
+}
+
+.coin-button-text {
+  display: grid;
+  min-width: 0;
+}
+
+/* A long symbol or chain name is cut short. The selector never grows. */
+.coin-button-symbol,
+.coin-button-chain {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coin-button-symbol {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+}
+
+.coin-button-chain {
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.skeleton-coin {
+  grid-column: 1 / -1;
+  width: var(--space-64);
+  height: var(--line-14);
+}
+
+/* ---- A coin's icon with its chain badge. The same component wherever a coin appears. ---- */
+.coin-icon {
+  --coin-size: var(--coin-32);
+  --badge-size: var(--coin-badge-14);
+  --badge-radius: var(--coin-badge-radius);
+  --badge-out: var(--coin-badge-out);
+  --badge-ring: var(--coin-ring-width);
+  position: relative;
+  flex: none;
+  display: block;
+  width: var(--coin-size);
+  height: var(--coin-size);
+}
+
+.coin-icon[data-size="24"] {
+  --coin-size: var(--coin-24);
+  --badge-size: var(--coin-badge-10);
+  --badge-radius: var(--coin-badge-radius-small);
+  --badge-out: var(--coin-badge-out-small);
+  --badge-ring: var(--coin-ring-width-small);
+}
+
+.coin-icon-image,
+.coin-icon-fallback {
+  display: block;
+  width: var(--coin-size);
+  height: var(--coin-size);
+  border-radius: calc(var(--coin-size) / 2);
+}
+
+.coin-icon-image {
+  /* A hairline inside the edge, so a mark on a very dark or very light disc keeps its shape on a surface of the same tone. */
+  outline: var(--border-width) solid var(--border-strong);
+  outline-offset: calc(var(--border-width) * -1);
+}
+
+/* No artwork for this coin: its first letters, on the same circle. */
+.coin-icon-fallback {
+  display: grid;
+  place-items: center;
+  border: var(--border-width) solid var(--border-strong);
+  background: var(--raised);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  font-weight: var(--weight-600);
+}
+
+/* At the small size the badge reaches well into the circle: the letters are smaller and sit up and to the left, clear of it. */
+.coin-icon[data-size="24"] .coin-icon-fallback {
+  padding: 0 var(--coin-badge-out-small) var(--coin-badge-out-small) 0;
+  font-size: var(--coin-letters-small);
+}
+
+/* The chain: one rounded square for every chain, at the bottom right, ringed in the colour of what it sits on. */
+.coin-icon-badge {
+  position: absolute;
+  right: calc(var(--badge-out) * -1);
+  bottom: calc(var(--badge-out) * -1);
+  display: grid;
+  place-items: center;
+  width: var(--badge-size);
+  height: var(--badge-size);
+  border-radius: var(--badge-radius);
+  background: var(--raised);
+  box-shadow: 0 0 0 var(--badge-ring) var(--coin-ring, var(--surface));
+  overflow: hidden;
+}
+
+.coin-icon-badge img {
+  display: block;
+  width: var(--badge-size);
+  height: var(--badge-size);
+}
+
+.coin-icon-badge-fallback {
+  color: var(--text-muted);
+  font-size: var(--dot-8);
+  line-height: var(--badge-size);
+  font-weight: var(--weight-600);
+}
+
+/* ---- The flip button: sits on the seam between the two fields ---- */
+.flip-row {
+  position: relative;
+  z-index: 1;
+  height: var(--space-4);
+}
+
+.flip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: var(--height-36);
+  height: var(--height-36);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-8);
+  /* Solid, in the fields' own colour: it covers the seam it sits on. */
+  background: var(--field-solid);
+  color: var(--text-muted);
+  /* Each press turns it half a turn further (the card keeps count in --turn). */
+  transform: translate(-50%, -50%) rotate(var(--turn, 0deg));
+  transition: transform var(--motion-sheet) var(--ease-out);
+}
+
+.flip:disabled {
+  color: var(--text-faint);
+}
+
+.flip:active:not(:disabled) {
+  background: var(--field-solid-hover);
+  transform: translate(-50%, -50%) rotate(var(--turn, 0deg)) scale(var(--press));
+}
+
+@media (hover: hover) {
+  .tool:hover:not(:disabled) {
+    background: var(--hover-tint);
+    color: var(--text);
+  }
+
+  /* The badge's ring follows the colour under it, so it stays a cut-out. */
+  .coin-button:hover {
+    --coin-ring: var(--field-solid-hover);
+    background: var(--hover-tint);
+  }
+
+  .flip:hover:not(:disabled) {
+    background: var(--field-solid-hover);
+    color: var(--text);
+  }
+
+  /* The quote's line keeps its tint under the pointer (its small labels are read against it); its edge comes up instead. */
+  .address-input:hover:not([data-invalid]),
+  button.quote-summary:hover {
+    border-color: var(--border-strong);
+  }
+}
+
+/* ---- An address: one input, with its label inside it at the top ---- */
+.address-field {
+  position: relative;
+  margin-top: var(--space-8);
+}
+
+/* The label lies over the input's own top padding. A press there goes through to the input. */
+.address-head {
+  position: absolute;
+  top: var(--space-12);
+  right: var(--space-12);
+  left: var(--space-12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  min-height: var(--height-24);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  pointer-events: none;
+}
+
+.address-label {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-weight: var(--weight-500);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The one thing inside the field besides the address: the connected wallet's own, where it can be used. */
+.address-use {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--height-24);
+  border-radius: var(--radius-8);
+  color: var(--accent);
+  font-weight: var(--weight-500);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+/* 44 px to press, reaching up and out of the field, never down onto the address. */
+.address-use::after {
+  content: "";
+  position: absolute;
+  inset: calc((var(--space-16) + var(--space-4)) * -1) calc(var(--space-8) * -1) 0;
+}
+
+/* On a narrow screen an address takes two lines, so two are always there: nothing moves when one is entered. */
+.address-input {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--space-48) + var(--line-14) * 2);
+  /* The border counts toward the padding: 12 at the sides and beneath, and above that the label's line (24 px). */
+  padding: calc(var(--space-32) + var(--space-4) - var(--border-width)) calc(var(--space-12) - var(--border-width)) calc(var(--space-12) - var(--border-width));
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--field-tint);
+  color: var(--text);
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.address-input::placeholder {
+  font-family: var(--font-sans);
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+/* One place under the field for its hint, warning or error. Its height is kept whether or not it has anything to say. */
+.address-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  min-height: calc(var(--line-12) * 2);
+  margin-top: var(--space-4);
+  padding: 0 var(--space-12);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  text-wrap: pretty;
+}
+
+.address-note[data-kind="error"] {
+  color: var(--danger);
+}
+
+.address-note[data-kind="warning"] {
+  color: var(--warning);
+}
+
+.address-note-icon {
+  flex: none;
+}
+
+/* ---- The quote: nothing until there is an amount; then one line, which opens to show the rest ----
+   The two places where a height is animated on this site (a test holds the
+   exception to these two rules). Both answer something the person has just done:
+   typing a first amount, and pressing the line. A quote arriving, or refreshing, moves nothing. */
+.quote {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-base) var(--ease-out);
+}
+
+.quote[data-open] {
+  grid-template-rows: 1fr;
+}
+
+.quote-slot {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The space above the line belongs to it, so it closes with it. */
+.quote-body {
+  padding-top: var(--space-8);
+}
+
+.quote-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--icon-16);
+  grid-template-areas: "rate chevron" "chips chevron";
+  align-items: center;
+  gap: var(--space-4) var(--space-8);
+  width: 100%;
+  /* Two lines below 768 px (the rate, then the small labels), in every state. */
+  height: var(--space-64);
+  padding: 0 var(--space-12);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--field-tint);
+  color: var(--text);
+  text-align: left;
+}
+
+/* Where no quote could be had the line's place is kept, with nothing in it. */
+.quote-summary[data-empty] {
+  border-color: transparent;
+  background: transparent;
+}
+
+.quote-rate {
+  grid-area: rate;
+  align-self: end;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The small labels run from the right, the time first. One row of them is on show; where the line
+   has no room for both, the points go to a second row, which is out of sight. Nothing is ever cut in
+   half, and the rate and the time are never the ones to give way. */
+.quote-chips {
+  grid-area: chips;
+  align-self: start;
+  display: flex;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  height: var(--height-24);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.quote-summary > svg {
+  grid-area: chevron;
+  color: var(--text-muted);
+  transition: transform var(--motion-base) var(--ease-out);
+}
+
+.quote[data-expanded] .quote-summary > svg {
+  transform: rotate(180deg);
+}
+
+/* A small label that only tells: how long, how many points. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--height-24);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-8);
+  background: var(--tint-neutral);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  font-weight: var(--weight-500);
+  white-space: nowrap;
+}
+
+.chip[data-tone="points"] {
+  background: var(--tint-accent);
+  color: var(--accent);
+}
+
+.chip[data-tone="warning"] {
+  background: var(--tint-warning);
+  color: var(--warning);
+}
+
+.skeleton-rate {
+  grid-area: rate;
+  align-self: end;
+  width: var(--chip-width);
+  height: var(--line-12);
+}
+
+.skeleton-chip {
+  grid-area: chips;
+  align-self: start;
+  width: var(--space-64);
+  height: var(--line-12);
+}
+
+/* Old numbers stay, thinned, while new ones are fetched. It is the numbers' own colour that thins
+   out, not the whole line: the small grey notes beside them are already quiet, and thinned further
+   they could no longer be read. (Elsewhere a stale thing is thinned as a whole; not here.) */
+.quote[data-stale] {
+  opacity: 1;
+}
+
+.quote[data-stale] .quote-rate,
+.quote[data-stale] dd {
+  color: var(--text-stale);
+}
+
+.quote-more {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-base) var(--ease-out);
+}
+
+.quote[data-expanded] .quote-more {
+  grid-template-rows: 1fr;
+}
+
+.quote-more-inner {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--motion-base) var(--ease-out);
+}
+
+.quote[data-expanded] .quote-more-inner {
+  opacity: 1;
+}
+
+.quote-rows {
+  margin: 0;
+  padding: var(--space-8) var(--space-12) 0;
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.quote-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  min-height: var(--row-quote);
+}
+
+/* On a narrow screen an amount and its note are stacked, so those rows are two lines high there. */
+.quote-row[data-tall] {
+  min-height: var(--row-quote-tall);
+}
+
+/* The words sit on the same baseline as the note beside them; the warning sign is centred on their line. */
+.quote-slow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  color: var(--warning);
+}
+
+.quote-slow > svg {
+  align-self: center;
+}
+
+/* The value keeps its width; a long label ("Robinhood Chain network fee") wraps inside the row instead. */
+.quote-row dt {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.quote-row dd {
+  flex: none;
+  max-width: 100%;
+  text-align: right;
+}
+
+.quote-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.quote-pair[data-lead="sub"] {
+  flex-direction: column-reverse;
+}
+
+.quote-main,
+.quote-sub {
+  white-space: nowrap;
+}
+
+.quote-dot {
+  display: none;
+}
+
+.quote .notice {
+  margin-top: var(--space-8);
+}
+
+/* ---- The button and what sits around it ---- */
+/* One place for what the card has to say. Room for two lines on a phone and one above that, kept
+   whether or not there is anything to say, so that a message arriving moves nothing. */
+.card-message {
+  min-height: calc(var(--line-12) * 2);
+  margin-top: var(--space-8);
+  padding: 0 var(--space-12);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  text-wrap: pretty;
+}
+
+/* The button's own place is at the end of the card. While that place is below the screen, the button
+   is held at the bottom of the screen instead (above the keyboard when one is open). */
+.card-submit {
+  position: sticky;
+  bottom: calc(var(--keyboard-inset) + env(safe-area-inset-bottom));
+  z-index: 2;
+  margin: 0 calc(var(--card-pad) * -1);
+  padding: var(--space-8) var(--card-pad);
+  /* Always there, so the bar is the same height pinned or not; it only shows while pinned. */
+  border-top: var(--border-width) solid transparent;
+}
+
+/* Pinned, it lies over the card's own contents, so there it is solid. */
+.card-submit[data-stuck] {
+  border-top-color: var(--border);
+  background: var(--card-solid);
+}
+
+/* On a phone with a home bar, the strip beneath the pinned button is filled in without taking up room in the card. */
+.card-submit[data-stuck]::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-bottom);
+  background: var(--card-solid);
+}
+
+.card-submit-end {
+  height: 0;
+}
+
+.card-actions {
+  display: grid;
+}
+
+/* The other way to pay: a quiet line under the button. */
+.card-actions .button-text {
+  color: var(--text-muted);
+}
+
+.card-footnote {
+  display: grid;
+  place-items: center;
+  min-height: var(--height-36);
+  text-align: center;
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+/* ---- Focus on the card ----
+   No ring of any colour (the site's one rule is in base.css). A field being typed in shows its caret,
+   and its hairline comes up a little; that is all. While the keyboard is moving about, the amount's
+   quiet line is drawn round its whole field, so it is never cut off by the number's row, and the
+   quote's line draws its own just inside its edge, where the slot around it cannot cut it off. */
+.field:focus-within,
+.address-input:focus {
+  border-color: var(--border-strong);
+}
+
+.address-input[data-invalid] {
+  border-color: var(--danger);
+}
+
+:root[data-keys] .amount-input:focus-visible {
+  outline: none;
+}
+
+:root[data-keys] .field:has(.amount-input:focus-visible) {
+  outline: var(--border-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* Where :has() is missing, the number wears the line itself. */
+@supports not selector(:has(*)) {
+  :root[data-keys] .amount-input:focus-visible {
+    outline: var(--border-width) solid var(--focus-ring);
+    outline-offset: var(--focus-offset);
+  }
+}
+
+:root[data-keys] .quote-summary:focus-visible {
+  outline-offset: calc(var(--border-width) * -2);
+}
+
+/* Less movement: the quote's line and its breakdown are simply there, or not. */
+@media (prefers-reduced-motion: reduce) {
+  .quote,
+  .quote-more,
+  .quote-more-inner,
+  .quote-summary > svg {
+    transition: none;
+  }
+
+  .tool-turn {
+    animation: none;
+  }
+}
+
+@media (min-width: 480px) {
+  .card {
+    --card-pad: var(--space-16);
+  }
+
+  .coin-button {
+    width: var(--chip-width-wide);
+  }
+
+  .field-value {
+    margin-left: var(--space-8);
+    padding-left: var(--space-12);
+  }
+
+  .address-input {
+    min-height: calc(var(--space-48) + var(--line-14));
+  }
+
+  .address-note,
+  .card-message {
+    min-height: var(--line-12);
+  }
+
+  /* Room for the amount and its note on one line: "0.20% · 0.001 ETH". */
+  .quote-row[data-tall] {
+    min-height: var(--row-quote);
+  }
+
+  .quote-pair,
+  .quote-pair[data-lead="sub"] {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: baseline;
+    column-gap: var(--space-4);
+  }
+
+  .quote-dot {
+    display: inline;
+  }
+}
+
+/* From 768 px the card is at its full width: the rate, the small labels and the chevron share one line.
+   The rate takes the room it needs; the labels have what is left. */
+@media (min-width: 768px) {
+  .quote-summary {
+    grid-template-columns: auto minmax(0, 1fr) var(--icon-16);
+    grid-template-areas: "rate chips chevron";
+    height: var(--height-44);
+  }
+
+  .quote-chips {
+    justify-content: flex-start;
+  }
+
+  .quote-rate,
+  .quote-chips,
+  .skeleton-rate,
+  .skeleton-chip {
+    align-self: center;
+  }
+}
+
+/* ---- Private routing ----
+   Drawn only where the server routes swaps privately: a small tag that says so, and, once someone
+   has chosen public routing for a swap, a quiet word in the tag's place that takes them back.
+   Where the server routes in public none of this is on the page. */
+.chip[data-tone="private"] {
+  background: var(--tint-neutral);
+  color: var(--text);
+}
+
+/* The left end of the row of tools. The tools keep the right end, as ever. */
+.card-routing {
+  align-self: center;
+  margin-right: auto;
+}
+
+/* The tag's own height, text and side room, so that one taking the other's place moves nothing. */
+.routing-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: var(--height-24);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  font-weight: var(--weight-500);
+  text-decoration: underline;
+  text-underline-offset: var(--space-4);
+  white-space: nowrap;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+/* 44 px to press. The room is taken from the card's own edge above and from the row it stands in. */
+.routing-switch::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--space-16) * -1) 0 calc(var(--space-4) * -1);
+}
+
+.routing-switch:active {
+  background: var(--hover-tint);
+  transform: scale(var(--press));
+}
+
+@media (hover: hover) {
+  .routing-switch:hover {
+    background: var(--hover-tint);
+    color: var(--text);
+  }
+}

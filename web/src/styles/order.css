@@ -1,0 +1,535 @@
+/* The order page: one column, a little wider than the swap card, and drawn as the card is: an
+   outline, a lighter top edge and a soft shadow. What is inside it has no outlines of its own. */
+.order {
+  display: grid;
+  gap: var(--space-16);
+  width: 100%;
+  max-width: var(--order-width);
+  padding: var(--space-16);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-16);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.order-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+/* On a phone the title has a line to itself, under the coins and the copy control: beside them
+   there is room for "0.5 ETH to USDT" and nothing longer. The copy control is its icon alone there. */
+.order-copy {
+  margin-left: auto;
+}
+
+.order-copy .button-chip {
+  width: var(--height-44);
+  min-height: var(--height-44);
+  padding: 0;
+  justify-content: center;
+}
+
+.order-copy .button-chip > span {
+  position: absolute;
+  width: var(--border-width);
+  height: var(--border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (min-width: 480px) {
+  .order-copy .button-chip {
+    width: auto;
+    min-height: var(--height-36);
+    padding: 0 var(--space-12);
+  }
+
+  /* The word on the button is shown from here up. What is there for a screen reader only stays that way. */
+  .order-copy .button-chip > span:not(.sr-only) {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+}
+
+.order-pair {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.order-head-text {
+  order: 1;
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
+/* From 480 px up the title sits between the coins and the copy control, on their line. (After the
+   rule above, which it overrides.) */
+@media (min-width: 480px) {
+  .order-head-text {
+    order: 0;
+    flex: 1;
+  }
+
+  .order-copy {
+    margin-left: 0;
+  }
+}
+
+.order-title {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-600);
+  overflow-wrap: anywhere;
+}
+
+.order-subtitle {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-600);
+}
+
+.order-reconnecting {
+  min-height: var(--line-14);
+  color: var(--warning);
+}
+
+.order-skeleton {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.skeleton-block {
+  height: var(--height-52);
+}
+
+/* ---- How it ended ---- */
+.order-ending {
+  position: relative;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-8);
+  padding: var(--space-16) var(--space-16) var(--space-16) var(--space-24);
+  border-left: var(--rule-height) solid var(--border-strong);
+  border-radius: 0 var(--radius-12) var(--radius-12) 0;
+  background: var(--tint-neutral);
+}
+
+.order-ending[data-tone="good"] {
+  border-left-color: var(--accent);
+  background: var(--tint-accent);
+}
+
+.order-ending[data-tone="attention"] {
+  border-left-color: var(--warning);
+  background: var(--tint-warning);
+}
+
+/* Delivered: a tick lands, and one ring opens round it and is gone. Once. */
+.ending-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--space-32);
+  height: var(--space-32);
+  border-radius: var(--radius-16);
+  background: var(--accent);
+  color: var(--bg);
+  animation: mark-land var(--motion-sheet) var(--ease-out) both;
+}
+
+.ending-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: var(--border-width) solid var(--accent);
+  border-radius: inherit;
+  opacity: 0;
+  animation: mark-ring var(--motion-draw) var(--ease-out) var(--motion-fast) both;
+}
+
+@keyframes mark-land {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+@keyframes mark-ring {
+  from {
+    opacity: 0.8;
+    transform: none;
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ending-mark {
+    animation-name: fade-in;
+  }
+
+  .ending-mark::after {
+    animation: none;
+  }
+}
+
+.order-ending-headline {
+  font-size: var(--text-20);
+  line-height: var(--line-20);
+  font-weight: var(--weight-600);
+}
+
+.order-ending-cause {
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.order-ending .button-primary {
+  width: auto;
+  padding-left: var(--space-24);
+  padding-right: var(--space-24);
+}
+
+/* ---- The four steps ---- */
+.steps {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  position: relative;
+  display: flex;
+  gap: var(--space-12);
+  padding-bottom: var(--space-16);
+}
+
+/* The line that joins one step to the next. */
+.step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: var(--space-24);
+  bottom: 0;
+  left: calc(var(--space-12) - var(--border-width) / 2);
+  width: var(--border-width);
+  background: var(--border-strong);
+}
+
+/* Over it, the same line in the accent, drawn downwards when the step is done. */
+.step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: var(--space-24);
+  bottom: 0;
+  left: calc(var(--space-12) - var(--border-width) / 2);
+  width: var(--border-width);
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--motion-draw) var(--ease-out);
+}
+
+.step[data-state="done"]:not(:last-child)::after {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step:not(:last-child)::after {
+    transition: none;
+  }
+}
+
+.step-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--space-24);
+  height: var(--space-24);
+  border-radius: var(--radius-12);
+  color: var(--text-faint);
+}
+
+.step-mark[data-state="done"] {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.step-mark[data-state="current"] {
+  color: var(--accent);
+}
+
+/* Where an order stopped without delivering: a quiet ring, nothing that looks like it is still going. */
+.step-mark[data-state="stopped"] {
+  border: var(--border-width) solid var(--text-muted);
+  color: var(--text-muted);
+}
+
+.step-body {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding-top: calc((var(--space-24) - var(--line-14)) / 2);
+}
+
+.step-title {
+  font-weight: var(--weight-500);
+}
+
+.step[data-state="pending"] .step-title {
+  color: var(--text-muted);
+  font-weight: var(--weight-400);
+}
+
+.step-text {
+  text-wrap: pretty;
+}
+
+.step-time {
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+/* ---- Transactions ---- */
+.order-tx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-12);
+}
+
+.order-tx-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--height-44);
+}
+
+.order-tx-plain {
+  color: var(--text-muted);
+}
+
+/* ---- Deposit details ---- */
+/* A raised fill and no outline: it is part of the order's card, not a box inside it. */
+.deposit {
+  display: grid;
+  gap: var(--space-12);
+  padding: var(--space-16);
+  border-radius: var(--radius-12);
+  background: var(--raised);
+}
+
+.deposit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-12);
+}
+
+.deposit-rows {
+  display: grid;
+  margin: 0;
+}
+
+.deposit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-12);
+  min-height: var(--height-44);
+}
+
+.deposit-row + .deposit-row {
+  border-top: var(--border-width) solid var(--border);
+}
+
+/* The value keeps to the right, also when it is long enough to drop under its label. */
+.deposit-row dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  margin: 0 0 0 auto;
+  min-width: 0;
+}
+
+.deposit-value {
+  font-weight: var(--weight-500);
+  overflow-wrap: anywhere;
+}
+
+.deposit-address {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-8);
+}
+
+.deposit-address .review-address-value {
+  width: 100%;
+  background: var(--surface);
+}
+
+.deposit-address-label {
+  font-weight: var(--weight-500);
+}
+
+.deposit-address-label .muted {
+  font-weight: var(--weight-400);
+}
+
+.qr {
+  display: block;
+  width: var(--qr-size);
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-8);
+}
+
+.qr-paper {
+  fill: var(--qr-paper);
+}
+
+.qr-ink {
+  fill: var(--qr-ink);
+}
+
+.deposit-locked {
+  padding: var(--space-12) var(--space-16);
+  border: var(--border-width) dashed var(--border-strong);
+  border-radius: var(--radius-12);
+}
+
+.pay-message {
+  min-height: var(--line-14);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.pay-message[data-tone="attention"] {
+  color: var(--warning);
+}
+
+.pay-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* ---- Folded sections ---- */
+.order-fold {
+  border-top: var(--border-width) solid var(--border);
+}
+
+.order-fold > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  min-height: var(--height-44);
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+}
+
+.order-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.order-fold[open] > summary .fold-chevron {
+  transform: rotate(180deg);
+}
+
+.order-fold[open] {
+  display: grid;
+  gap: var(--space-12);
+  padding-bottom: var(--space-8);
+}
+
+.hash-field {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-8);
+}
+
+.hash-input {
+  width: 100%;
+  min-height: var(--height-52);
+  padding: 0 var(--space-16);
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-12);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+}
+
+.hash-input::placeholder {
+  font-family: var(--font-sans);
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+.hash-message {
+  min-height: var(--line-14);
+  color: var(--text-muted);
+}
+
+.order-foot {
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  overflow-wrap: anywhere;
+}
+
+/* The operator's controls for a practice order: folded away, and quiet when open. */
+.order-practice {
+  display: grid;
+  gap: var(--space-8);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.order-practice > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--height-44);
+  cursor: pointer;
+}
+
+/* Beside a practice order's deposit address, and nowhere else. */
+.practice-line {
+  color: var(--warning);
+  font-weight: var(--weight-500);
+}
+
+@media (min-width: 480px) {
+  .order {
+    padding: var(--space-24);
+  }
+}
+
+/* ---- An order made with private routing: the small tag beside its title ----
+   Only such an order has this row. Where the title is long, the tag goes to a line of its own. */
+.order-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-8);
+}
+
+.order-title-row .order-title {
+  min-width: 0;
+}
