@@ -212,10 +212,24 @@ describe("the way from the gate to the wallet", () => {
     const root = path.resolve("web", "src");
     const read = (name: string) => fs.readFileSync(path.join(root, name), "utf8");
     const signIn = read("wallet/sign-in.ts");
-    // It takes one function from the wallet library, the one that signs a plain message, and uses it once.
-    expect([...signIn.matchAll(/^import .*$/gm)].map((match) => match[0])).toEqual(['import { signMessage } from "@wagmi/core";', 'import { walletConfig } from "./index.ts";']);
+    // From the wallet library it takes the function that signs a plain message, and uses it once; beside it only what tells
+    // whether a wallet is connected. Where that route stops short, the connection's own wallet is asked for the very same
+    // signature, by the one method the sign-in is allowed, once. It never asks a wallet to change network.
+    expect([...signIn.matchAll(/^import .*$/gm)].map((match) => match[0])).toEqual([
+      'import { getAccount, signMessage, watchAccount, type Config } from "@wagmi/core";',
+      'import { stringToHex } from "viem";',
+      'import { signInWith } from "../lib/sign-in-logic.ts";',
+      'import { connect, walletConfig } from "./index.ts";',
+      'import { SIGN_IN_METHOD } from "./session.ts";',
+    ]);
     expect(signIn.match(/\bsignMessage\(/g)).toHaveLength(1);
-    expect(signIn).not.toMatch(/\b(sendTransaction|sendCalls|writeContract|signTypedData|signTransaction|switchChain)\b/);
+    expect(signIn.match(/\.request\(/g)).toHaveLength(1);
+    expect(signIn).toContain("await provider.request({ method: SIGN_IN_METHOD, params: [stringToHex(message), address] });");
+    expect(signIn).not.toMatch(/\b(sendTransaction|sendCalls|writeContract|signTypedData|signTransaction|switchChain|wallet_switchEthereumChain|wallet_addEthereumChain|eth_sendTransaction)\b/);
+    // The steps it follows ask a wallet nothing themselves: they are handed the two ways of asking.
+    const steps = read("lib/sign-in-logic.ts");
+    expect(steps).not.toMatch(/^import /m);
+    expect(steps).not.toMatch(/\.request\(|signMessage|personal_sign|switchChain|sendTransaction/);
     // Only the Rewards page's own store uses it, and only the Rewards page uses that store.
     const importers = (needle: RegExp) =>
       sources(root)

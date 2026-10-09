@@ -196,7 +196,26 @@ export async function connect(): Promise<void> {
 
 export async function disconnect(): Promise<void> {
   if (wagmi === null) return;
+  const address = useWallet.getState().address;
   await wagmiDisconnect(wagmi);
+  // The wallet library leaves notes behind that still name the address (its list of connections, a balance it
+  // remembered). Disconnecting is the end of it on this side: they are taken out, now and once more when the
+  // library has finished its own tidying. Whether the wallet itself still trusts the site is the wallet's affair.
+  forget(address);
+  setTimeout(() => forget(address), 400);
+}
+
+/** Takes out of this browser's storage for this site every entry that still names the address. */
+function forget(address: string | null): void {
+  if (address === null) return;
+  const named = address.slice(2).toLowerCase();
+  for (const kept of [window.localStorage, window.sessionStorage]) {
+    try {
+      for (const key of Object.keys(kept)) if ((kept.getItem(key) ?? "").toLowerCase().includes(named)) kept.removeItem(key);
+    } catch {
+      // Storage that cannot be read holds nothing that can be taken out.
+    }
+  }
 }
 
 /**

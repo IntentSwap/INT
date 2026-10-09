@@ -42,7 +42,8 @@ interface WalletWindow {
 // Made up from fixed text: a key that holds nothing and is nobody's.
 const ACCOUNT = privateKeyToAccount(`0x${createHash("sha256").update("intentswap rewards walk wallet").digest("hex")}`);
 /** BNB Chain, where a rewards address lives. */
-const CHAIN = 56;
+// The network the made-up wallet says it is on. Signing in turns on none, so WALK_CHAIN can name one this site does not use (137, say).
+const CHAIN = Number(process.env.WALK_CHAIN ?? 56);
 /** What a wallet may be asked on the Rewards page. Anything else is a failure, whatever it is. */
 const ALLOWED_ASKS = new Set(["eth_requestAccounts", "eth_accounts", "eth_chainId", "net_version", "wallet_requestPermissions", "wallet_getPermissions", "wallet_revokePermissions", "personal_sign"]);
 

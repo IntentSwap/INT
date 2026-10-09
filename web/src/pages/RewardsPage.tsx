@@ -273,7 +273,6 @@ function Pool({ address, pool }: { address: string; pool: PoolView | null }) {
           {/* The dollar value, only where there is a price for the coin just now. */}
           <p className="rewards-figure mono rewards-pool-line">{pool !== null && pool.usdMicro !== null ? <>about {usdMicroText(BigInt(pool.usdMicro))}</> : null}</p>
           <p className="muted">What the rewards wallet holds in NEAR on BNB Chain. Each week's payout is sent from it, shared out by points.</p>
-          <p className="muted rewards-pool-line">{pool !== null && pool.readAt !== null ? <>Read from the chain on {momentText(pool.readAt)} UTC.</> : null}</p>
         </>
       )}
       <p className="muted">Rewards are paid in NEAR on BNB Chain, to the address you signed in with.</p>

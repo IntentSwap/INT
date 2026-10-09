@@ -3,6 +3,7 @@
 // closing or reloading the page ends it, and it ends by itself after half an hour.
 
 import { create } from "zustand";
+import { failureOf, raisedName, SIGN_IN_WORDS } from "../lib/sign-in-logic.ts";
 import { partFailedToLoad } from "../lib/stale.ts";
 import { toChecksumAddress } from "../../../shared/addresses.ts";
 import { isSignInMessage, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
@@ -74,8 +75,13 @@ export const useRewards = create<RewardsState>((set, get) => ({
       let signature: string;
       try {
         signature = await signPlainMessage(code.message, address);
-      } catch {
-        set({ step: "idle", error: "Nothing was signed, so you are not signed in." });
+      } catch (error) {
+        // Three things are told apart: the person said no, the wallet could not be reached, or it could not be asked.
+        // What was raised is named in the console by its name alone, never with an address, so that it can be found.
+        const kind = failureOf(error);
+        // eslint-disable-next-line no-console -- the one line this site writes to the console: the name of what stopped a sign-in
+        if (kind !== "refused") console.warn(`Rewards sign-in: ${raisedName(error)}`);
+        set({ step: "idle", error: SIGN_IN_WORDS[kind] });
         return;
       }
       set({ step: "checking" });

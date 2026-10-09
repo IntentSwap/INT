@@ -26,7 +26,8 @@ const walletAsked = vi.hoisted(() => ({ messages: [] as string[], sign: null as 
 vi.mock("../web/src/wallet/sign-in.ts", () => ({
   signPlainMessage: async (message: string) => {
     walletAsked.messages.push(message);
-    if (walletAsked.sign === null) throw new Error("refused in the wallet");
+    // A refusal as a wallet answers one: the code every wallet uses for "the person said no".
+    if (walletAsked.sign === null) throw Object.assign(new Error("User rejected the request."), { code: 4001 });
     return walletAsked.sign(message);
   },
 }));
@@ -1824,6 +1825,25 @@ describe("the Rewards page, before the wallet is opened", () => {
     await useRewards.getState().signIn(ALICE.address);
     expect(walletAsked.messages).toHaveLength(1);
     expect(useRewards.getState()).toMatchObject({ step: "idle", session: null, error: "Nothing was signed, so you are not signed in." });
+  });
+
+  it("says something else when the wallet was never asked, or could not be reached: nobody is told they refused when they did not", async () => {
+    const h = await start();
+    await behind(h);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      walletAsked.sign = () => Promise.reject(Object.assign(new Error(`Account ${ALICE.address} not found`), { name: "ConnectorAccountNotFoundError" }));
+      await useRewards.getState().signIn(ALICE.address);
+      expect(useRewards.getState()).toMatchObject({ step: "idle", session: null, error: "The wallet could not be asked to sign. Reconnect it and try again." });
+      walletAsked.sign = () => Promise.reject(Object.assign(new Error("Request already pending"), { code: -32002 }));
+      await useRewards.getState().signIn(ALICE.address);
+      expect(useRewards.getState()).toMatchObject({ step: "idle", session: null, error: "Open your wallet and unlock it, then sign in again." });
+      // What was raised is named for whoever looks, by its name alone: never the address.
+      expect(warned.mock.calls.map((call) => String(call[0]))).toEqual(["Rewards sign-in: ConnectorAccountNotFoundError", "Rewards sign-in: Error"]);
+      expect(JSON.stringify(warned.mock.calls)).not.toContain(ALICE.address);
+    } finally {
+      warned.mockRestore();
+    }
   });
 });
 

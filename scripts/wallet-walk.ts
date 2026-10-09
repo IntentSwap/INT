@@ -725,6 +725,10 @@ export async function walletWalk(browser: Browser, options: { baseUrl: string; p
       // Disconnect: the header offers Connect again.
       await connected.click();
       await page.getByRole("button", { name: "Connect", exact: true }).waitFor({ timeout: 15_000 });
+      // Disconnecting ends the session on this side: nothing the browser keeps for this site still names the address.
+      await page.waitForTimeout(500);
+      const naming = (await page.evaluate(`[...Object.entries(localStorage).map(([key, value]) => ["kept", key, value]), ...Object.entries(sessionStorage).map(([key, value]) => ["kept for the tab", key, value])].filter((entry) => String(entry[2]).toLowerCase().includes("${WALLET.slice(2).toLowerCase()}")).map((entry) => entry[0] + " under " + entry[1])`)) as string[];
+      expectThat(naming.length === 0, `after Disconnect the browser still names the wallet's address for this site: ${naming.join("; ")}`);
 
       // From first to last, only the sites the security policy names, and never the usage-report address.
       const strangers = otherSites().filter((host) => !ALLOWED_HOSTS.has(host));
