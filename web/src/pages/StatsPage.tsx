@@ -21,6 +21,7 @@ import { Reveal } from "../components/Reveal.tsx";
 import { chainIconUrl } from "../lib/icons.ts";
 import { useCountUp, useSeen } from "../lib/reveal.ts";
 import { chainsOnList } from "../lib/site-logic.ts";
+import { CHAINS_EXPECTED } from "../config.ts";
 import { chainGrid, chainLine, coinText, whenText, durationText, shortTx, usdText, wholeText, type GridChain } from "../lib/stats-logic.ts";
 import { useTokens } from "../stores/tokens.ts";
 import "../styles/home.css";
@@ -277,15 +278,31 @@ export function StatsContent({ stats, chains }: { stats: StatsResponse | null; c
         <Tile label="Average delivery time" value={totals?.deliverySeconds} text={durationText} />
       </Reveal>
 
-      {/* Every chain is drawn as soon as the list is known, faded; the answer then says which were used. The count is the very number of the tile above. */}
-      {chains.length > 0 ? (
-        <section className="stats-part" aria-labelledby="stats-used">
-          <h2 id="stats-used" className="stats-heading">
-            Chains used
-          </h2>
+      {/* Every chain is drawn as soon as the list is known, faded; the answer then says which were used. The count is the very number
+          of the tile above. Until the list is known the grid's room is kept, cell for cell, so that the lists under it do not move when it comes. */}
+      <section className="stats-part" aria-labelledby="stats-used">
+        <h2 id="stats-used" className="stats-heading">
+          Chains used
+        </h2>
+        {chains.length > 0 ? (
           <ChainGrid chains={chainGrid(chains, stats?.chainsUsed ?? [])} count={stats === null ? null : stats.totals.chains} chosen={chosen} onChoose={setChosen} />
-        </section>
-      ) : null}
+        ) : (
+          <>
+            <p className="muted">{"\u00a0"}</p>
+            <p className="stats-chains-line muted">{"\u00a0"}</p>
+            <ul className="stats-chains" aria-hidden="true">
+              {Array.from({ length: CHAINS_EXPECTED }, (_, index) => (
+                <li key={index}>
+                  <span className="stats-chains-item">
+                    <span className="stats-chains-mark skeleton" />
+                    <span>{"\u00a0"}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
 
       <div className="stats-tops">
         <Ranked
@@ -331,11 +348,49 @@ export function StatsContent({ stats, chains }: { stats: StatsResponse | null; c
   );
 }
 
+/**
+ * True once the page's first frame is on the screen. What that frame does not need waits for it: the
+ * figures are asked for, and the grid of chains is drawn with its marks, only afterwards. So the
+ * first screen, which is words and the room for what is to come, is shown as early as it can be,
+ * and nothing that arrives later holds it back. (A page opened in a tab that is not on show draws
+ * no frame: it stops waiting after half a second.)
+ */
+function usePainted(): boolean {
+  const [painted, setPainted] = useState(false);
+  useEffect(() => {
+    let after: ReturnType<typeof setTimeout> | undefined;
+    const done = () => setPainted(true);
+    const frame = requestAnimationFrame(() => {
+      after = setTimeout(done, 0);
+    });
+    const anyway = setTimeout(done, 500);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(after);
+      clearTimeout(anyway);
+    };
+  }, []);
+  return painted;
+}
+
+/** How long after the first frame the page's head takes to come into view: its fade, and the steps between its lines. */
+const HEAD_IN_MS = 900;
+
 export default function StatsPage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [failed, setFailed] = useState(false);
   const tokens = useTokens((state) => state.tokens);
-  const chains = useMemo(() => chainsOnList(tokens), [tokens]);
+  const painted = usePainted();
+  // The grid has three dozen marks to fetch. It is drawn once the figures are in (or have failed) and the page's
+  // head has finished coming into view, so that fetching them does not hold back what is read first. Until then
+  // its room is kept, cell for cell, so nothing moves when it comes.
+  const [headIn, setHeadIn] = useState(false);
+  useEffect(() => {
+    if (!painted) return;
+    const timer = setTimeout(() => setHeadIn(true), HEAD_IN_MS);
+    return () => clearTimeout(timer);
+  }, [painted]);
+  const chains = useMemo(() => (headIn && (stats !== null || failed) ? chainsOnList(tokens) : []), [tokens, headIn, stats === null, failed]);
   const load = useCallback(async () => {
     setFailed(false);
     try {
@@ -345,13 +400,14 @@ export default function StatsPage() {
     }
   }, []);
   useEffect(() => {
+    if (!painted) return;
     void load();
     // The figures move as swaps are delivered: look again every minute while the page is open and on show.
     const timer = setInterval(() => {
       if (!document.hidden) void load();
     }, 60_000);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, painted]);
 
   return (
     <section className="stats" aria-labelledby="stats-title">

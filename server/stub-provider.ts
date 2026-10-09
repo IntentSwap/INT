@@ -237,6 +237,19 @@ export function createStubProvider(options: {
   }
   remember(options.tokens);
 
+  // What the real provider last charged on a preview of a pair, sent with no fee of ours. It charges
+  // less between two dollar coins than its usual 20; an order made up here for a pair it has just
+  // previewed carries the same figure, so that confirming does not say the price moved when only
+  // the made-up fee differed.
+  const seenFees = new Map<string, number>();
+  const pairOf = (body: Record<string, unknown>) => `${String(body.originAsset)}>${String(body.destinationAsset)}`;
+  function noteFee(body: Record<string, unknown>, answer: unknown): void {
+    if (Array.isArray(body.appFees) && body.appFees.length > 0) return;
+    const echoed = isRecord(answer) && isRecord(answer.quoteRequest) ? answer.quoteRequest.appFees : undefined;
+    const only = Array.isArray(echoed) && echoed.length === 1 && isRecord(echoed[0]) ? echoed[0].fee : undefined;
+    if (typeof only === "number" && Number.isInteger(only) && only >= 0 && only <= 20) seenFees.set(pairOf(body), only);
+  }
+
   function makeQuote(body: Record<string, unknown>): UpstreamResult {
     // The routing level: "public" when none is named, as at the real provider. "advanced" is
     // answered as the real provider answers it without a partner key.
@@ -267,7 +280,7 @@ export function createStubProvider(options: {
     const first = isRecord(fees[0]) ? fees[0] : null;
     const sentBps = first !== null && typeof first.fee === "number" ? first.fee : 0;
     const ours = asPrivate ? sentBps : Math.floor(sentBps / 2);
-    const theirs = asPrivate ? PRIVATE_PROVIDER_BPS : Math.max(Math.ceil(sentBps / 2), 20);
+    const theirs = asPrivate ? PRIVATE_PROVIDER_BPS : first === null ? (seenFees.get(pairOf(body)) ?? 20) : Math.max(Math.ceil(sentBps / 2), 20);
     const providerAccount = asPrivate ? PRIVATE_FEE_ACCOUNT : PROVIDER_FEE_ACCOUNT;
     const echoedFees = first === null ? [{ recipient: providerAccount, fee: theirs }] : [
       { recipient: first.recipient, fee: ours },
@@ -388,6 +401,7 @@ export function createStubProvider(options: {
         });
         const real = await Promise.race([upstream.quote(body, priority), slow]);
         clearTimeout(timer);
+        if (real !== null && real.ok) noteFee(body, real.data);
         if (real !== null && (real.ok || real.kind === "rejected")) return real;
         restUntil = now() + UPSTREAM_REST_MS;
         calls.madeUpPreviews += 1;

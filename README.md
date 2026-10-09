@@ -140,14 +140,14 @@ token page, and, with `--practice`, an order's page with its deposit details.
 
 `npm run check:pages` is the short version that also runs on every push. It
 starts the built site itself in practice mode, with a made-up token address,
-and measures eight pages with Lighthouse as a phone on a slow connection would
-load them: the home page, Track order, Docs, Rewards, Terms, Privacy, the
+and measures nine pages with Lighthouse as a phone on a slow connection would
+load them: the home page, Track order, Docs, Rewards, Terms, Privacy, Stats, the
 token's page, and the page of a pretend order it makes. Performance must be 90
 or more and accessibility 100; a page may not move by more than 0.05 while it
 loads; and the largest paint must come within 3.5 seconds. (It comes at about
 2.9 today. The site's own budget is 2 seconds and is not met; the limit is
 there so that the figure cannot get much worse unnoticed.) It then runs the axe
-rules on the same eight pages in both themes at phone and desktop width. On
+rules on the same nine pages in both themes at phone and desktop width. On
 GitHub's shared machines the speed score and the paint time are printed as
 warnings and do not fail the run; everything else does.
 

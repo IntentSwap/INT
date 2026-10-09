@@ -21,6 +21,13 @@ export const PINNED_SYMBOLS = ["BNB", "USDT", "USDC", "ETH", "BTC", "SOL", "ZEC"
 /** Chains in the order they are offered: the picker's grid of chains, the strip on the home page, the Docs' table. Anything not listed follows alphabetically. */
 export const CHAIN_ORDER = ["bsc", "eth", "sol", "btc", "base", "arb", "op", "pol", "avax", "tron", "ton"] as const;
 
+/**
+ * How many chains the Stats page's grid keeps room for before the coin list has said how many there
+ * are. It is the number on the list today; if the list grows or shrinks, the worst that happens is
+ * that the page under the grid moves by one row of it as it loads.
+ */
+export const CHAINS_EXPECTED = 36;
+
 /** Coins held to a currency's price. On a chain's list in the picker they follow the chain's own coin, in this order. */
 export const STABLE_SYMBOLS = ["USDT", "USDC", "USDT0", "DAI", "USDe", "USD1", "USDG", "USDf", "USDCx", "USAD", "FRAX", "EURe", "GBPe"] as const;
 

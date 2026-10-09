@@ -142,7 +142,8 @@
   align-content: start;
   gap: var(--space-8);
   width: 100%;
-  min-height: var(--height-44);
+  /* The mark and two lines of a name, whether the name takes one line or two: every row of the grid is one height, so the room kept for it is its own. */
+  min-height: calc(var(--coin-32) + var(--space-8) + var(--line-12) * 2);
   border-radius: var(--radius-8);
   color: var(--text-faint);
   font-size: var(--text-12);

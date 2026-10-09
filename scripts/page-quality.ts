@@ -11,9 +11,9 @@
 // do not fail it: a red mark there must mean a defect. The accessibility rules and the layout
 // shift give the same answer every time, and fail the run everywhere.
 //
-// The pages: the home page, Track order, Docs, Rewards, Terms and Privacy; the token's page, where
-// the site has one; and an order's page, the one a person pays on, where an order can be made up
-// (a site in practice mode). What was left out is printed.
+// The pages: the home page, Track order, Docs, Rewards, Terms and Privacy; the Stats page and the
+// token's page, where the site has them; and an order's page, the one a person pays on, where an
+// order can be made up (a site in practice mode). What was left out is printed.
 //
 //   npx tsx scripts/page-quality.ts [address of the running site]
 //
@@ -127,6 +127,7 @@ const sharedMachine = process.env.GITHUB_ACTIONS === "true";
 const bySpeed = sharedMachine ? warnings : problems;
 const pages = [...PAGES];
 const config = (await (await fetch(new URL("/api/config", site))).json()) as { practice?: boolean; tokenAddress?: string | null; statsPage?: boolean };
+if (config.statsPage === true) pages.push("/stats");
 if ((config.tokenAddress ?? null) !== null) pages.push("/token");
 else console.log("page-quality: left out: the token's page (this site has no token address set)");
 let order = "";

@@ -79,4 +79,8 @@ describe("the page-measuring step of the automatic check", () => {
     expect(script).toMatch(/audit\.score < 1\) problems\.push\(/);
     expect(script).toMatch(/for \(const problem of await axeProblems\(tab\)\) problems\.push\(/);
   });
+
+  it("measures the Stats page wherever the site has one", () => {
+    expect(script).toContain('if (config.statsPage === true) pages.push("/stats");');
+  });
 });

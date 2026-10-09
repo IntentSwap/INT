@@ -523,8 +523,11 @@ describe("chains used", () => {
     expect(markup).not.toContain('aria-pressed="true"');
     // Only a used chain's mark lights up, each in its turn.
     expect([...markup.matchAll(/data-used="" aria-pressed="false" style="--i:(\d+)"/g)].map((match) => match[1])).toEqual(["0", "1"]);
-    // While the coin list is not there, there is no grid to set the figures against.
-    expect(renderToStaticMarkup(createElement(StatsContent, { stats, chains: [] }))).not.toMatch(/class="stats-chains"|stats-used/);
+    // While the coin list is not there, the grid's room is kept, cell for cell, and names no chain: the lists under it do not move when it comes.
+    const waiting = renderToStaticMarkup(createElement(StatsContent, { stats, chains: [] }));
+    expect(waiting).toMatch(/<h2 id="stats-used" class="stats-heading">Chains used<\/h2><p class="muted">\u00a0<\/p><p class="stats-chains-line muted">\u00a0<\/p><ul class="stats-chains" aria-hidden="true">/);
+    expect((waiting.match(/<li><span class="stats-chains-item"><span class="stats-chains-mark skeleton"><\/span><span>\u00a0<\/span><\/span><\/li>/g) ?? []).length).toBe(36);
+    expect(waiting).not.toMatch(/data-used|chains used|not used yet/);
   });
 
   it("a chosen chain's swaps and share of volume are said in the one line above the grid, and nothing of an unused chain", () => {
@@ -821,8 +824,16 @@ describe("the switch, and practice mode", () => {
   async function server(env: Record<string, string>, dataDir = tempDir()): Promise<{ url: string; dataDir: string; get(address: string): Promise<{ status: number; text: string; json: any }> }> {
     const siteDir = tempDir();
     fs.writeFileSync(path.join(siteDir, "index.html"), `<!doctype html>\n<html lang="en">\n<head><title>IntentSwap</title></head><body><div id="root"></div></body></html>`);
-    const booted = boot({ env: { NODE_ENV: "development", DATA_DIR: dataDir, PORT: String(20000 + Math.floor(Math.random() * 20000)), ...env }, log: createLogger(() => undefined), fetchImpl: network, siteDir, now: () => NOON + 5 * MINUTE });
+    const booted = boot({ env: { NODE_ENV: "development", DATA_DIR: dataDir, PORT: "24680", ...env }, log: createLogger(() => undefined), fetchImpl: network, siteDir, now: () => NOON + 5 * MINUTE });
     running.push(booted);
+    // The server asks for the port it was told to use; the machine is asked for any port that is free
+    // instead, so that the number here can never be one that something else on the machine already holds.
+    const really = booted.server.listen.bind(booted.server) as (port: number, host: string | undefined, listening: () => void) => unknown;
+    booted.server.listen = ((asked: number, host: string | undefined, listening: () => void) => {
+      expect(asked).toBe(booted.config.port);
+      really(0, host, listening);
+      return booted.server;
+    }) as typeof booted.server.listen;
     const { port } = await new Promise<AddressInfo>((resolve) => booted.start(() => resolve(booted.server.address() as AddressInfo)));
     const url = `http://127.0.0.1:${port}`;
     return {

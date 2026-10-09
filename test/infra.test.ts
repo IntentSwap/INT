@@ -1483,6 +1483,39 @@ describe("practice provider", () => {
     expect(stub.control("0x" + "00".repeat(20), "fail")).toBe(false);
   });
 
+  it("makes an order up with the fee the real provider's preview of that pair showed, so that confirming does not say the price moved when only a made-up fee differed", async () => {
+    const { createStubProvider } = await import("../server/stub-provider.ts");
+    const tokens = JSON.parse(fs.readFileSync(new URL("./fixtures/tokens.json", import.meta.url), "utf8")) as unknown[];
+    const clock = 1_000_000;
+    // The real provider's preview, as it answers one sent with no fee: its own entry alone, at the figure it charges for the pair.
+    let charged: unknown = 1;
+    const upstream = {
+      tokens: async () => ({ ok: true as const, status: 200, data: tokens }),
+      quote: async () => ({ ok: true as const, status: 201, data: { quote: {}, quoteRequest: { appFees: [{ recipient: "provider.near", fee: charged }] } } }),
+      status: async () => ({ ok: false as const, kind: "unavailable" as const, status: null }),
+      submitDeposit: async () => ({ ok: false as const, kind: "unavailable" as const, status: null }),
+      health: () => ({ degraded: false, errorRate: 0, calls: 0 }),
+    };
+    const stub = createStubProvider({ upstream, now: () => clock });
+    await stub.provider.tokens();
+    const pair = { originAsset: "nep141:base.omft.near", destinationAsset: "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near", amount: "5000000000000000", slippageTolerance: 100, deadline: new Date(clock + 1_800_000).toISOString(), refundTo: "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83", recipient: "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83" };
+    const feeOf = (answer: unknown) => (answer as { ok: true; data: { quoteRequest: { appFees: { fee: number }[] } } }).data.quoteRequest.appFees.map((entry) => entry.fee);
+    // Before any preview of the pair, an order made up here carries the provider's usual 20.
+    expect(feeOf(await stub.provider.quote({ ...pair, dry: false }, "order"))).toEqual([20]);
+    // The preview came from the real provider at 1: the order made up next for the same pair carries 1.
+    await stub.provider.quote({ ...pair, dry: true }, "user");
+    expect(feeOf(await stub.provider.quote({ ...pair, dry: false }, "order"))).toEqual([1]);
+    // Another pair is untouched, and so is an order sent with a fee of ours.
+    expect(feeOf(await stub.provider.quote({ ...pair, destinationAsset: pair.originAsset, originAsset: pair.destinationAsset, amount: "5000000", dry: false }, "order"))).toEqual([20]);
+    expect(feeOf(await stub.provider.quote({ ...pair, dry: false, appFees: [{ recipient: "0x00000000000000000000000000000000000000fe", fee: 40 }] }, "order"))).toEqual([20, 20]);
+    // Only a plain figure within the provider's usual range is taken from a preview.
+    for (const odd of [21, -1, 1.5, "1", null]) {
+      charged = odd;
+      await stub.provider.quote({ ...pair, dry: true }, "user");
+      expect(feeOf(await stub.provider.quote({ ...pair, dry: false }, "order"))).toEqual([1]);
+    }
+  });
+
   it("makes a preview up itself when the real provider does not answer, and passes a refusal on as it is", async () => {
     const { createStubProvider, UPSTREAM_REST_MS } = await import("../server/stub-provider.ts");
     const tokens = JSON.parse(fs.readFileSync(new URL("./fixtures/tokens.json", import.meta.url), "utf8")) as unknown[];
