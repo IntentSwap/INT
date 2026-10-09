@@ -42,7 +42,7 @@ Rules the code keeps:
 | `npx tsx scripts/live-survey.ts` | Ask the real provider what it accepts today on every chain (previews only) |
 | `npx tsx scripts/mutation-check.ts` | Switch off each protection in turn and confirm a test notices |
 | `npx tsx scripts/review-shots.ts <url>` | Walk the site in a real browser: screenshots of every state at three widths in both themes, plus checks of behaviour (see below) |
-| `npm run check:pages` | Measure the built pages in a real browser: Lighthouse (performance 90 or more, accessibility 100, layout shift 0.05 at most) and the axe accessibility rules for WCAG 2.2 AA |
+| `npm run check:pages` | Measure the built pages in a real browser: Lighthouse (performance 90 or more, accessibility 100, layout shift 0.05 at most) and the axe accessibility rules for WCAG 2.2 AA The speed score is taken on a pretend phone; on a slower machine (the automatic check's, say) the phone's processor is slowed less, by the measuring tool's own table, so that the same phone is measured everywhere, and a page that falls just short is measured twice more and judged by the middle score |
 | `npm run rewards:export -- --week … --pool … [--close]` | Show what closing a week of points would do. With `--close`, close it and write the list of payouts (sends nothing) |
 | `npm run rewards:record -- --week … --tx 0x…` | Record the transactions that paid a closed week, after checking on BNB Chain what each one paid |
 | `npx tsx scripts/make-brand.ts` | Make every size of the logo, the favicons, the home-screen icons and the web manifest again from the two source files in `web/src/assets/brand/` (only when one of them changes) |
