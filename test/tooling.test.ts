@@ -56,3 +56,27 @@ describe("one npm for the developer's machine, the automatic check and the host"
     for (const [name, version] of Object.entries({ ...manifest.dependencies, ...manifest.devDependencies })) expect(lock.packages[`node_modules/${name}`]?.version, name).toBe(version);
   });
 });
+
+describe("the page-measuring step of the automatic check", () => {
+  const script = fs.readFileSync(path.resolve("scripts", "page-quality.ts"), "utf8");
+
+  it("fails for speed on a developer's machine only: on GitHub's shared machines the speed score and the paint time warn, and do not fail the run", () => {
+    expect(script).toContain('const sharedMachine = process.env.GITHUB_ACTIONS === "true";');
+    expect(script).toContain("const bySpeed = sharedMachine ? warnings : problems;");
+    expect(script).toMatch(/\(name === "performance" \? bySpeed : problems\)\.push\(/);
+    expect(script).toMatch(/paint > LATEST_PAINT_MS\) bySpeed\.push\(/);
+    // A warning is only ever printed: nothing but a problem ends the run badly.
+    expect(script).toContain("for (const warning of warnings) console.log(`::warning title=Page speed on this machine::${warning}`);");
+    expect(script).not.toMatch(/warnings\.length/);
+    expect(script).toMatch(/if \(problems\.length > 0\) \{\n[^\n]*console\.error[^\n]*\n {2}process\.exit\(1\);/);
+  });
+
+  it("fails everywhere for what gives the same answer every time: the accessibility rules and layout shift, with the budgets as they were", () => {
+    expect(script).toContain("const LEAST = { performance: 90, accessibility: 100 } as const;");
+    expect(script).toContain("const MOST_SHIFT = 0.05;");
+    expect(script).toContain("const LATEST_PAINT_MS = 3_500;");
+    expect(script).toMatch(/shift > MOST_SHIFT\) problems\.push\(/);
+    expect(script).toMatch(/audit\.score < 1\) problems\.push\(/);
+    expect(script).toMatch(/for \(const problem of await axeProblems\(tab\)\) problems\.push\(/);
+  });
+});

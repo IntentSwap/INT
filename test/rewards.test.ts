@@ -1857,11 +1857,51 @@ describe("the Rewards page, as it is drawn", () => {
     expect(html).not.toMatch(/Current pool|rewards-pool|BscScan|bscscan/);
     expect(read(html)).not.toMatch(/\bpool\b|could not be read/i);
     // The week and its total are there all the same, and say that nobody has points yet.
-    expect(read(html)).toContain("This week's points No points have been collected yet this week.");
+    expect(read(html)).toContain("This week's points 0 points No points have been collected yet this week.");
     // Signed in, an address still sees its share. With no pool there is no estimate, and nothing in its place.
     const signedIn = read(draw(summaryOf(null, 1000n), mineOf(250n, 1000n, null)));
     expect(signedIn).toContain("Your share 25.00%");
     expect(signedIn).not.toMatch(/Estimated reward|An estimate\.|\$[\d,]+\.\d\d/);
+  });
+
+  it("keeps every part's room from the first drawing, before the server has answered: the week with its dates and countdown, and the pool's frame wherever the page itself names a rewards wallet", () => {
+    /** The page as it is drawn before any answer, with the wallet the server wrote into the page (or none). */
+    const waiting = (wallet: string | null, failed = false): string => {
+      const first = useRewards.getInitialState() as unknown as Record<string, unknown>;
+      const kept = { summary: first.summary, summaryFailed: first.summaryFailed, session: first.session, mine: first.mine };
+      Object.assign(first, { summary: null, summaryFailed: failed, mine: null, session: null });
+      vi.stubGlobal("document", { documentElement: { dataset: wallet === null ? {} : { rewardsWallet: wallet } } });
+      try {
+        return renderToStaticMarkup(createElement(RewardsPage));
+      } finally {
+        vi.unstubAllGlobals();
+        Object.assign(first, kept);
+      }
+    };
+    const parts = (html: string) => [...html.matchAll(/<(?:h2 id="rewards-[a-z]+"|p) class="(rewards-(?:label mono|count mono|heading|pool-total|address)|muted rewards-(?:dates|total-note)|skeleton rewards-total-waiting|rewards-figure mono(?: rewards-pool-line)?|muted rewards-pool-line)"/g)].map((match) => match[1]);
+
+    // No wallet named: the week is whole (the page knows the calendar), the total's line waits in its room, and no pool is drawn.
+    const bare = waiting(null);
+    expect(read(bare)).toMatch(/This week \d+d \d{2}:\d{2}:\d{2} \w{3} \d+ \w{3} to \w{3} \d+ \w{3}, by the clock in UTC\./);
+    expect(bare).toContain('<p class="skeleton rewards-total-waiting" aria-hidden="true"></p>');
+    expect(bare).not.toMatch(/Current pool|rewards-pool|bscscan/i);
+
+    // A wallet named: the pool's frame is there at once, with the wallet's own address and link, and room for each figure.
+    const framed = waiting(ADDR.evm3);
+    expect(framed).toMatch(/<h2 id="rewards-pool" class="rewards-heading">Current pool<\/h2><p class="rewards-pool-total" aria-hidden="true"><span class="skeleton rewards-waiting"><\/span><\/p><p class="rewards-figure mono rewards-pool-line"><\/p>/);
+    expect(framed).toContain(`<a href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" class="outbound">View the wallet on BscScan`);
+    expect(read(framed)).not.toMatch(/NEAR about|\$[\d,]+\.\d\d|Read from the chain/);
+    // The same parts, in the same order, before the answer and after it: nothing is put in between later.
+    const answered = draw(summaryOf(POOL, 1000n));
+    expect(parts(framed).map((part) => part!.replace("skeleton rewards-total-waiting", "rewards-figure mono"))).toEqual(parts(answered));
+    expect(parts(answered)).toContain("rewards-pool-total");
+    // Only a plain address is taken from the page, and none once the server has said it cannot be asked.
+    expect(waiting("<b>not an address</b>")).not.toMatch(/Current pool/);
+    expect(waiting(ADDR.evm3, true)).not.toMatch(/Current pool/);
+    // What was paid from the pool stands last, after the rules, so that its arrival moves nothing above it.
+    const paid = draw(summaryOf(POOL, 1000n, { weeks: [{ week: "2026-W40", paid: (5n * 10n ** 18n).toString(), asset: "NEAR", decimals: 18, txs: [] }], totalPaid: (5n * 10n ** 18n).toString(), weeksPaid: 1 }));
+    expect(paid.indexOf('id="rewards-paid"')).toBeGreaterThan(paid.indexOf('id="rewards-rules"'));
+    expect(read(paid)).toContain("Paid out so far: 5 NEAR over 1 week.");
   });
 
   it("shows the current pool as an amount of NEAR with its dollar value beneath, a link to the wallet on BscScan, and no other coin", () => {

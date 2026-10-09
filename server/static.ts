@@ -162,6 +162,16 @@ export function withoutStats(html: string): string {
   return html.replace('<html lang="en"', () => '<html lang="en" data-stats="off"');
 }
 
+/**
+ * The page with the rewards wallet's address in it, for a server that has one. The Rewards page
+ * draws the pool's frame from it at once, before it has asked what the wallet holds, so that the
+ * figures arriving move nothing. Only a plain address is ever written.
+ */
+export function withRewardsWallet(html: string, address: string): string {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("the rewards wallet's address is not a plain address");
+  return html.replace('<html lang="en"', () => `<html lang="en" data-rewards-wallet="${address}"`);
+}
+
 /** Where the page keeps a place for the service banner (web/index.html). */
 const BANNER_PLACE = "<!--banner-->";
 
@@ -189,7 +199,7 @@ export function withCanonical(html: string, siteUrl: string, pathname: string): 
   return html.replace("</title>", () => `</title>\n    <link rel="canonical" href="${siteUrl}${pathname}" />`);
 }
 
-export function loadStaticSite(distDir: string, options: { testPages?: boolean; tokenPage?: boolean; siteUrl?: string | null; banner?: readonly BannerKind[]; privateRouting?: boolean; statsPage?: boolean } = {}): StaticSite | null {
+export function loadStaticSite(distDir: string, options: { testPages?: boolean; tokenPage?: boolean; siteUrl?: string | null; banner?: readonly BannerKind[]; privateRouting?: boolean; statsPage?: boolean; rewardsWallet?: string | null } = {}): StaticSite | null {
   const routes = [...APP_ROUTES, ...(options.privateRouting === true ? PRIVATE_ROUTES : []), ...(options.statsPage === true ? STATS_ROUTES : []), ...(options.tokenPage ? TOKEN_ROUTES : []), ...(options.testPages ? TEST_ROUTES : [])];
   if (!fs.existsSync(path.join(distDir, "index.html"))) return null;
   const assets = new Map<string, Asset>();
@@ -201,6 +211,7 @@ export function loadStaticSite(distDir: string, options: { testPages?: boolean; 
     // The first words before the share image's address: the address is written round whichever image the page then names.
     if (rel === "/index.html" && options.privateRouting === true) raw = Buffer.from(withPrivateRouting(raw.toString("utf8")), "utf8");
     if (rel === "/index.html" && options.statsPage === false) raw = Buffer.from(withoutStats(raw.toString("utf8")), "utf8");
+    if (rel === "/index.html" && typeof options.rewardsWallet === "string") raw = Buffer.from(withRewardsWallet(raw.toString("utf8"), options.rewardsWallet), "utf8");
     if (rel === "/index.html" && typeof options.siteUrl === "string") raw = Buffer.from(withSiteUrl(raw.toString("utf8"), options.siteUrl), "utf8");
     if (rel === "/index.html" && options.banner !== undefined && options.banner.length > 0) raw = Buffer.from(withBanner(raw.toString("utf8"), options.banner), "utf8");
     const compress = COMPRESSIBLE.has(ext) && raw.length > 512;

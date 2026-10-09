@@ -81,6 +81,32 @@
   height: var(--line-32);
 }
 
+/* Room kept from the first paint for what the server has yet to say, so that nothing moves when it does:
+   the countdown's line, the dates under it (two lines on a phone), the week's total and the sentence under it. */
+.rewards-count {
+  min-height: var(--line-32);
+}
+
+.rewards-dates,
+.rewards-total-note {
+  min-height: calc(var(--line-14) * 2);
+}
+
+.rewards-total-waiting {
+  width: var(--tile-column);
+  max-width: 100%;
+  height: var(--line-20);
+}
+
+/* A line of the pool that is filled in later, or left empty: it has its height either way. */
+.rewards-pool-line {
+  min-height: var(--line-14);
+}
+
+.rewards-figure.rewards-pool-line {
+  min-height: var(--line-20);
+}
+
 .rewards-ask {
   max-width: var(--prose-width);
   color: var(--text-muted);
@@ -212,6 +238,10 @@
 
   .rewards-waiting {
     height: var(--line-48);
+  }
+
+  .rewards-count {
+    min-height: var(--line-48);
   }
 
   .rewards-facts {

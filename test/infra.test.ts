@@ -18,7 +18,7 @@ import { configuredLimits, PREVIEW_SHARE, RateLimiter } from "../server/ratelimi
 import { createRpc, decodeErc20Transfer, decodeTransferLog, parseProxyBody, TRANSFER_TOPIC } from "../server/rpc.ts";
 import { createSessionIssuer, SESSION_TTL_MS } from "../server/session.ts";
 import { boot } from "../server/boot.ts";
-import { firstWords, inlineScriptHashes, loadStaticSite, privateRoutingEdits, withBanner, withCanonical, withPrivateRouting, withSiteUrl } from "../server/static.ts";
+import { firstWords, inlineScriptHashes, loadStaticSite, privateRoutingEdits, withBanner, withCanonical, withPrivateRouting, withRewardsWallet, withSiteUrl } from "../server/static.ts";
 import { BANNER_WORDS } from "../shared/banner.ts";
 import { POSITIONING } from "../shared/positioning.ts";
 import { EXPLORER_HOSTS, explorerTxUrl } from "../shared/chains.ts";
@@ -864,6 +864,16 @@ describe("site serving", () => {
     // The inline script's hash, which the security policy carries, is the same either way.
     expect(withAddress.scriptHashes).toEqual(without.scriptHashes);
     expect(withAddress.scriptHashes).toHaveLength(1);
+    // A server with a rewards wallet writes its address into the page, so the Rewards page draws the pool's frame at once; one without writes nothing.
+    const wallet = "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83";
+    const withWallet = loadStaticSite(dir, { rewardsWallet: wallet })!;
+    expect(await served(withWallet)).toBe(withRewardsWallet(page, wallet));
+    expect(withRewardsWallet('<!doctype html><html lang="en"><head></head></html>', wallet)).toBe(`<!doctype html><html lang="en" data-rewards-wallet="${wallet}"><head></head></html>`);
+    expect(await served(loadStaticSite(dir, { rewardsWallet: null })!)).toBe(page);
+    expect(await served(without)).not.toContain("data-rewards-wallet");
+    // Only a plain address is ever written.
+    for (const bad of ["", "0x1234", `${wallet}"><script>`, "not an address"]) expect(() => withRewardsWallet(page, bad), bad).toThrow();
+    expect(withWallet.scriptHashes).toEqual(without.scriptHashes);
   });
 
   it("writes the service banner into the page when the server has one to show, and only then", () => {

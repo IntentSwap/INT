@@ -185,6 +185,8 @@ export function boot(options: {
     // How this server routes swaps, as the page is told it by /api/config: the site's first words follow it.
     privateRouting: shown.privacyMode === "basic",
     statsPage: config.statsPage,
+    // The wallet the Rewards page shows the pool of, where there is one: the page draws its frame from the first paint.
+    rewardsWallet: shown.reserveAddress,
     siteUrl: config.siteUrl,
     // What this server will show in its banner for as long as it runs. Known now, so written into the page.
     banner: config.swapsPaused ? (["paused"] as const) : [],

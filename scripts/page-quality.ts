@@ -5,6 +5,12 @@
 //   - the axe accessibility rules (see scripts/axe.ts for exactly which), in both themes, at phone
 //     and desktop width: no finding at all.
 //
+// Two of these depend on how fast the machine is on the day: the speed score and the paint time.
+// On a developer's machine they fail the run like the rest. On GitHub's shared machines, where the
+// same page scores a few points apart from one run to the next, they are printed as warnings and
+// do not fail it: a red mark there must mean a defect. The accessibility rules and the layout
+// shift give the same answer every time, and fail the run everywhere.
+//
 // The pages: the home page, Track order, Docs, Rewards, Terms and Privacy; the token's page, where
 // the site has one; and an order's page, the one a person pays on, where an order can be made up
 // (a site in practice mode). What was left out is printed.
@@ -98,8 +104,14 @@ async function pretendOrder(browser: Browser, address: string): Promise<string> 
     await tab.getByRole("button", { name: "Review swap" }).click({ timeout: 40_000 });
     const dialog = tab.getByRole("dialog");
     await dialog.getByRole("checkbox").check();
-    await dialog.getByRole("button", { name: "Confirm swap" }).click();
-    await tab.waitForURL(/\/order\/[A-Za-z0-9_-]{20,}$/, { timeout: 30_000 });
+    // A site that has only just started answers "Try again shortly." until it has fetched the sanctions
+    // list, which every order is screened against. The press is made again, for up to a minute and a half.
+    const made = /\/order\/[A-Za-z0-9_-]{20,}$/;
+    for (let attempt = 0; attempt < 18 && !made.test(tab.url()); attempt++) {
+      await dialog.getByRole("button", { name: "Confirm swap" }).click({ timeout: 5_000 }).catch(() => undefined);
+      await tab.waitForURL(made, { timeout: 5_000 }).catch(() => undefined);
+    }
+    if (!made.test(tab.url())) throw new Error("the site made no order within a minute and a half");
     return new URL(tab.url()).pathname.split("/").pop() ?? "";
   } finally {
     await context.close();
@@ -109,8 +121,12 @@ async function pretendOrder(browser: Browser, address: string): Promise<string> 
 const named = (page: string) => (page.startsWith("/order/") ? "an order's page" : page);
 
 const problems: string[] = [];
+/** What falls short only by the machine's speed, on a shared machine: said, and not failed for. */
+const warnings: string[] = [];
+const sharedMachine = process.env.GITHUB_ACTIONS === "true";
+const bySpeed = sharedMachine ? warnings : problems;
 const pages = [...PAGES];
-const config = (await (await fetch(new URL("/api/config", site))).json()) as { practice?: boolean; tokenAddress?: string | null };
+const config = (await (await fetch(new URL("/api/config", site))).json()) as { practice?: boolean; tokenAddress?: string | null; statsPage?: boolean };
 if ((config.tokenAddress ?? null) !== null) pages.push("/token");
 else console.log("page-quality: left out: the token's page (this site has no token address set)");
 let order = "";
@@ -180,12 +196,12 @@ try {
     const shown = (id: string) => audits[id]?.displayValue ?? "?";
     console.log(`page-quality: ${named(page)}: performance ${score("performance")}, accessibility ${score("accessibility")}, first paint ${shown("first-contentful-paint")}, largest paint ${shown("largest-contentful-paint")}, layout shift ${shown("cumulative-layout-shift")}`);
     for (const name of ["performance", "accessibility"] as const) {
-      if (score(name) < LEAST[name]) problems.push(`${named(page)}: ${name} is ${score(name)}, under ${LEAST[name]}`);
+      if (score(name) < LEAST[name]) (name === "performance" ? bySpeed : problems).push(`${named(page)}: ${name} is ${score(name)}, under ${LEAST[name]}`);
     }
     const shift = audits["cumulative-layout-shift"]?.numericValue;
     if (typeof shift !== "number" || shift > MOST_SHIFT) problems.push(`${named(page)}: the page moves while it loads (layout shift ${shift?.toFixed(3) ?? "unknown"}, ${MOST_SHIFT} at most)`);
     const paint = audits["largest-contentful-paint"]?.numericValue;
-    if (typeof paint !== "number" || paint > LATEST_PAINT_MS) problems.push(`${named(page)}: the largest paint comes at ${paint === undefined ? "an unknown time" : `${Math.round(paint)} ms`}, later than ${LATEST_PAINT_MS} ms`);
+    if (typeof paint !== "number" || paint > LATEST_PAINT_MS) bySpeed.push(`${named(page)}: the largest paint comes at ${paint === undefined ? "an unknown time" : `${Math.round(paint)} ms`}, later than ${LATEST_PAINT_MS} ms`);
     // What cost the points, so that a failure says where to look.
     for (const ref of categories.accessibility?.auditRefs ?? []) {
       const audit = audits[ref.id];
@@ -216,6 +232,8 @@ try {
   server?.kill();
   if (dataDir !== null) fs.rmSync(dataDir, { recursive: true, force: true });
 }
+// On GitHub a line that begins "::warning::" is shown on the run's own page.
+for (const warning of warnings) console.log(`::warning title=Page speed on this machine::${warning}`);
 if (problems.length > 0) {
   for (const problem of problems) console.error(`page-quality: ${problem}`);
   process.exit(1);

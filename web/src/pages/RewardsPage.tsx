@@ -13,7 +13,7 @@ import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { displayExact } from "../../../shared/amounts.ts";
 import { explorerAddressUrl, explorerTxUrl } from "../../../shared/chains.ts";
-import { RESERVE_ASSET, REWARDS, showPoints, type PoolView, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
+import { RESERVE_ASSET, REWARDS, showPoints, weekBounds, weekOf, type PoolView, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
 import { Address } from "../components/Address.tsx";
 import { Amount } from "../components/Amount.tsx";
 import { PrimaryButton, TextButton } from "../components/Button.tsx";
@@ -57,41 +57,39 @@ function TxLinks({ hashes }: { hashes: readonly string[] }) {
   );
 }
 
-/** This week: its dates, the time left in it, and the points of everyone together as one total. */
+/**
+ * This week: its dates, the time left in it, and the points of everyone together as one total.
+ * A week runs by the calendar in UTC, so the page knows its dates and its countdown before the
+ * server has answered; only the points wait, in room kept for them. Nothing here changes its
+ * height when the answer comes, so nothing under it moves.
+ */
 function Week({ summary, offset }: { summary: RewardsPublic | null; offset: number }) {
   const now = useSecond() + offset;
-  if (summary === null) {
-    return (
-      <div className="rewards-clock">
-        <p className="rewards-label mono">This week</p>
-        <p className="skeleton rewards-waiting" aria-hidden="true" />
-      </div>
-    );
-  }
-  const left = Date.parse(summary.week.end) - now;
-  const total = BigInt(summary.weekPointsMicro);
+  const own = weekBounds(weekOf(now));
+  const start = summary?.week.start ?? (own !== null ? new Date(own.start).toISOString() : null);
+  const end = summary?.week.end ?? (own !== null ? new Date(own.end).toISOString() : null);
+  const total = summary !== null ? BigInt(summary.weekPointsMicro) : null;
   return (
     <div className="rewards-clock">
       <p className="rewards-label mono">This week</p>
       {/* The clock is for the eye; a screen reader is told the dates once, not the time every second. */}
       <p className="rewards-count mono" aria-hidden="true">
-        {countdownText(left)}
+        {end !== null ? countdownText(Date.parse(end) - now) : null}
       </p>
-      <p className="muted">
-        {weekDates(summary.week.start, summary.week.end)}, by the clock in UTC. <span className="sr-only">The week closes at midnight on Sunday, UTC.</span>
+      <p className="muted rewards-dates">
+        {start !== null && end !== null ? <>{weekDates(start, end)}, by the clock in UTC. </> : null}
+        <span className="sr-only">The week closes at midnight on Sunday, UTC.</span>
         <span aria-hidden="true">Left until it closes.</span>
       </p>
       {/* One total, and no list behind it: nobody's points but one's own are shown anywhere. */}
       <div className="rewards-total">
         <p className="rewards-label mono">This week's points</p>
-        {total > 0n ? (
-          <>
-            <p className="rewards-figure mono">{aboutPoints(total)}</p>
-            <p className="muted">Collected by everyone together. Brought up to date every quarter of an hour.</p>
-          </>
+        {total === null ? (
+          <p className="skeleton rewards-total-waiting" aria-hidden="true" />
         ) : (
-          <p className="muted">No points have been collected yet this week.</p>
+          <p className="rewards-figure mono">{total > 0n ? aboutPoints(total) : "0 points"}</p>
         )}
+        <p className="muted rewards-total-note">{total !== null && total === 0n ? "No points have been collected yet this week." : "Collected by everyone together. Brought up to date every quarter of an hour."}</p>
       </div>
     </div>
   );
@@ -250,34 +248,40 @@ function Payouts({ mine }: { mine: RewardsView }) {
  * link to the wallet on the chain's own explorer so that anyone can check it; and what has been
  * paid from it. Nothing else the wallet holds is shown. Not drawn at all while no reserve wallet is set.
  */
-function Pool({ pool, summary }: { pool: PoolView; summary: RewardsPublic }) {
-  const url = explorerAddressUrl(REWARDS.chain, pool.address);
+function Pool({ address, pool }: { address: string; pool: PoolView | null }) {
+  const url = explorerAddressUrl(REWARDS.chain, address);
   return (
     <section className="rewards-part" aria-labelledby="rewards-pool">
       <h2 id="rewards-pool" className="rewards-heading">
         Current pool
       </h2>
-      {pool.amount !== null ? (
-        <>
-          <p className="rewards-pool-total">
-            <CoinIcon symbol={RESERVE_ASSET.symbol} chain={RESERVE_ASSET.chain} logo="near" size={32} />
-            <Amount raw={pool.amount} decimals={pool.decimals} symbol={RESERVE_ASSET.symbol} />
-          </p>
-          {/* The dollar value, only where there is a price for the coin just now. */}
-          {pool.usdMicro !== null ? <p className="rewards-figure mono">about {usdMicroText(BigInt(pool.usdMicro))}</p> : null}
-          <p className="muted">
-            What the rewards wallet holds in NEAR on BNB Chain{pool.readAt !== null ? <>, read from the chain on {momentText(pool.readAt)} UTC</> : null}. Each week's payout is sent from it, shared out by points.
-          </p>
-        </>
-      ) : (
+      {pool !== null && pool.amount === null ? (
         <p className="muted">The balance could not be read just now.</p>
+      ) : (
+        <>
+          {/* Each line has its room before the figures are in, so that their arrival moves nothing. */}
+          {pool !== null && pool.amount !== null ? (
+            <p className="rewards-pool-total">
+              <CoinIcon symbol={RESERVE_ASSET.symbol} chain={RESERVE_ASSET.chain} logo="near" size={32} />
+              <Amount raw={pool.amount} decimals={pool.decimals} symbol={RESERVE_ASSET.symbol} />
+            </p>
+          ) : (
+            <p className="rewards-pool-total" aria-hidden="true">
+              <span className="skeleton rewards-waiting" />
+            </p>
+          )}
+          {/* The dollar value, only where there is a price for the coin just now. */}
+          <p className="rewards-figure mono rewards-pool-line">{pool !== null && pool.usdMicro !== null ? <>about {usdMicroText(BigInt(pool.usdMicro))}</> : null}</p>
+          <p className="muted">What the rewards wallet holds in NEAR on BNB Chain. Each week's payout is sent from it, shared out by points.</p>
+          <p className="muted rewards-pool-line">{pool !== null && pool.readAt !== null ? <>Read from the chain on {momentText(pool.readAt)} UTC.</> : null}</p>
+        </>
       )}
       <p className="muted">Rewards are paid in NEAR on BNB Chain, to the address you signed in with.</p>
       <p className="rewards-address">
         <span className="token-address">
-          <Address value={pool.address} />
+          <Address value={address} />
         </span>
-        <CopyButton value={pool.address} what="the rewards wallet's address" />
+        <CopyButton value={address} what="the rewards wallet's address" />
         {url !== null ? (
           <a href={url} target="_blank" rel="noopener noreferrer" className="outbound">
             View the wallet on BscScan
@@ -286,43 +290,64 @@ function Pool({ pool, summary }: { pool: PoolView; summary: RewardsPublic }) {
           </a>
         ) : null}
       </p>
-      {summary.weeks.length > 0 ? (
-        <>
-          {/* The total is of what was paid in NEAR. A week paid in another coin is in the list below, in its own. */}
-          {summary.weeksPaid > 0 ? (
-            <p className="muted">
-              Paid out so far:{" "}
-              <span className="mono">
-                {displayExact(BigInt(summary.totalPaid), pool.decimals)} {RESERVE_ASSET.symbol}
-              </span>{" "}
-              over <span className="mono">{summary.weeksPaid}</span> {summary.weeksPaid === 1 ? "week" : "weeks"}.
-            </p>
-          ) : null}
-          <TableFrame label="Weeks paid from the pool">
-            <thead>
-              <tr>
-                <th scope="col">Week</th>
-                <th scope="col">Paid</th>
-                <th scope="col">Sent</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.weeks.map((week) => (
-                <tr key={week.week}>
-                  <th scope="row">{weekName(week.week)}</th>
-                  <td className="mono">
-                    {displayExact(BigInt(week.paid), week.decimals)} {week.asset}
-                  </td>
-                  {/* One transfer to each address paid. A handful are linked; more than that are counted, and can be seen on the wallet's own page (the link above). */}
-                  <td>{week.txs.length > 3 ? <span className="mono">{week.txs.length} transfers</span> : <TxLinks hashes={week.txs} />}</td>
-                </tr>
-              ))}
-            </tbody>
-          </TableFrame>
-        </>
-      ) : null}
     </section>
   );
+}
+
+/**
+ * What has been paid from the pool, week by week. It stands last on the page: it is there only
+ * once a week has been paid, and at the foot its arrival moves nothing above it.
+ */
+function Paid({ summary, decimals }: { summary: RewardsPublic; decimals: number }) {
+  return (
+    <section className="rewards-part" aria-labelledby="rewards-paid">
+      <h2 id="rewards-paid" className="rewards-heading">
+        Paid from the pool
+      </h2>
+      {/* The total is of what was paid in NEAR. A week paid in another coin is in the list below, in its own. */}
+      {summary.weeksPaid > 0 ? (
+        <p className="muted">
+          Paid out so far:{" "}
+          <span className="mono">
+            {displayExact(BigInt(summary.totalPaid), decimals)} {RESERVE_ASSET.symbol}
+          </span>{" "}
+          over <span className="mono">{summary.weeksPaid}</span> {summary.weeksPaid === 1 ? "week" : "weeks"}.
+        </p>
+      ) : null}
+      <TableFrame label="Weeks paid from the pool">
+        <thead>
+          <tr>
+            <th scope="col">Week</th>
+            <th scope="col">Paid</th>
+            <th scope="col">Sent</th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.weeks.map((week) => (
+            <tr key={week.week}>
+              <th scope="row">{weekName(week.week)}</th>
+              <td className="mono">
+                {displayExact(BigInt(week.paid), week.decimals)} {week.asset}
+              </td>
+              {/* One transfer to each address paid. A handful are linked; more than that are counted, and can be seen on the wallet's own page. */}
+              <td>{week.txs.length > 3 ? <span className="mono">{week.txs.length} transfers</span> : <TxLinks hashes={week.txs} />}</td>
+            </tr>
+          ))}
+        </tbody>
+      </TableFrame>
+    </section>
+  );
+}
+
+/**
+ * The rewards wallet's address as the server wrote it into the page it sent, or null where none is
+ * set. With it the pool's frame is drawn from the first paint, before the server has been asked
+ * what the wallet holds.
+ */
+function walletInPage(): string | null {
+  if (typeof document === "undefined") return null;
+  const written = document.documentElement.dataset.rewardsWallet ?? "";
+  return /^0x[0-9a-fA-F]{40}$/.test(written) ? written : null;
 }
 
 export default function RewardsPage() {
@@ -348,6 +373,8 @@ export default function RewardsPage() {
 
   const mine = rewards.session !== null ? rewards.mine : null;
   const pool = rewards.summary?.pool ?? null;
+  // Before the answer: the wallet the page itself names. After it: the answer's own, or none.
+  const poolAddress = rewards.summary !== null ? (pool?.address ?? null) : rewards.summaryFailed ? null : walletInPage();
   return (
     <section className="rewards" aria-labelledby="rewards-title">
       <Reveal as="header" className="focus-head">
@@ -365,7 +392,7 @@ export default function RewardsPage() {
       </Reveal>
 
       {/* Only where a reserve wallet is set. Where none is, there is no such part and nothing in its place. */}
-      {pool !== null && rewards.summary !== null ? <Pool pool={pool} summary={rewards.summary} /> : null}
+      {poolAddress !== null ? <Pool address={poolAddress} pool={pool} /> : null}
 
       {mine !== null ? (
         <>
@@ -395,6 +422,7 @@ export default function RewardsPage() {
         </p>
       </section>
 
+      {pool !== null && rewards.summary !== null && rewards.summary.weeks.length > 0 ? <Paid summary={rewards.summary} decimals={pool.decimals} /> : null}
     </section>
   );
 }
