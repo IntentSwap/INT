@@ -116,7 +116,7 @@ export function TermsPage() {
 
       <Section title="11. Points and weekly rewards">
         <p>
-          IntentSwap keeps a record of points for delivered swaps: {REWARDS.pointsPerUsd} points for each US dollar of a delivered swap's value, and nothing for a swap that is refunded or fails. It may send a weekly payout shared out by points. <Link href="/docs/rewards">The rules</Link> are part of these terms.
+          IntentSwap keeps a record of points for delivered swaps: {REWARDS.pointsPerUsd} points for each US dollar of a delivered swap's value, and nothing for a swap that is refunded or fails. It may send a weekly payout shared out by points, in NEAR on BNB Chain. <Link href="/docs/rewards">The rules</Link> are part of these terms.
         </p>
         <ul>
           <li>Points are a record and nothing more. They have no money value. They are not a currency, an investment or a claim on anything, and they cannot be bought, sold or moved.</li>
@@ -235,7 +235,7 @@ export function PrivacyPage() {
             <strong>The operator's alert channel</strong>, a messaging service the operator chooses, which is told when something needs attention. An alert never holds an address or a link to an order; at most it names an order by a one-way fingerprint.
           </li>
         </ul>
-        <p>A payout is a transfer on BNB Chain from the reserve wallet to a rewards address. Like every transfer, it is public: anyone can see the address and the amount.</p>
+        <p>A payout is a transfer of NEAR on BNB Chain from the reserve wallet to a rewards address. Like every transfer, it is public: anyone can see the address and the amount.</p>
         <p>Addresses are checked against the sanctions list published by the United States Treasury. The list is downloaded to the server and the check happens there; your addresses are not sent to anyone for it.</p>
         {/* Only where the server is set to refuse visitors by where they are: nowhere else is a country worked out at all. */}
         {regionBlock ? (

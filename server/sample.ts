@@ -29,8 +29,8 @@ export const SAMPLE = {
   tokenAddress: address("token"),
   tokenPairAddress: address("pair"),
   reserveAddress: address("reserve"),
-  /** What the sample reserve wallet holds: 4.25 BNB, 38.5 of the payout coin and 250,000 of the token. */
-  pool: { bnb: 425n * 10n ** 16n, payout: 385n * 10n ** 17n, token: 250_000n * 10n ** 18n },
+  /** What the sample reserve wallet holds of the coin rewards are paid in: 2,480.5 NEAR, in its smallest unit. */
+  pool: 24_805n * 10n ** 17n,
 } as const;
 
 /** Where, inside a data folder, the note is kept that says the folder holds practice content. */
@@ -199,8 +199,8 @@ export interface Samples {
   ensureStats(now: number): void;
   /** Makes sure this week has points in it before anyone signs in: three made-up addresses with a swap each. */
   ensureWeek(now: number): void;
-  /** What the sample reserve wallet holds, in each coin's smallest unit. The chain is never asked about it. */
-  pool: { bnb: bigint; payout: bigint; token: bigint };
+  /** What the sample reserve wallet holds of the coin rewards are paid in, in its smallest unit. The chain is never asked about it. */
+  pool: bigint;
 }
 
 /**
@@ -294,7 +294,8 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
           held = null;
         }
         for (const share of held?.shares ?? []) if (!points.has(share.address)) points.set(share.address, BigInt(share.pointsMicro));
-        const pool = (index === 0 ? 8n : 6n) * 10n ** 18n;
+        // 320 NEAR last week and 260 the week before.
+        const pool = (index === 0 ? 320n : 260n) * 10n ** 18n;
         const result = sharePool(pool, points, RESERVE_ASSET.minPayout);
         const end = weekBounds(week)?.end ?? at;
         // One made-up transaction for the week, written down with every share it paid, as the record tool writes a real one.
@@ -304,6 +305,7 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
           week,
           closedAt: new Date(end + HOUR).toISOString(),
           asset: RESERVE_ASSET.symbol,
+          decimals: RESERVE_ASSET.decimals,
           pool: pool.toString(),
           paid: result.paid.toString(),
           left: result.left.toString(),

@@ -5,6 +5,7 @@ import path from "node:path";
 import { checkAddress } from "../shared/addresses.ts";
 import type { Confidentiality } from "../shared/api.ts";
 import { WALLET_CHAIN_NODE, WALLET_CHAINS, type WalletChain } from "../shared/chains.ts";
+import { RESERVE_ASSET } from "../shared/rewards.ts";
 
 export type RuntimeEnv = "production" | "development" | "test";
 
@@ -59,6 +60,8 @@ export interface Config {
   tokenPairAddress: string | null;
   /** The wallet weekly payouts are sent from, on BNB Chain. The site shows its balance and its payouts once it is set, and nothing about a reserve until then. */
   reserveAddress: string | null;
+  /** The coin rewards are paid in: NEAR on BNB Chain, by its token contract there (REWARD_TOKEN_ADDRESS). The built-in one unless the setting names another. */
+  rewardTokenAddress: string;
   xUrl: string | null;
   /** The token's page on DexScreener, and the project's page on GitHub. Each is a link behind an icon in the header and the footer; while unset its icon goes nowhere. */
   dexscreenerUrl: string | null;
@@ -333,6 +336,17 @@ export function loadConfig(env: Env = process.env): Config {
     if (reserveAddress === tokenAddress || reserveAddress === tokenPairAddress) fail("RESERVE_ADDRESS", "must be the reserve wallet's address, not the token's or the pair's");
   }
 
+  // The coin rewards are paid in, by its contract on BNB Chain. Left unset it is the built-in one,
+  // the Binance-Peg NEAR token. The pool, the payout tools and the check of each payout all go by it.
+  let rewardTokenAddress: string = RESERVE_ASSET.contract;
+  const rewardTokenAsked = read(env, "REWARD_TOKEN_ADDRESS");
+  if (rewardTokenAsked !== null) {
+    const check = checkAddress("bsc", rewardTokenAsked);
+    if (!check.ok) fail("REWARD_TOKEN_ADDRESS", "must be a valid 0x address");
+    rewardTokenAddress = check.address;
+    if (rewardTokenAddress === reserveAddress) fail("REWARD_TOKEN_ADDRESS", "must be the reward token's contract, not the reserve wallet's own address");
+  }
+
   // The project's own account, unless the setting names another.
   const xUrl = httpsUrl(env, "X_URL", false) ?? DEFAULT_X_URL;
   if (!/^https:\/\/(x|twitter)\.com\/[A-Za-z0-9_]{1,30}\/?$/.test(xUrl)) fail("X_URL", "must be an x.com profile link");
@@ -406,6 +420,7 @@ export function loadConfig(env: Env = process.env): Config {
     tokenAddress,
     tokenPairAddress,
     reserveAddress,
+    rewardTokenAddress,
     xUrl,
     dexscreenerUrl,
     githubUrl,

@@ -13,7 +13,9 @@ import { displayExact } from "../../../shared/amounts.ts";
 import { explorerAddressUrl, explorerTxUrl } from "../../../shared/chains.ts";
 import { poolShare, RESERVE_ASSET, REWARDS, showPoints, type PoolView, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
 import { Address } from "../components/Address.tsx";
+import { Amount } from "../components/Amount.tsx";
 import { PrimaryButton, TextButton } from "../components/Button.tsx";
+import { CoinIcon } from "../components/CoinIcon.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { TableFrame } from "../components/DocsLayout.tsx";
 import { Link } from "../components/Link.tsx";
@@ -105,9 +107,10 @@ function Mine({ mine, summary }: { mine: RewardsView | null; summary: RewardsPub
   if (signedIn) {
     const carried = BigInt(mine.week.carriedInMicro);
     const own = BigInt(mine.week.pointsMicro);
-    // The pool's dollars, where a reserve wallet is set and its balance has been read. Without them there is no estimate.
-    const poolUsd = summary?.pool?.totalUsdMicro ?? null;
-    const part = summary === null ? null : poolShare(own, BigInt(summary.weekPointsMicro), poolUsd === null ? null : BigInt(poolUsd));
+    // The pool, where a reserve wallet is set and its balance has been read: an amount of NEAR, and its dollars where there is a price. Without it there is no estimate.
+    const pool = summary?.pool ?? null;
+    const held = pool === null || pool.amount === null ? null : { amount: BigInt(pool.amount), usdMicro: pool.usdMicro === null ? null : BigInt(pool.usdMicro) };
+    const part = summary === null ? null : poolShare(own, BigInt(summary.weekPointsMicro), held);
     return (
       <div className="rewards-mine">
         <p className="rewards-label mono">Your points this week</p>
@@ -123,14 +126,18 @@ function Mine({ mine, summary }: { mine: RewardsView | null; summary: RewardsPub
                 <dt className="rewards-label mono">Your share</dt>
                 <dd className="rewards-figure mono">{own > 0n ? shareText(part.shareBps) : "0%"}</dd>
               </div>
-              {poolUsd !== null ? (
+              {held !== null && pool !== null ? (
                 <div className="rewards-fact">
                   <dt className="rewards-label mono">Estimated reward</dt>
-                  <dd className="rewards-figure mono">{usdText(part.estimateCents)}</dd>
+                  <dd className="rewards-figure">
+                    <Amount raw={part.estimate} decimals={pool.decimals} symbol={RESERVE_ASSET.symbol} />
+                  </dd>
+                  {/* In dollars beside it, only where there is a price for the coin just now. */}
+                  {part.estimateCents !== null ? <dd className="muted">about {usdText(part.estimateCents)}</dd> : null}
                 </div>
               ) : null}
             </dl>
-            {poolUsd !== null ? <p className="muted">{ESTIMATE_NOTE}</p> : null}
+            {held !== null ? <p className="muted">{ESTIMATE_NOTE}</p> : null}
             {own > 0n ? null : (
               <p className="muted">
                 <Link href="/">Make a swap to collect points.</Link>
@@ -228,7 +235,7 @@ function Payouts({ mine }: { mine: RewardsView }) {
             <tr key={payout.week}>
               <th scope="row">{weekName(payout.week)}</th>
               <td className="mono">
-                {displayExact(BigInt(payout.amount), 18)} {payout.asset}
+                {displayExact(BigInt(payout.amount), payout.decimals)} {payout.asset}
               </td>
               <td>
                 <TxLinks hashes={payout.txs} />
@@ -242,9 +249,10 @@ function Payouts({ mine }: { mine: RewardsView }) {
 }
 
 /**
- * The current pool: what the reserve wallet holds on BNB Chain, as the server last read it, in US
- * dollars and coin by coin, with a link to the wallet on the chain's own explorer so that anyone
- * can check it; and what has been paid from it. Not drawn at all while no reserve wallet is set.
+ * The current pool: what the reserve wallet holds of the coin rewards are paid in, NEAR on BNB
+ * Chain, as the server last read it, with its dollar value beneath where there is a price, and a
+ * link to the wallet on the chain's own explorer so that anyone can check it; and what has been
+ * paid from it. Nothing else the wallet holds is shown. Not drawn at all while no reserve wallet is set.
  */
 function Pool({ pool, summary }: { pool: PoolView; summary: RewardsPublic }) {
   const url = explorerAddressUrl(REWARDS.chain, pool.address);
@@ -253,28 +261,22 @@ function Pool({ pool, summary }: { pool: PoolView; summary: RewardsPublic }) {
       <h2 id="rewards-pool" className="rewards-heading">
         Current pool
       </h2>
-      {pool.totalUsdMicro !== null ? (
+      {pool.amount !== null ? (
         <>
-          <p className="rewards-pool-total mono">{usdMicroText(BigInt(pool.totalUsdMicro))}</p>
-          <p className="muted">
-            What the rewards wallet holds on BNB Chain{pool.readAt !== null ? <>, read from the chain on {momentText(pool.readAt)} UTC</> : null}. Each week's payout is sent from it, shared out by points.
+          <p className="rewards-pool-total">
+            <CoinIcon symbol={RESERVE_ASSET.symbol} chain={RESERVE_ASSET.chain} logo="near" size={32} />
+            <Amount raw={pool.amount} decimals={pool.decimals} symbol={RESERVE_ASSET.symbol} />
           </p>
-          <dl className="rewards-facts">
-            {pool.coins.map((coin) => (
-              <div className="rewards-fact" key={coin.symbol}>
-                <dt className="rewards-label mono">{coin.name}</dt>
-                <dd className="rewards-figure mono">
-                  {displayExact(BigInt(coin.amount), coin.decimals)} {coin.symbol}
-                </dd>
-                {/* A coin with no price is listed all the same, and adds nothing to the total. */}
-                <dd className="muted">{coin.usdMicro !== null ? usdMicroText(BigInt(coin.usdMicro)) : "not counted in the total"}</dd>
-              </div>
-            ))}
-          </dl>
+          {/* The dollar value, only where there is a price for the coin just now. */}
+          {pool.usdMicro !== null ? <p className="rewards-figure mono">about {usdMicroText(BigInt(pool.usdMicro))}</p> : null}
+          <p className="muted">
+            What the rewards wallet holds in NEAR on BNB Chain{pool.readAt !== null ? <>, read from the chain on {momentText(pool.readAt)} UTC</> : null}. Each week's payout is sent from it, shared out by points.
+          </p>
         </>
       ) : (
         <p className="muted">The balance could not be read just now.</p>
       )}
+      <p className="muted">Rewards are paid in NEAR on BNB Chain, to the address you signed in with.</p>
       <p className="rewards-address">
         <span className="token-address">
           <Address value={pool.address} />
@@ -290,13 +292,16 @@ function Pool({ pool, summary }: { pool: PoolView; summary: RewardsPublic }) {
       </p>
       {summary.weeks.length > 0 ? (
         <>
-          <p className="muted">
-            Paid out so far:{" "}
-            <span className="mono">
-              {displayExact(BigInt(summary.totalPaid), RESERVE_ASSET.decimals)} {RESERVE_ASSET.symbol}
-            </span>{" "}
-            over <span className="mono">{summary.weeksPaid}</span> {summary.weeksPaid === 1 ? "week" : "weeks"}.
-          </p>
+          {/* The total is of what was paid in NEAR. A week paid in another coin is in the list below, in its own. */}
+          {summary.weeksPaid > 0 ? (
+            <p className="muted">
+              Paid out so far:{" "}
+              <span className="mono">
+                {displayExact(BigInt(summary.totalPaid), pool.decimals)} {RESERVE_ASSET.symbol}
+              </span>{" "}
+              over <span className="mono">{summary.weeksPaid}</span> {summary.weeksPaid === 1 ? "week" : "weeks"}.
+            </p>
+          ) : null}
           <TableFrame label="Weeks paid from the pool">
             <thead>
               <tr>
@@ -310,7 +315,7 @@ function Pool({ pool, summary }: { pool: PoolView; summary: RewardsPublic }) {
                 <tr key={week.week}>
                   <th scope="row">{weekName(week.week)}</th>
                   <td className="mono">
-                    {displayExact(BigInt(week.paid), RESERVE_ASSET.decimals)} {week.asset}
+                    {displayExact(BigInt(week.paid), week.decimals)} {week.asset}
                   </td>
                   {/* One transfer to each address paid. A handful are linked; more than that are counted, and can be seen on the wallet's own page (the link above). */}
                   <td>{week.txs.length > 3 ? <span className="mono">{week.txs.length} transfers</span> : <TxLinks hashes={week.txs} />}</td>

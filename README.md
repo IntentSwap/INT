@@ -172,8 +172,13 @@ another address's points: there is no list and no ranking.
 Nothing needs doing for points to be counted. Payouts are sent by hand, from the
 reserve wallet, once a week:
 
+Rewards are paid in NEAR on BNB Chain (the Binance-Peg NEAR token, `REWARD_TOKEN_ADDRESS`),
+to each rewards address, which is an address on that chain. Every amount the two
+tools take and print is an amount of NEAR, worked in the token's own smallest unit
+(18 decimals).
+
 1. After the week has ended (Sunday 23:59 UTC), look at what closing it would do with
-   the pool you have in mind:
+   the pool you have in mind, as an amount of NEAR:
 
    ```
    npm run rewards:export -- --week 2026-W41 --pool 12.5
@@ -197,7 +202,7 @@ reserve wallet, once a week:
    closed again with another pool. Closing checks three things first, and closes
    nothing if one of them fails:
 
-   - **The reserve holds the pool.** The reserve wallet's balance of the payout coin is
+   - **The reserve holds the pool.** The reserve wallet's balance of NEAR is
      read from BNB Chain. A pool larger than it is refused, and so is any pool while
      the balance cannot be read or `RESERVE_ADDRESS` is not set.
    - **The payout list is screened.** Every address that is due a payout is screened
@@ -219,7 +224,7 @@ reserve wallet, once a week:
    ```
 
    Each is checked on BNB Chain: sent by `RESERVE_ADDRESS`, successful, and holding a
-   transfer of the payout coin from the reserve wallet to an address on the week's
+   transfer of NEAR (the reward token, and no other) from the reserve wallet to an address on the week's
    list, for exactly that address's payout, where none is on record for it yet. The
    hash is kept with the payout it made. A transaction that holds no such transfer (an
    approval, another coin, another amount) is refused, and so is one already on record
@@ -267,7 +272,8 @@ bad value stops the server with the variable's name in the log.
 | `REOWN_PROJECT_ID` | Wallet-connect project ID. Public by design | Already built in. Leave unset |
 | `TOKEN_ADDRESS` | The `$INT` contract on BNB Chain. Shows the `$INT` section when set | After the token launches |
 | `TOKEN_PAIR_ADDRESS` | The token's trading pair (liquidity pool) on BNB Chain, shown beside it | After the token launches |
-| `RESERVE_ADDRESS` | The wallet weekly payouts are sent from, on BNB Chain. Shows the current pool on the Rewards page when set: what the wallet holds, in US dollars and coin by coin | When payouts begin |
+| `RESERVE_ADDRESS` | The wallet weekly payouts are sent from, on BNB Chain. Shows the current pool on the Rewards page when set: what the wallet holds in NEAR, with its dollar value | When payouts begin |
+| `REWARD_TOKEN_ADDRESS` | The coin rewards are paid in, by its token contract on BNB Chain. Default `0x1Fa4a73a3F0133f0025378af00236f3aBDEE5D63`, the Binance-Peg NEAR token (18 decimals). The pool, the payout tools and the check of each payout go by it; the site says NEAR whatever it is set to | Leave unset |
 | `X_URL` | Where the X icon in the header and footer leads. Default `https://x.com/intentswap_`, the project's own account | Leave unset |
 | `GITHUB_URL` | Where the GitHub icon leads. Default `https://github.com/IntentSwap/INT`, the project's repository | Leave unset |
 | `DEXSCREENER_URL` | Where the DexScreener icon leads. Default `https://dexscreener.com/`, its front page, until the token has a page there | The token's own page, for example `https://dexscreener.com/bsc/0x...`, after the token launches |

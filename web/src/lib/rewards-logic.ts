@@ -69,6 +69,6 @@ export const ESTIMATE_NOTE = "An estimate. Your share changes as others swap, an
 /** The rules in short, each one a sentence, from the same numbers the server counts by. */
 export const RULES_IN_SHORT: readonly string[] = [
   `A delivered swap adds ${REWARDS.pointsPerUsd} points for each $1 swapped: one point for every 10 cents of its dollar value. A swap that is refunded, fails or runs out adds none.`,
-  "A week runs from Monday 00:00 to Sunday 23:59 UTC. After it closes, its payout is shared out by points: an address's share is its points out of all the points of that week. It is sent by hand on BNB Chain.",
+  "A week runs from Monday 00:00 to Sunday 23:59 UTC. After it closes, its payout is shared out by points: an address's share is its points out of all the points of that week. It is sent by hand, in NEAR on BNB Chain.",
   "Points have no money value. A payout is at IntentSwap's discretion and can change or stop.",
 ];

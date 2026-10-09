@@ -17,7 +17,7 @@ import {
   type TokensResponse,
 } from "../shared/api.ts";
 import { DEPOSIT_CLOSE_MS, explorerTxUrl, isWalletChain, WALLET_CHAINS, type WalletChain } from "../shared/chains.ts";
-import { MICRO, RESERVE_ASSET, type PoolCoin, type PoolView, type RewardsPublic } from "../shared/rewards.ts";
+import { MICRO, RESERVE_ASSET, type PoolView, type RewardsPublic } from "../shared/rewards.ts";
 import type { AccessLog } from "./log.ts";
 import type { Alerts } from "./alerts.ts";
 import type { Config } from "./config.ts";
@@ -29,8 +29,9 @@ import type { OneClick } from "./oneclick.ts";
 import { EXPIRE_AFTER_DEADLINE_MS, type Poller } from "./poller.ts";
 import { buildSentQuote, enforceUsdCap, mapRejection, parseSwapInput, privateUnavailable, refusesPrivate, toQuoteView, type QuoteInput } from "./quotes.ts";
 import { MAX_HASH_SUBMISSIONS, MAX_UNPAID_PER_CLIENT, MAX_UNPAID_PER_NETWORK, openOrderCap, type LimitName, type Limiters } from "./ratelimit.ts";
-import { decodeErc20Transfer, decodeTransferLog, hexToBigInt, isBalanceBatch, parseProxyBody, SELECTOR_DECIMALS, type Rpc, type RpcCall } from "./rpc.ts";
+import { decodeErc20Transfer, decodeTransferLog, hexToBigInt, isBalanceBatch, parseProxyBody, type Rpc } from "./rpc.ts";
 import { rewardsAddressOf, type Rewards, type SignIn } from "./rewards.ts";
+import { reserveHolds } from "./rewards-tools.ts";
 import { SAMPLE, type Samples } from "./sample.ts";
 import type { Sanctions } from "./sanctions.ts";
 import type { SessionIssuer } from "./session.ts";
@@ -360,42 +361,16 @@ export function createApp(deps: AppDeps): RequestListener {
   };
 
   /**
-   * What the reserve wallet holds on BNB Chain, in each coin's smallest unit: BNB, the payout coin,
-   * and the site's own token where one is set (with its decimals, read from the token itself). One
-   * request to the chain for all of them. Null when any part of it could not be read.
-   */
-  async function poolBalances(reserve: string): Promise<{ bnb: bigint; payout: bigint; token: { amount: bigint; decimals: number } | null } | null> {
-    // A practice server's made-up reserve holds made-up amounts; the chain is not asked about it.
-    const samples = deps.practice?.samples;
-    if (samples !== undefined && reserve === SAMPLE.reserveAddress) return { bnb: samples.pool.bnb, payout: samples.pool.payout, token: config.tokenAddress === null ? null : { amount: samples.pool.token, decimals: 18 } };
-    const holder = reserve.slice(2).toLowerCase().padStart(64, "0");
-    // balanceOf(address)
-    const held = (token: string): RpcCall => ({ method: "eth_call", params: [{ to: token, data: `0x70a08231${holder}` }, "latest"] });
-    const calls: RpcCall[] = [{ method: "eth_getBalance", params: [reserve, "latest"] }, held(RESERVE_ASSET.contract)];
-    if (config.tokenAddress !== null) calls.push(held(config.tokenAddress), { method: "eth_call", params: [{ to: config.tokenAddress, data: SELECTOR_DECIMALS }, "latest"] });
-    let values: (bigint | null)[];
-    try {
-      values = (await rpc.batch("bsc", calls)).map((reply) => (reply.ok ? hexToBigInt(reply.result) : null));
-    } catch {
-      return null;
-    }
-    const [bnb, payout, tokenAmount, tokenDecimals] = values;
-    if (values.length !== calls.length || bnb === null || bnb === undefined || payout === null || payout === undefined) return null;
-    if (config.tokenAddress === null) return { bnb, payout, token: null };
-    if (tokenAmount === null || tokenAmount === undefined || tokenDecimals === null || tokenDecimals === undefined || tokenDecimals > 36n) return null;
-    return { bnb, payout, token: { amount: tokenAmount, decimals: Number(tokenDecimals) } };
-  }
-
-  /**
-   * The current pool, for the Rewards page: the reserve wallet's coins and what they come to in US
-   * dollars. The chain is read at most once in a minute, and every visitor is given that one
-   * reading. A read that fails changes nothing: the last good figures stand, with the time they
-   * were read. Until a read has worked there are no figures at all, and the page says so.
+   * The current pool, for the Rewards page: what the reserve wallet holds of the coin rewards are
+   * paid in (NEAR on BNB Chain, by the reward token's contract), and what that comes to in US
+   * dollars. Nothing else the wallet holds is part of it. The chain is read at most once in a
+   * minute, and every visitor is given that one reading. A read that fails changes nothing: the
+   * last good figures stand, with the time they were read. Until a read has worked there is no
+   * figure at all, and the page says so.
    *
-   * BNB and the payout coin are valued at the prices of the coin list the server already holds (the
-   * payout coin at the price of the coin it is pegged to, one for one). A coin with no price there
-   * is listed with its amount and left out of the total; the site's own token has no price source,
-   * so it never counts. Whole-number maths, each value rounded down to a millionth of a dollar.
+   * The dollar value is worked out at the price the coin list holds for this very token on BNB
+   * Chain, in whole numbers, rounded down to a millionth of a dollar. Where the list has no price
+   * for it just now there is no dollar value, and the amount is shown without one.
    */
   let poolSeen: PoolView | null = null;
   let poolTriedAt: number | null = null;
@@ -405,21 +380,19 @@ export function createApp(deps: AppDeps): RequestListener {
       // One reading at a time: requests that arrive together wait for the same one.
       poolReading ??= (async () => {
         poolTriedAt = now();
-        const held = await poolBalances(reserve);
+        // A practice server's made-up reserve holds a made-up amount; the chain is not asked about it.
+        const samples = deps.practice?.samples;
+        const held = samples !== undefined && reserve === SAMPLE.reserveAddress ? { amount: samples.pool, decimals: RESERVE_ASSET.decimals } : await reserveHolds(rpc, reserve, config.rewardTokenAddress);
         if (held === null) return;
-        const prices = (await tokens.snapshot())?.tokens ?? [];
-        const priceOf = (chain: string, symbol: string) => prices.find((token) => token.chain === chain && token.symbol === symbol && token.contract === null)?.priceScaled ?? null;
-        const coin = (symbol: string, name: string, decimals: number, amount: bigint, price: bigint | null): PoolCoin => ({ symbol, name, decimals, amount: amount.toString(), usdMicro: price === null ? null : (usdScaled(amount, decimals, price) / USD_TO_MICRO).toString() });
-        const coins = [coin("BNB", "BNB", 18, held.bnb, priceOf("bsc", "BNB")), coin(RESERVE_ASSET.symbol, RESERVE_ASSET.name, RESERVE_ASSET.decimals, held.payout, priceOf("zec", "ZEC"))];
-        if (held.token !== null) coins.push(coin("$INT", "IntentSwap token", held.token.decimals, held.token.amount, null));
-        const total = coins.reduce((sum, item) => sum + BigInt(item.usdMicro ?? "0"), 0n);
-        poolSeen = { address: reserve, totalUsdMicro: total.toString(), coins, readAt: new Date(now()).toISOString() };
+        const token = config.rewardTokenAddress.toLowerCase();
+        const price = (await tokens.snapshot())?.tokens.find((item) => item.chain === RESERVE_ASSET.chain && item.contract?.toLowerCase() === token)?.priceScaled ?? null;
+        poolSeen = { address: reserve, amount: held.amount.toString(), decimals: held.decimals, usdMicro: price === null ? null : (usdScaled(held.amount, held.decimals, price) / USD_TO_MICRO).toString(), readAt: new Date(now()).toISOString() };
       })().finally(() => {
         poolReading = null;
       });
       await poolReading;
     }
-    return poolSeen ?? { address: reserve, totalUsdMicro: null, coins: [], readAt: null };
+    return poolSeen ?? { address: reserve, amount: null, decimals: RESERVE_ASSET.decimals, usdMicro: null, readAt: null };
   }
 
   const statsRoute: Route = {

@@ -3,18 +3,50 @@
 // an address on that list from the reserve wallet. Run by hand by the operator; there is no web
 // route for any of it, and nothing here sends anything.
 
-import { formatExact } from "../shared/amounts.ts";
+import { formatExact, parseAmount } from "../shared/amounts.ts";
 import { isValidTxHash } from "../shared/addresses.ts";
-import { MICRO, RESERVE_ASSET, weekBounds } from "../shared/rewards.ts";
-import type { Rewards, WeekRecord, WeekShare } from "./rewards.ts";
-import { decodeTransferLog, hexToBigInt, type Rpc } from "./rpc.ts";
+import { MICRO, minPayoutFor, RESERVE_ASSET, weekBounds } from "../shared/rewards.ts";
+import { decimalsOf, type Rewards, type WeekRecord, type WeekShare } from "./rewards.ts";
+import { decodeTransferLog, hexToBigInt, SELECTOR_DECIMALS, type Rpc, type RpcCall } from "./rpc.ts";
 import type { Sanctions } from "./sanctions.ts";
 
 /** A whole number of millionths as a plain decimal with six places: 1234567n gives "1.234567". */
 const sixPlaces = (micro: bigint): string => `${micro / MICRO}.${(micro % MICRO).toString().padStart(6, "0")}`;
 
-/** An amount of the payout coin, from its smallest unit, as a plain decimal. */
-const coins = (raw: bigint): string => formatExact(raw, RESERVE_ASSET.decimals);
+/** An amount of a coin, from its smallest unit, as a plain decimal. */
+const coins = (raw: bigint, decimals: number): string => formatExact(raw, decimals);
+
+/**
+ * The coin rewards are paid in, as the tools need it: the token's contract on BNB Chain, and its
+ * decimals. Every amount the tools take, work out and write down is of this token, in its own
+ * smallest unit.
+ */
+export interface RewardToken {
+  address: string;
+  decimals: number;
+}
+
+/**
+ * The reward token's decimals: 18 for the built-in token, and for any other the figure that token
+ * itself reports on BNB Chain. Null when it could not be read: nothing is then guessed.
+ */
+export async function rewardTokenDecimals(rpc: Rpc, token: string): Promise<number | null> {
+  if (token.toLowerCase() === RESERVE_ASSET.contract.toLowerCase()) return RESERVE_ASSET.decimals;
+  try {
+    const reply = await rpc.call("bsc", "eth_call", [{ to: token, data: SELECTOR_DECIMALS }, "latest"]);
+    const value = reply.ok ? hexToBigInt(reply.result) : null;
+    return value === null || value > 36n ? null : Number(value);
+  } catch {
+    return null;
+  }
+}
+
+/** A pool as it is typed ("12.5"), as an amount of the reward token in its smallest unit. Anything that is not an amount of it is refused. */
+export function poolAmount(text: string, decimals: number): bigint {
+  const amount = parseAmount(text, decimals);
+  if (!amount.ok) throw new Error(`"${text}" is not an amount of ${RESERVE_ASSET.symbol}.`);
+  return amount.raw;
+}
 
 /**
  * The list of payouts for a week, as a CSV: one line per rewards address, in the order of the
@@ -25,12 +57,13 @@ const coins = (raw: bigint): string => formatExact(raw, RESERVE_ASSET.decimals);
 export function weekCsv(week: WeekRecord): string {
   const total = BigInt(week.totalPointsMicro);
   const coin = week.asset.toLowerCase();
+  const decimals = decimalsOf(week);
   const lines = [`rewards_address,points,share,payout_${coin},carried_points,withheld_${coin}`];
   for (const share of week.shares) {
     const points = BigInt(share.pointsMicro);
     // The share as a decimal fraction of one, to eight places, rounded down.
     const fraction = total === 0n ? 0n : (points * 100_000_000n) / total;
-    lines.push([share.address, sixPlaces(points), `${fraction / 100_000_000n}.${(fraction % 100_000_000n).toString().padStart(8, "0")}`, coins(BigInt(share.payout)), sixPlaces(BigInt(share.carriedMicro)), coins(BigInt(share.withheld ?? "0"))].join(","));
+    lines.push([share.address, sixPlaces(points), `${fraction / 100_000_000n}.${(fraction % 100_000_000n).toString().padStart(8, "0")}`, coins(BigInt(share.payout), decimals), sixPlaces(BigInt(share.carriedMicro)), coins(BigInt(share.withheld ?? "0"), decimals)].join(","));
   }
   return `${lines.join("\n")}\n`;
 }
@@ -59,15 +92,16 @@ export interface WeekSummary {
 export function weekSummary(week: WeekRecord): WeekSummary {
   const bounds = weekBounds(week.week);
   const kept = week.shares.filter((share) => share.withheld !== undefined);
+  const decimals = decimalsOf(week);
   return {
     week: week.week,
     from: new Date(bounds?.start ?? 0).toISOString(),
     to: new Date((bounds?.end ?? 1) - 1).toISOString(),
     asset: week.asset,
-    pool: coins(BigInt(week.pool)),
-    paid: coins(BigInt(week.paid)),
-    leftInReserve: coins(BigInt(week.left)),
-    withheld: coins(kept.reduce((sum, share) => sum + BigInt(share.withheld ?? "0"), 0n)),
+    pool: coins(BigInt(week.pool), decimals),
+    paid: coins(BigInt(week.paid), decimals),
+    leftInReserve: coins(BigInt(week.left), decimals),
+    withheld: coins(kept.reduce((sum, share) => sum + BigInt(share.withheld ?? "0"), 0n), decimals),
     addresses: week.shares.length,
     addressesPaid: week.shares.filter((share) => BigInt(share.payout) > 0n).length,
     addressesCarried: week.shares.filter((share) => BigInt(share.carriedMicro) > 0n).length,
@@ -78,14 +112,20 @@ export function weekSummary(week: WeekRecord): WeekSummary {
 }
 
 /**
- * What the reserve wallet holds of the payout coin, read from BNB Chain, in the coin's smallest
- * unit. Null when the chain could not be read.
+ * What the reserve wallet holds of the reward token, in the token's smallest unit, with the token's
+ * decimals: one request to BNB Chain for both. Null when the chain could not be read.
  */
-export async function reserveHolds(rpc: Rpc, reserve: string): Promise<bigint | null> {
+export async function reserveHolds(rpc: Rpc, reserve: string, token: string): Promise<{ amount: bigint; decimals: number } | null> {
+  // balanceOf(address)
+  const calls: RpcCall[] = [{ method: "eth_call", params: [{ to: token, data: `0x70a08231${reserve.slice(2).toLowerCase().padStart(64, "0")}` }, "latest"] }];
+  // The built-in token's decimals are known. Any other token is asked for its own.
+  const known = token.toLowerCase() === RESERVE_ASSET.contract.toLowerCase();
+  if (!known) calls.push({ method: "eth_call", params: [{ to: token, data: SELECTOR_DECIMALS }, "latest"] });
   try {
-    // balanceOf(address)
-    const reply = await rpc.call("bsc", "eth_call", [{ to: RESERVE_ASSET.contract, data: `0x70a08231${reserve.slice(2).toLowerCase().padStart(64, "0")}` }, "latest"]);
-    return reply.ok ? hexToBigInt(reply.result) : null;
+    const [amount, decimals] = (await rpc.batch("bsc", calls)).map((reply) => (reply.ok ? hexToBigInt(reply.result) : null));
+    if (amount === null || amount === undefined) return null;
+    if (known) return { amount, decimals: RESERVE_ASSET.decimals };
+    return decimals === null || decimals === undefined || decimals > 36n ? null : { amount, decimals: Number(decimals) };
   } catch {
     return null;
   }
@@ -96,7 +136,7 @@ export interface WeekExport {
   closed: boolean;
   /** True when the week was closed before this run. Its record stands as it is. */
   already: boolean;
-  /** What the reserve wallet held when it was asked, in the coin's smallest unit. Null when it was not asked or the chain could not be read. */
+  /** What the reserve wallet held of the reward token when it was asked, in the token's smallest unit. Null when it was not asked or the chain could not be read. */
   reserveHolds: bigint | null;
   record: WeekRecord;
   csv: string;
@@ -111,26 +151,27 @@ export interface WeekExport {
  * holds, read from the chain: a pool larger than that, or a balance that cannot be read, closes
  * nothing. A week that is closed already is read back as it stands.
  */
-export async function exportWeek(options: { rewards: Rewards; sanctions: Sanctions; rpc: Rpc; reserve: string | null; week: string; pool: bigint; asset: string; now: number; close?: boolean }): Promise<WeekExport> {
-  const { rewards, week, pool } = options;
-  if (options.asset.toUpperCase() !== RESERVE_ASSET.symbol) throw new Error(`Payouts are sent in ${RESERVE_ASSET.symbol}. "${options.asset}" is not it.`);
+export async function exportWeek(options: { rewards: Rewards; sanctions: Sanctions; rpc: Rpc; reserve: string | null; token: RewardToken; week: string; pool: bigint; asset: string; now: number; close?: boolean }): Promise<WeekExport> {
+  const { rewards, week, pool, token } = options;
+  const symbol = RESERVE_ASSET.symbol;
+  if (options.asset.toUpperCase() !== symbol) throw new Error(`Payouts are sent in ${symbol}. "${options.asset}" is not it.`);
   if (pool < 0n) throw new Error("The pool cannot be less than nothing.");
   const already = rewards.week(week) !== null;
-  const plan = rewards.planWeek(week, pool, RESERVE_ASSET.symbol, RESERVE_ASSET.minPayout, options.now, options.sanctions);
+  const plan = rewards.planWeek(week, pool, symbol, minPayoutFor(token.decimals), options.now, options.sanctions, token.decimals);
   if (already) return { closed: true, already: true, reserveHolds: null, record: plan, csv: weekCsv(plan), summary: weekSummary(plan) };
-  const holds = options.reserve === null ? null : await reserveHolds(options.rpc, options.reserve);
+  const holds = options.reserve === null ? null : ((await reserveHolds(options.rpc, options.reserve, token.address))?.amount ?? null);
   // Only the word to close closes. Anything else is a look, and a look writes nothing.
   if (options.close !== true) return { closed: false, already: false, reserveHolds: holds, record: plan, csv: weekCsv(plan), summary: weekSummary(plan) };
   // A pool of nothing sends nothing, so there is nothing to check it against: a week from before
   // there was a reserve wallet can be closed, and its points carried, without one.
   if (pool > 0n && options.reserve === null) throw new Error("RESERVE_ADDRESS is not set, so there is no reserve wallet to check the pool against. Nothing was closed.");
   if (pool > 0n && holds === null) throw new Error("The reserve wallet's balance could not be read from BNB Chain, so the pool could not be checked against it. Nothing was closed. Try again shortly.");
-  if (holds !== null && pool > holds) throw new Error(`The pool is ${coins(pool)} ${RESERVE_ASSET.symbol} and the reserve wallet holds ${coins(holds)}. A week is not closed with more than the reserve holds. Nothing was closed.`);
-  const record = rewards.closeWeek(week, pool, RESERVE_ASSET.symbol, RESERVE_ASSET.minPayout, options.now, options.sanctions);
+  if (holds !== null && pool > holds) throw new Error(`The pool is ${coins(pool, token.decimals)} ${symbol} and the reserve wallet holds ${coins(holds, token.decimals)}. A week is not closed with more than the reserve holds. Nothing was closed.`);
+  const record = rewards.closeWeek(week, pool, symbol, minPayoutFor(token.decimals), options.now, options.sanctions, token.decimals);
   return { closed: true, already: false, reserveHolds: holds, record, csv: weekCsv(record), summary: weekSummary(record) };
 }
 
-/** One transfer of the payout coin out of the reserve wallet, as the coin's own contract recorded it. */
+/** One transfer of the reward token out of the reserve wallet, as the token's own contract recorded it. */
 export interface PayoutTransfer {
   /** Who was paid, in small letters. */
   to: string;
@@ -139,10 +180,11 @@ export interface PayoutTransfer {
 
 /**
  * Checks on BNB Chain that a transaction was sent by the reserve wallet and went through, and
- * reads what it holds: the payout coin's own records of coins leaving the reserve wallet. The
+ * reads what it holds: the reward token's own records of coins leaving the reserve wallet. A
+ * transfer of any other token is no payout, whatever it is called and however much it is. The
  * reason is given in plain words when it did not pass, so that a wrong hash is never recorded.
  */
-export async function checkPayoutTx(rpc: Rpc, reserve: string, hash: string): Promise<{ ok: true; transfers: PayoutTransfer[] } | { ok: false; reason: string }> {
+export async function checkPayoutTx(rpc: Rpc, reserve: string, hash: string, token: string): Promise<{ ok: true; transfers: PayoutTransfer[] } | { ok: false; reason: string }> {
   if (!isValidTxHash("bsc", hash)) return { ok: false, reason: "that is not a transaction hash" };
   const [tx, receipt] = await rpc.batch("bsc", [
     { method: "eth_getTransactionByHash", params: [hash] },
@@ -159,8 +201,8 @@ export async function checkPayoutTx(rpc: Rpc, reserve: string, hash: string): Pr
   for (const entry of Array.isArray(done.logs) ? (done.logs as unknown[]) : []) {
     const event = decodeTransferLog(entry);
     if (event === null || event.amount === 0n) continue;
-    // Only the payout coin's own contract speaks for the payout coin. A record of the same shape from any other contract says nothing.
-    if (event.token !== RESERVE_ASSET.contract.toLowerCase()) continue;
+    // Only the reward token's own contract speaks for the reward token. A record of the same shape from any other contract says nothing.
+    if (event.token !== token.toLowerCase()) continue;
     // Only coins that left the reserve wallet are a payout from it.
     if (event.from !== reserve.toLowerCase()) continue;
     transfers.push({ to: event.to, amount: event.amount });
@@ -170,15 +212,17 @@ export async function checkPayoutTx(rpc: Rpc, reserve: string, hash: string): Pr
 
 /**
  * Records payout transactions for a closed week, after checking each of them. A transaction counts
- * only for what it holds: a transfer of the payout coin from the reserve wallet to an address on
+ * only for what it holds: a transfer of the reward token from the reserve wallet to an address on
  * the week's list, for exactly that address's payout, where no transfer is on record for it. Each
  * such transfer is written down with the share it paid. A transaction that holds none, or that
  * any week has on record already, is refused, and nothing is recorded unless every one passes.
  */
-export async function recordPayouts(options: { rewards: Rewards; rpc: Rpc; reserve: string; week: string; hashes: readonly string[]; now: number }): Promise<WeekRecord> {
+export async function recordPayouts(options: { rewards: Rewards; rpc: Rpc; reserve: string; token: string; week: string; hashes: readonly string[]; now: number }): Promise<WeekRecord> {
   const { rewards, week } = options;
   const held = rewards.week(week);
   if (held === null) throw new Error(`Week ${week} is not closed. Run rewards:export for it first.`);
+  // A week closed in another coin was to be paid in that coin. A transfer of this one is not its payout.
+  if (held.asset !== RESERVE_ASSET.symbol) throw new Error(`Week ${week} was closed in ${held.asset}, not in ${RESERVE_ASSET.symbol}. Only payouts in ${RESERVE_ASSET.symbol} are recorded. Nothing was recorded.`);
   if (options.hashes.length === 0) throw new Error("Give at least one transaction hash, with --tx.");
   // The payouts still to be recorded, by address. Each is taken off as a transfer is matched to it.
   const unpaid = new Map<string, WeekShare>(held.shares.filter((share) => BigInt(share.payout) > 0n && share.tx === undefined).map((share) => [share.address.toLowerCase(), share]));
@@ -187,7 +231,7 @@ export async function recordPayouts(options: { rewards: Rewards; rpc: Rpc; reser
   for (const hash of new Set(options.hashes.map((given) => given.toLowerCase()))) {
     const recorded = rewards.weekOfTx(hash);
     if (recorded !== null) throw new Error(`${hash}: it is on record already, for week ${recorded}. Nothing was recorded.`);
-    const check = await checkPayoutTx(options.rpc, options.reserve, hash);
+    const check = await checkPayoutTx(options.rpc, options.reserve, hash, options.token);
     if (!check.ok) throw new Error(`${hash}: ${check.reason}. Nothing was recorded.`);
     let matched = 0;
     for (const transfer of check.transfers) {

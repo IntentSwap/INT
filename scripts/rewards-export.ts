@@ -3,6 +3,10 @@
 //   npm run rewards:export -- --week 2026-W41 --pool 12.5            a look: it writes nothing
 //   npm run rewards:export -- --week 2026-W41 --pool 12.5 --close    closes the week
 //
+// The pool is an amount of NEAR (the coin rewards are paid in: NEAR on BNB Chain, by the reward
+// token's contract, REWARD_TOKEN_ADDRESS), and every figure it works out is in that token's own
+// smallest unit.
+//
 // It shares the pool out among the week's rewards addresses by their points, in whole-number
 // maths, each share rounded down; what is left over stays in the reserve. A share under the
 // smallest payout is not sent: its points are carried into the next week. Every address that is
@@ -20,12 +24,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { formatExact, parseAmount } from "../shared/amounts.ts";
+import { formatExact } from "../shared/amounts.ts";
 import { RESERVE_ASSET } from "../shared/rewards.ts";
 import { loadConfig } from "../server/config.ts";
 import type { Logger } from "../server/log.ts";
 import { createRewards } from "../server/rewards.ts";
-import { exportWeek } from "../server/rewards-tools.ts";
+import { exportWeek, poolAmount, rewardTokenDecimals } from "../server/rewards-tools.ts";
 import { createRpc } from "../server/rpc.ts";
 import { createSanctions } from "../server/sanctions.ts";
 
@@ -42,9 +46,12 @@ try {
   const asset = option("asset") ?? RESERVE_ASSET.symbol;
   const close = process.argv.includes("--close");
   if (week === null || pool === null) throw new Error("Usage: npm run rewards:export -- --week 2026-W41 --pool 12.5 [--close]");
-  const amount = parseAmount(pool, RESERVE_ASSET.decimals);
-  if (!amount.ok) throw new Error(`"${pool}" is not an amount of ${RESERVE_ASSET.symbol}.`);
   const config = loadConfig(process.env);
+  const rpc = createRpc({ urls: config.rpcUrls });
+  // The token's own decimals: the pool is typed as an amount of it, and is worked in its smallest unit.
+  const decimals = await rewardTokenDecimals(rpc, config.rewardTokenAddress);
+  if (decimals === null) throw new Error("The reward token's decimals could not be read from BNB Chain, so the pool's amount cannot be worked out. Nothing was done. Try again shortly.");
+  const amount = { raw: poolAmount(pool, decimals) };
 
   // The sanctions list the server screens orders with: the copy saved in the data folder, fetched
   // again when it is more than a day old. A person is at the keyboard, so nothing is sent to the
@@ -59,8 +66,8 @@ try {
   const sanctions = createSanctions({ dataDir: config.dataDir, log, alerts: { send() {} } });
   await sanctions.refresh();
 
-  const result = await exportWeek({ rewards: createRewards(config.dataDir), sanctions, rpc: createRpc({ urls: config.rpcUrls }), reserve: config.reserveAddress, week, pool: amount.raw, asset, now: Date.now(), close });
-  const holds = result.reserveHolds === null ? null : formatExact(result.reserveHolds, RESERVE_ASSET.decimals);
+  const result = await exportWeek({ rewards: createRewards(config.dataDir), sanctions, rpc, reserve: config.reserveAddress, token: { address: config.rewardTokenAddress, decimals }, week, pool: amount.raw, asset, now: Date.now(), close });
+  const holds = result.reserveHolds === null ? null : formatExact(result.reserveHolds, decimals);
 
   if (result.already) say(`week ${week} is closed already. This is its record.`);
   else if (result.closed) say(`week ${week} closed.`);

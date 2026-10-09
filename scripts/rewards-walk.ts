@@ -190,10 +190,11 @@ export async function rewardsWalk(browser: Browser, options: { practiceUrl: stri
       expectThat(payouts === 2, `the signed-in address is shown ${payouts} payouts, not the two sample weeks`);
       await page.getByRole("heading", { name: "Current pool" }).waitFor({ timeout: 10_000 });
       const pooled = (await page.locator(".rewards-pool-total").innerText()).trim();
-      expectThat(/^\$[\d,]+\.\d\d$/.test(pooled), `the current pool reads "${pooled}"`);
+      // An amount of NEAR, the coin rewards are paid in. (The exact figure follows it, for a screen reader.)
+      expectThat(/^[\d,.]+ NEAR/.test(pooled) && !/\$|ZEC|BNB/.test(pooled), `the current pool reads "${pooled}"`);
       // Beside the address's own points: its share of the week's total, and what that share of the pool comes to.
       const part = (await page.locator(".rewards-mine").innerText()).replace(/\s+/g, " ");
-      expectThat(/Your share [\d.]+% Estimated reward \$[\d,]+\.\d\d An estimate\. Your share changes as others swap, and the pool changes until the week closes\./i.test(part), `the signed-in address's share reads "${part}"`);
+      expectThat(/Your share [\d.]+% Estimated reward [\d,.]+ NEAR .*An estimate\. Your share changes as others swap, and the pool changes until the week closes\./i.test(part), `the signed-in address's share reads "${part}"`);
       // No address on the page but this one (in short) and the reserve's.
       const text = await page.locator("main#main").innerText();
       // (An address is 40 hex figures and no more: a transaction's hash, which is longer, is not one.)

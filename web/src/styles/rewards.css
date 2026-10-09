@@ -61,6 +61,13 @@
   color: var(--accent);
 }
 
+/* The pool: the coin's icon, then the amount. */
+.rewards-pool-total {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+
 /* Under the week's dates: everyone's points together, as one figure. */
 .rewards-total {
   display: grid;
@@ -157,6 +164,8 @@
 
 .rewards-fact {
   display: grid;
+  /* Figures side by side start on one line, however many lines stand under each. */
+  align-content: start;
   gap: var(--space-4);
   padding: var(--space-16) 0;
   border-top: var(--border-width) solid var(--border);

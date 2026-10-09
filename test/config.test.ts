@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { getAddress } from "viem";
 import { toChecksumAddress } from "../shared/addresses.ts";
+import { RESERVE_ASSET } from "../shared/rewards.ts";
 import { ConfigError, DEFAULT_BLOCKED_COUNTRIES, DEFAULT_DEXSCREENER_URL, DEFAULT_GITHUB_URL, DEFAULT_SITE_URL, DEFAULT_X_URL, describeConfig, DEV_FEE_RECIPIENT, isSupportContact, loadConfig } from "../server/config.ts";
 
 const FEE = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
@@ -292,6 +294,28 @@ describe("configuration", () => {
 
     it("stops the server on anything else, and names the setting", () => {
       for (const wrong of ["-1", "301", "20.5", "twenty", "0x14", "1e2", "20 bps"]) expect(problem(production({ FEE_BPS_PRIVATE: wrong })), wrong).toMatch(/^FEE_BPS_PRIVATE: /);
+    });
+  });
+
+  describe("REWARD_TOKEN_ADDRESS, the coin rewards are paid in", () => {
+    // NEAR on BNB Chain: the Binance-Peg NEAR token there, as its checksum spelling is worked out from the address.
+    const builtIn = getAddress("0x1fa4a73a3f0133f0025378af00236f3abdee5d63");
+
+    it("is the Binance-Peg NEAR token on BNB Chain unless it is set, in its checksum spelling", () => {
+      expect(loadConfig(production()).rewardTokenAddress).toBe(builtIn);
+      expect(loadConfig({ NODE_ENV: "development" }).rewardTokenAddress).toBe(builtIn);
+      expect(RESERVE_ASSET.contract).toBe(builtIn);
+      // Left empty is left unset.
+      for (const empty of ["", "  "]) expect(loadConfig(production({ REWARD_TOKEN_ADDRESS: empty })).rewardTokenAddress).toBe(builtIn);
+      // Set, it is that address in its standard spelling, however it was typed.
+      expect(loadConfig(production({ REWARD_TOKEN_ADDRESS: FEE.toLowerCase() })).rewardTokenAddress).toBe(FEE);
+      expect(loadConfig(production({ REWARD_TOKEN_ADDRESS: builtIn.toLowerCase() })).rewardTokenAddress).toBe(builtIn);
+    });
+
+    it("stops the server on anything that is not an address, and names the setting", () => {
+      for (const wrong of ["0x1234", "NEAR", "wrap.near", builtIn.slice(0, -1), `${builtIn}0`, FEE.replace("d8dA", "D8dA")]) expect(problem(production({ REWARD_TOKEN_ADDRESS: wrong })), wrong).toBe("REWARD_TOKEN_ADDRESS: must be a valid 0x address");
+      // The reserve wallet is a wallet, and the reward token a contract: one address is not both.
+      expect(problem(production({ RESERVE_ADDRESS: FEE, REWARD_TOKEN_ADDRESS: FEE.toLowerCase() }))).toBe("REWARD_TOKEN_ADDRESS: must be the reward token's contract, not the reserve wallet's own address");
     });
   });
 

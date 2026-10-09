@@ -138,7 +138,8 @@ describe("what is said of points", () => {
   const POINTS_FILES = ["pages/RewardsPage.tsx", "lib/rewards-logic.ts", "pages/DocsPage.tsx", "components/Faq.tsx", "pages/LegalPages.tsx", "lib/site-logic.ts", "components/Stage.tsx", "components/Home.tsx", "components/ReviewSheet.tsx", "pages/OrderPage.tsx"].map((file) => path.join(root, file));
 
   it("uses the words points, weekly rewards and payout, and never a word that promises money", () => {
-    const banned = /\b(earn(s|ed|ing)?|yield(s)?|returns|APR|APY|passive|profit(s)?|income|interest|invest(ment|ing)?|guarantee[sd]?|dividend(s)?|airdrop(s)?|free money|risk-free)\b/i;
+    // Nor a word that would make the coin rewards are paid in, or anyone behind it, a party to the site.
+    const banned = /\b(earn(s|ed|ing)?|yield(s)?|returns|APR|APY|passive|profit(s)?|income|interest|invest(ment|ing)?|guarantee[sd]?|dividend(s)?|airdrop(s)?|free money|risk-free|partner(s|ed|ship)?|sponsor(s|ed|ship)?|backed by)\b/i;
     const hits = [...POINTS_FILES, path.resolve("shared", "rewards.ts")].flatMap((file) =>
       shown(file)
         // (A scroll listener's own setting is code, not a word on the page.)
@@ -153,6 +154,20 @@ describe("what is said of points", () => {
     expect(hits.filter((hit) => !/Points are a record and nothing more/.test(hit))).toEqual([]);
     expect(banned.test("Private routing guarantees your points.".replace(NO_PROMISE, ""))).toBe(true);
     expect(banned.test("Private routing is not anonymity and no route guarantees it.".replace(NO_PROMISE, ""))).toBe(false);
+  });
+
+  it("names NEAR on BNB Chain as what rewards are paid in, wherever the payout coin is named, and no other coin", () => {
+    for (const [label, page] of [["Docs, rewards", docs("rewards")], ["the questions", faq], ["the Terms", terms], ["the Privacy Policy", privacy]] as const) {
+      const text = wordsOf(drawnWith(SETTINGS, page));
+      expect(text, label).toContain("NEAR on BNB Chain");
+      expect(text, label).not.toMatch(/\bZEC\b|Zcash|Binance-Peg|\$INT/);
+    }
+    expect(wordsOf(drawnWith(SETTINGS, docs("rewards")))).toContain("Rewards are paid in NEAR on BNB Chain, to your rewards address: the address you sign in with on the Rewards page.");
+    expect(RULES_IN_SHORT.join(" ")).toContain("It is sent by hand, in NEAR on BNB Chain.");
+    // The words in the files behind those pages, and the rules shared with the server, name no other coin for it either.
+    for (const file of ["pages/RewardsPage.tsx", "lib/rewards-logic.ts"].map((name) => path.join(root, name)).concat(path.resolve("shared", "rewards.ts"))) expect(shown(file), name(file)).not.toMatch(/\bZEC\b|Zcash|Binance-Peg ZEC/);
+    // The coin is what rewards are paid in, and nothing more is said of it: the one line on what the site is built on is about the swap service.
+    for (const sentence of ["NEAR is our partner.", "Rewards sponsored by NEAR.", "A pool backed by Binance."]) expect(/\b(partner(s|ed|ship)?|sponsor(s|ed|ship)?|backed by)\b/i.test(sentence), sentence).toBe(true);
   });
 
   it("says, wherever a payout is described, that it is not owed and can change", () => {

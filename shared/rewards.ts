@@ -21,16 +21,27 @@ export const REWARDS = {
   holderBoostBps: 0,
 } as const;
 
-/** The coin a payout is sent in: Binance-Peg ZEC on BNB Chain (read from the chain on 9 Oct 2026: symbol ZEC, 18 decimals). */
+/**
+ * The coin a payout is sent in: NEAR on BNB Chain, to the rewards address, which is an address on
+ * that chain. The contract is the Binance-Peg NEAR token (read from the chain on 9 Oct 2026: name
+ * "NEAR Protocol", symbol NEAR, 18 decimals); the server uses it unless REWARD_TOKEN_ADDRESS names
+ * another. The site says NEAR whatever that setting points at, and where it points elsewhere the
+ * decimals are the ones that token itself reports.
+ */
 export const RESERVE_ASSET = {
   chain: "bsc",
-  symbol: "ZEC",
-  name: "Binance-Peg ZEC",
+  symbol: "NEAR",
+  name: "NEAR",
   decimals: 18,
-  contract: "0x1Ba42e5193dfA8B03D15dd1B86a3113bbBEF8Eeb",
-  /** The smallest payout that is sent, in the coin's smallest unit (0.0001 ZEC). A smaller share is carried into the next week as points. */
+  contract: "0x1Fa4a73a3F0133f0025378af00236f3aBDEE5D63",
+  /** The smallest payout that is sent, in the coin's smallest unit (0.0001 NEAR). A smaller share is carried into the next week as points. */
   minPayout: 100_000_000_000_000n,
 } as const;
+
+/** The smallest payout that is sent, for a coin of so many decimals: 0.0001 of the coin, and never less than its smallest unit. */
+export function minPayoutFor(decimals: number): bigint {
+  return decimals > 4 ? 10n ** BigInt(decimals - 4) : 1n;
+}
 
 export const MICRO = 1_000_000n;
 
@@ -146,7 +157,8 @@ export interface RewardsView {
   week: { id: string; start: string; end: string; pointsMicro: string; carriedInMicro: string };
   allTimeMicro: string;
   swaps: { at: string; week: string; from: { symbol: string; chain: string }; to: { symbol: string; chain: string }; pointsMicro: string; reasons: PointsReason[] }[];
-  payouts: { week: string; amount: string; asset: string; txs: string[] }[];
+  /** Each with the coin it was paid in and that coin's decimals: a week closed in another coin keeps its own. */
+  payouts: { week: string; amount: string; asset: string; decimals: number; txs: string[] }[];
 }
 
 /**
@@ -157,32 +169,26 @@ export interface RewardsSummary {
   week: { id: string; start: string; end: string };
   /** This week's points, everyone's together, in millionths of a point. A total only. */
   weekPointsMicro: string;
-  weeks: { week: string; asset: string; paid: string; txs: string[] }[];
+  /** The weeks that have been paid, each with the coin it was paid in and that coin's decimals. */
+  weeks: { week: string; asset: string; decimals: number; paid: string; txs: string[] }[];
+  /** What has been paid in the coin rewards are paid in now, and in how many weeks. A week paid in another coin is listed above and not added here. */
   totalPaid: string;
   weeksPaid: number;
 }
 
-/** One coin the pool's wallet holds. It names no contract: the answer anyone gets holds no address but the wallet's own. */
-export interface PoolCoin {
-  symbol: string;
-  name: string;
-  decimals: number;
-  /** In the coin's smallest unit. */
-  amount: string;
-  /** Its value in millionths of a US dollar, rounded down. Null where there is no price for it: it is then not counted in the total. */
-  usdMicro: string | null;
-}
-
 /**
- * The current pool: what the reserve wallet holds on BNB Chain, as the server last read it. Absent
- * while no reserve wallet is set. Before any read has worked there are no figures: the total and
- * the time of reading are null and the list of coins is empty.
+ * The current pool: what the reserve wallet holds of the coin rewards are paid in, as the server
+ * last read it from BNB Chain. Nothing else the wallet holds is part of it. Absent while no reserve
+ * wallet is set. It names no contract: the answer anyone gets holds no address but the wallet's own.
  */
 export interface PoolView {
   address: string;
-  /** The coins that could be priced, added up, in millionths of a US dollar. */
-  totalUsdMicro: string | null;
-  coins: PoolCoin[];
+  /** In the coin's smallest unit. Null until a read has worked: there is then no figure at all. */
+  amount: string | null;
+  /** The coin's decimals. */
+  decimals: number;
+  /** The amount's value in millionths of a US dollar, rounded down. Null where there is no price for the coin just now. */
+  usdMicro: string | null;
   readAt: string | null;
 }
 
@@ -193,18 +199,23 @@ export interface RewardsPublic extends RewardsSummary {
 }
 
 /**
- * One address's part in this week's pool, from three figures: its own points this week, the
- * week's points of everyone together, and the pool's value in millionths of a dollar (null when
- * it is not known). The share is in hundredths of a percent, rounded down, and never above 100%.
- * The estimate is that part of the pool in cents, rounded down. Both are nothing while nobody has
- * points, and the estimate is nothing while the pool is not known.
+ * One address's part in this week's pool, from its own points this week, the week's points of
+ * everyone together, and the pool (null when it is not known): its amount in the coin's smallest
+ * unit, and that amount's value in millionths of a dollar (null when there is no price). The share
+ * is in hundredths of a percent, rounded down, and never above 100%. The estimate is that part of
+ * the pool in the coin's smallest unit, rounded down, and beside it in cents where there is a
+ * price. All are nothing while nobody has points; with no price there are no dollars at all.
  */
-export function poolShare(mineMicro: bigint, totalMicro: bigint, poolUsdMicro: bigint | null): { shareBps: bigint; estimateCents: bigint } {
-  if (totalMicro <= 0n || mineMicro <= 0n) return { shareBps: 0n, estimateCents: 0n };
+export function poolShare(mineMicro: bigint, totalMicro: bigint, pool: { amount: bigint; usdMicro: bigint | null } | null): { shareBps: bigint; estimate: bigint; estimateCents: bigint | null } {
+  const usd = pool === null ? null : pool.usdMicro;
+  if (totalMicro <= 0n || mineMicro <= 0n) return { shareBps: 0n, estimate: 0n, estimateCents: usd === null ? null : 0n };
   // An address's own points and the week's total are read a moment apart: they never count for more than all of it.
   const mine = mineMicro > totalMicro ? totalMicro : mineMicro;
-  const estimateCents = poolUsdMicro === null || poolUsdMicro <= 0n ? 0n : (poolUsdMicro * mine) / (totalMicro * 10_000n);
-  return { shareBps: (mine * 10_000n) / totalMicro, estimateCents };
+  return {
+    shareBps: (mine * 10_000n) / totalMicro,
+    estimate: pool === null || pool.amount <= 0n ? 0n : (pool.amount * mine) / totalMicro,
+    estimateCents: usd === null ? null : usd <= 0n ? 0n : (usd * mine) / (totalMicro * 10_000n),
+  };
 }
 
 /** What a sign-in message is made of: the site's host as the browser knows it, the address in its standard spelling, the one-time code and the two times. */

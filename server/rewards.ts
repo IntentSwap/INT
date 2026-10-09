@@ -19,7 +19,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import fs from "node:fs";
 import path from "node:path";
 import { checkAddress, toChecksumAddress } from "../shared/addresses.ts";
-import { nextWeek, pointsMicro, REWARDS, sharePool, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
+import { nextWeek, pointsMicro, RESERVE_ASSET, REWARDS, sharePool, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
 import type { Sanctions } from "./sanctions.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
 
@@ -60,7 +60,10 @@ export interface WeekRecord {
   v: 1;
   week: string;
   closedAt: string;
+  /** The coin the week was closed in, by its symbol. A week is shown and added up in its own coin, whatever rewards are paid in now. */
   asset: string;
+  /** That coin's decimals. Absent on a record written before it was kept, when every coin a week was closed in had 18. */
+  decimals?: number;
   /** The pool that was shared out, what is to be sent of it, and what stays in the reserve, in the coin's smallest unit. */
   pool: string;
   paid: string;
@@ -74,6 +77,9 @@ export interface WeekRecord {
   /** The payout transactions, once they have been sent and recorded. Which share each one paid is kept with the share. */
   txs: { hash: string; recordedAt: string }[];
 }
+
+/** The decimals of the coin a week was closed in: 18 where its record does not say. */
+export const decimalsOf = (week: Pick<WeekRecord, "decimals">): number => week.decimals ?? 18;
 
 const WEEK_SHAPE = /^\d{4}-W\d{2}$/;
 const ORDER_HASH_SHAPE = /^[0-9a-f]{64}$/;
@@ -134,7 +140,7 @@ function isShare(value: unknown): value is WeekShare {
 function isWeekRecord(value: unknown): value is WeekRecord {
   if (typeof value !== "object" || value === null) return false;
   const w = value as Partial<WeekRecord>;
-  return w.v === 1 && typeof w.week === "string" && WEEK_SHAPE.test(w.week) && isDigits(w.pool) && typeof w.asset === "string" && Array.isArray(w.shares) && w.shares.every(isShare) && Array.isArray(w.txs) && w.txs.every((tx) => typeof tx === "object" && tx !== null && typeof (tx as { hash?: unknown }).hash === "string");
+  return w.v === 1 && typeof w.week === "string" && WEEK_SHAPE.test(w.week) && isDigits(w.pool) && typeof w.asset === "string" && (w.decimals === undefined || (Number.isInteger(w.decimals) && w.decimals >= 0 && w.decimals <= 36)) && Array.isArray(w.shares) && w.shares.every(isShare) && Array.isArray(w.txs) && w.txs.every((tx) => typeof tx === "object" && tx !== null && typeof (tx as { hash?: unknown }).hash === "string");
 }
 
 /** How old a temporary file must be before it is taken for one a crash left behind. A write takes a moment; a minute is far longer than any. */
@@ -170,9 +176,9 @@ export interface Rewards {
    * with every address that is due a payout screened against the sanctions list. It refuses whatever
    * closing refuses. For a week that is closed already it gives the record as it stands.
    */
-  planWeek(week: string, pool: bigint, asset: string, minPayout: bigint, now: number, sanctions: Sanctions): WeekRecord;
+  planWeek(week: string, pool: bigint, asset: string, minPayout: bigint, now: number, sanctions: Sanctions, decimals?: number): WeekRecord;
   /** Closes a week: works out what planWeek does and writes it down. Closing the same week again with the same pool gives the same record. */
-  closeWeek(week: string, pool: bigint, asset: string, minPayout: bigint, now: number, sanctions: Sanctions): WeekRecord;
+  closeWeek(week: string, pool: bigint, asset: string, minPayout: bigint, now: number, sanctions: Sanctions, decimals?: number): WeekRecord;
   /** The week a transaction is on record for, or null. */
   weekOfTx(hash: string): string | null;
   /**
@@ -322,7 +328,7 @@ export function createRewards(dataDir: string): Rewards {
     },
     week: readWeek,
     weeks: readWeeks,
-    planWeek(week, pool, asset, minPayout, now, sanctions) {
+    planWeek(week, pool, asset, minPayout, now, sanctions, decimals = RESERVE_ASSET.decimals) {
       const bounds = weekBounds(week);
       if (bounds === null) throw new Error(`"${week}" is not a week. Write it as 2026-W41.`);
       if (now < bounds.end) throw new Error(`Week ${week} has not ended yet. It ends on ${new Date(bounds.end).toISOString()}.`);
@@ -356,6 +362,7 @@ export function createRewards(dataDir: string): Rewards {
         week,
         closedAt: new Date(now).toISOString(),
         asset,
+        decimals,
         pool: pool.toString(),
         paid: paid.toString(),
         left: (pool - paid).toString(),
@@ -366,9 +373,9 @@ export function createRewards(dataDir: string): Rewards {
         txs: [],
       };
     },
-    closeWeek(week, pool, asset, minPayout, now, sanctions) {
+    closeWeek(week, pool, asset, minPayout, now, sanctions, decimals) {
       const closed = readWeek(week) !== null;
-      const record = self.planWeek(week, pool, asset, minPayout, now, sanctions);
+      const record = self.planWeek(week, pool, asset, minPayout, now, sanctions, decimals);
       // A week that is closed already stands as it was written: it is read back, never written again.
       if (!closed) writeDurable(weekFile(week), JSON.stringify(record));
       return record;
@@ -424,7 +431,7 @@ export function createRewards(dataDir: string): Rewards {
         payouts: closed
           .flatMap((item) => {
             const share = item.shares.find((candidate) => lower(candidate.address) === lower(address));
-            return share !== undefined && BigInt(share.payout) > 0n ? [{ week: item.week, amount: share.payout, asset: item.asset, txs: share.tx === undefined ? [] : [share.tx] }] : [];
+            return share !== undefined && BigInt(share.payout) > 0n ? [{ week: item.week, amount: share.payout, asset: item.asset, decimals: decimalsOf(item), txs: share.tx === undefined ? [] : [share.tx] }] : [];
           })
           .reverse(),
       };
@@ -441,17 +448,19 @@ export function createRewards(dataDir: string): Rewards {
         // Its transactions, each once, in the order they were recorded.
         const mine = new Set(sent.map((share) => share.tx ?? ""));
         const inOrder = item.txs.map((tx) => tx.hash).filter((hash) => mine.has(hash));
-        return [{ week: item.week, asset: item.asset, paid, txs: [...new Set([...inOrder, ...mine])] }];
+        return [{ week: item.week, asset: item.asset, decimals: decimalsOf(item), paid, txs: [...new Set([...inOrder, ...mine])] }];
       });
+      const paidNow = paidWeeks.filter((item) => item.asset === RESERVE_ASSET.symbol);
       // This week's points as one number: every address's together, with what was carried in. No address goes with it.
       let weekPoints = 0n;
       for (const points of self.weekPoints(week).values()) weekPoints += points;
       return {
         week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString() },
         weekPointsMicro: weekPoints.toString(),
-        weeks: paidWeeks.map((item) => ({ week: item.week, asset: item.asset, paid: item.paid.toString(), txs: item.txs })).reverse(),
-        totalPaid: paidWeeks.reduce((sum, item) => sum + item.paid, 0n).toString(),
-        weeksPaid: paidWeeks.length,
+        weeks: paidWeeks.map((item) => ({ week: item.week, asset: item.asset, decimals: item.decimals, paid: item.paid.toString(), txs: item.txs })).reverse(),
+        // Added up in the coin rewards are paid in now. A week that was paid in another coin is on the list above, in its own.
+        totalPaid: paidNow.reduce((sum, item) => sum + item.paid, 0n).toString(),
+        weeksPaid: paidNow.length,
       };
     },
   };

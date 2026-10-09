@@ -9,6 +9,7 @@ import { ConfigError, loadConfig } from "../server/config.ts";
 import { SAMPLE, sampleOrderId, seedSamples, withSampleSettings } from "../server/sample.ts";
 import { createLogger } from "../server/log.ts";
 import { TERMS_VERSION } from "../shared/api.ts";
+import { RESERVE_ASSET } from "../shared/rewards.ts";
 import { ADDR, ASSET, FIXTURE_TOKENS } from "./helpers.ts";
 
 const FEE = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
@@ -18,12 +19,15 @@ let lines: string[] = [];
 let outbound: string[] = [];
 let providerDown = false;
 
+/** The coin rewards are paid in, as the provider's coin list holds it: NEAR on BNB Chain, at the reward token's own contract, with a price. */
+const NEAR_ON_BNB_CHAIN = { assetId: "nep245:v2_1.omni.hot.tg:56_near", decimals: 18, blockchain: "bsc", symbol: "NEAR", price: 4.8, contractAddress: RESERVE_ASSET.contract.toLowerCase() };
+
 // A pretend outside world: the provider's coin list works, everything else is unreachable.
 const network: typeof fetch = async (input) => {
   const url = String(input);
   outbound.push(new URL(url).host + new URL(url).pathname);
   if (providerDown && url.includes("1click")) throw new Error("provider unreachable");
-  if (url.includes("/v0/tokens")) return new Response(JSON.stringify(FIXTURE_TOKENS));
+  if (url.includes("/v0/tokens")) return new Response(JSON.stringify([...FIXTURE_TOKENS, NEAR_ON_BNB_CHAIN]));
   throw new Error("unreachable in tests");
 };
 
@@ -187,18 +191,11 @@ describe("start-up wiring", () => {
     for (const id of config.sampleOrders) statuses.push(String((await get(`/api/orders/${id}`)).status));
     expect(statuses).toEqual(["delivered", "delivered", "refunded", "refunded", "failed", "expired"]);
     expect(statuses.filter((status) => status === "delivered").length).toBeGreaterThanOrEqual(2);
-    // The pool is the sample one: 4.25 BNB, 38.5 of the payout coin and 250,000 of the token, valued at the coin list's
-    // prices ($750 and $1,200 here). The chain is not asked about it: no chain can be reached in this test, and the figures are there.
-    const rewards = (await get("/api/rewards")) as { pool: { address: string; totalUsdMicro: string; coins: { symbol: string; amount: string; usdMicro: string | null }[] }; weekPointsMicro: string; weeks: unknown[] };
-    expect(rewards.pool).toMatchObject({
-      address: SAMPLE.reserveAddress,
-      totalUsdMicro: "49387500000",
-      coins: [
-        { symbol: "BNB", amount: SAMPLE.pool.bnb.toString(), usdMicro: "3187500000" },
-        { symbol: "ZEC", amount: SAMPLE.pool.payout.toString(), usdMicro: "46200000000" },
-        { symbol: "$INT", amount: SAMPLE.pool.token.toString(), usdMicro: null },
-      ],
-    });
+    // The pool is the sample one: 2,480.5 NEAR, valued at the coin list's price for NEAR on BNB Chain ($4.80 here).
+    // The chain is not asked about it: no chain can be reached in this test, and the figures are there.
+    const rewards = (await get("/api/rewards")) as { pool: Record<string, unknown>; weekPointsMicro: string; weeks: unknown[] };
+    expect(rewards.pool).toMatchObject({ address: SAMPLE.reserveAddress, amount: "2480500000000000000000", decimals: 18, usdMicro: "11906400000" });
+    expect(SAMPLE.pool).toBe(24_805n * 10n ** 17n);
     // And the week has sample points in it before anyone signs in: three made-up swaps of $3,400, $1,820.50 and $760.
     expect(rewards.weekPointsMicro).toBe("59805000000");
     // Whoever signs in is given points over three weeks and two paid weeks.
@@ -206,10 +203,11 @@ describe("start-up wiring", () => {
     const post = async (route: string, body: unknown) => (await fetch(`http://127.0.0.1:${at}${route}`, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${at}`, "x-session": config.session }, body: JSON.stringify(body) })).json() as Promise<Record<string, string>>;
     const code = await post("/api/rewards/code", { address: account.address });
     const session = await post("/api/rewards/session", { nonce: code.nonce, signature: await account.signMessage({ message: String(code.message) }) });
-    const mine = (await get("/api/rewards/me", { "x-rewards-session": String(session.token) })) as { swaps: { week: string }[]; payouts: { txs: string[] }[]; week: { pointsMicro: string } };
+    const mine = (await get("/api/rewards/me", { "x-rewards-session": String(session.token) })) as { swaps: { week: string }[]; payouts: { txs: string[]; asset: string; decimals: number }[]; week: { pointsMicro: string } };
     expect(new Set(mine.swaps.map((swap) => swap.week)).size).toBe(3);
     expect(mine.payouts).toHaveLength(2);
-    for (const payout of mine.payouts) expect(payout.txs).toHaveLength(1);
+    // Each of the two sample weeks was paid in NEAR, with one transfer.
+    for (const payout of mine.payouts) expect(payout).toMatchObject({ asset: "NEAR", decimals: 18, txs: [expect.any(String)] });
     expect(BigInt(mine.week.pointsMicro) > 0n).toBe(true);
     expect(((await get("/api/rewards")) as { weeks: unknown[] }).weeks).toHaveLength(2);
     // Started again on the same folder: the same six orders, not twelve.
@@ -434,6 +432,8 @@ describe("start-up wiring", () => {
     expect(() => start(production({ FEE_BPS: "40" }))).toThrow(/FEE_RECIPIENT: is required while FEE_BPS or FEE_BPS_PRIVATE is above 0/);
     expect(() => start(production({ FEE_BPS_PRIVATE: "20" }))).toThrow(/FEE_RECIPIENT/);
     expect(() => start(production({ PROVIDER_STUB: "true" }))).toThrow(/PROVIDER_STUB/);
+    // The coin rewards are paid in is an address of a token, or the server does not start.
+    expect(() => start(production({ REWARD_TOKEN_ADDRESS: "near" }))).toThrow(/REWARD_TOKEN_ADDRESS: must be a valid 0x address/);
     expect(outbound).toEqual([]);
     expect(lines.some((l) => l.includes("listening"))).toBe(false);
   });

@@ -6,12 +6,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { signInHost } from "../server/app.ts";
+import { getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
-import { briefPoints, isSignInMessage, MICRO, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
+import { briefPoints, isSignInMessage, MICRO, minPayoutFor, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
 import { silentLogger } from "../server/log.ts";
 import { createRewards, createSignIn, entryFor, orderHash, rewardsAddressOf, type PointsEntry, type Rewards, type WeekRecord } from "../server/rewards.ts";
-import { checkPayoutTx, exportWeek, recordPayouts, reserveHolds, weekCsv } from "../server/rewards-tools.ts";
+import { checkPayoutTx, exportWeek, poolAmount, recordPayouts, reserveHolds, rewardTokenDecimals, weekCsv } from "../server/rewards-tools.ts";
 import { createSanctions, createStaticSanctions } from "../server/sanctions.ts";
 import type { OrderRecord } from "../server/store.ts";
 import { ESTIMATE_NOTE, shareText, usdMicroText, usdText } from "../web/src/lib/rewards-logic.ts";
@@ -60,7 +61,10 @@ const MONDAY = Date.parse("2026-10-05T00:00:00.000Z");
 describe("the rules for points, as numbers", () => {
   it("are the ones the site states", () => {
     expect(REWARDS).toEqual({ pointsPerUsd: 10, sessionMinutes: 30, nonceMinutes: 5, chain: "bsc", chainId: 56, holderBoostBps: 0 });
-    expect(RESERVE_ASSET).toMatchObject({ chain: "bsc", symbol: "ZEC", decimals: 18, contract: "0x1Ba42e5193dfA8B03D15dd1B86a3113bbBEF8Eeb" });
+    // Rewards are paid in NEAR on BNB Chain: the Binance-Peg NEAR token there, written in its checksum spelling.
+    expect(RESERVE_ASSET).toEqual({ chain: "bsc", symbol: "NEAR", name: "NEAR", decimals: 18, contract: getAddress("0x1fa4a73a3f0133f0025378af00236f3abdee5d63"), minPayout: 10n ** 14n });
+    expect(minPayoutFor(18)).toBe(RESERVE_ASSET.minPayout);
+    expect([minPayoutFor(6), minPayoutFor(4), minPayoutFor(0)]).toEqual([100n, 1n, 1n]);
   });
 
   it.each([
@@ -97,36 +101,43 @@ describe("the rules for points, as numbers", () => {
 });
 
 describe("a wallet's share of the week's pool", () => {
-  const nothing = { shareBps: 0n, estimateCents: 0n };
+  const NEAR = 10n ** 18n;
+  /** A pool of so much NEAR (in its smallest unit), worth so many dollars, or with no price. */
+  const pool = (amount: bigint, dollars: number | null) => ({ amount, usdMicro: dollars === null ? null : usd(dollars) });
 
-  it("is its points out of everyone's, in hundredths of a percent, and that part of the pool in cents, both rounded down", () => {
-    // 250 points of 1,000, and a pool of $1,234.56: a quarter of it, $308.64.
-    expect(poolShare(250n * MICRO, 1000n * MICRO, usd(1234.56))).toEqual({ shareBps: 2500n, estimateCents: 30_864n });
+  it("is its points out of everyone's, in hundredths of a percent, and that part of the pool in NEAR, with its dollars beside it, all rounded down", () => {
+    // 250 points of 1,000, and a pool of 49.3824 NEAR worth $1,234.56: a quarter of it, 12.3456 NEAR, about $308.64.
+    expect(poolShare(250n * MICRO, 1000n * MICRO, pool(493_824n * 10n ** 14n, 1234.56))).toEqual({ shareBps: 2500n, estimate: 123_456n * 10n ** 14n, estimateCents: 30_864n });
     // 1 point of 100 is 1%.
-    expect(poolShare(MICRO, 100n * MICRO, usd(500))).toEqual({ shareBps: 100n, estimateCents: 500n });
+    expect(poolShare(MICRO, 100n * MICRO, pool(500n * NEAR, 2400))).toEqual({ shareBps: 100n, estimate: 5n * NEAR, estimateCents: 2400n });
     expect(shareText(poolShare(MICRO, 100n * MICRO, null).shareBps)).toBe("1.00%");
-    // Rounded down, never up: a third is 33.33%, and a third of $100 is $33.33.
-    expect(poolShare(1n, 3n, usd(100))).toEqual({ shareBps: 3333n, estimateCents: 3333n });
-    expect(poolShare(2n, 3n, usd(0.05))).toEqual({ shareBps: 6666n, estimateCents: 3n });
+    // Rounded down, never up, to the coin's smallest unit and to the cent.
+    expect(poolShare(1n, 3n, pool(100n, 100))).toEqual({ shareBps: 3333n, estimate: 33n, estimateCents: 3333n });
+    expect(poolShare(2n, 3n, pool(NEAR, 0.05))).toEqual({ shareBps: 6666n, estimate: 666_666_666_666_666_666n, estimateCents: 3n });
     // All of it.
-    expect(poolShare(7n, 7n, usd(42.42))).toEqual({ shareBps: 10_000n, estimateCents: 4242n });
+    expect(poolShare(7n, 7n, pool(42n * NEAR, 42.42))).toEqual({ shareBps: 10_000n, estimate: 42n * NEAR, estimateCents: 4242n });
   });
 
   it("is nothing while nobody has points, and nothing for an address with none", () => {
-    expect(poolShare(0n, 0n, usd(100))).toEqual(nothing);
+    const nothing = { shareBps: 0n, estimate: 0n, estimateCents: 0n };
+    expect(poolShare(0n, 0n, pool(100n * NEAR, 100))).toEqual(nothing);
     // A total of nothing divides nothing, whatever an address is said to hold.
-    expect(poolShare(5n * MICRO, 0n, usd(100))).toEqual(nothing);
-    expect(poolShare(0n, 100n * MICRO, usd(100))).toEqual(nothing);
-    expect(poolShare(-1n, 100n, usd(100))).toEqual(nothing);
+    expect(poolShare(5n * MICRO, 0n, pool(100n * NEAR, 100))).toEqual(nothing);
+    expect(poolShare(0n, 100n * MICRO, pool(100n * NEAR, 100))).toEqual(nothing);
+    expect(poolShare(-1n, 100n, pool(100n * NEAR, 100))).toEqual(nothing);
   });
 
   it("is never more than all of it: points read a moment after the total do not count for more than 100%", () => {
-    expect(poolShare(150n, 100n, usd(100))).toEqual({ shareBps: 10_000n, estimateCents: 10_000n });
+    expect(poolShare(150n, 100n, pool(100n * NEAR, 100))).toEqual({ shareBps: 10_000n, estimate: 100n * NEAR, estimateCents: 10_000n });
   });
 
-  it("has no estimate while the pool is not known", () => {
-    expect(poolShare(25n, 100n, null)).toEqual({ shareBps: 2500n, estimateCents: 0n });
-    expect(poolShare(25n, 100n, 0n)).toEqual({ shareBps: 2500n, estimateCents: 0n });
+  it("has no estimate while the pool is not known, and a figure in NEAR with no dollars where there is no price", () => {
+    expect(poolShare(25n, 100n, null)).toEqual({ shareBps: 2500n, estimate: 0n, estimateCents: null });
+    expect(poolShare(0n, 0n, null)).toEqual({ shareBps: 0n, estimate: 0n, estimateCents: null });
+    expect(poolShare(25n, 100n, pool(0n, 0))).toEqual({ shareBps: 2500n, estimate: 0n, estimateCents: 0n });
+    // No price for the coin just now: the estimate in NEAR is there, and nothing is said in dollars.
+    expect(poolShare(25n, 100n, pool(80n * NEAR, null))).toEqual({ shareBps: 2500n, estimate: 20n * NEAR, estimateCents: null });
+    expect(poolShare(0n, 100n, pool(80n * NEAR, null))).toEqual({ shareBps: 0n, estimate: 0n, estimateCents: null });
   });
 
   it("is written with two decimals, and dollars with their cents", () => {
@@ -418,9 +429,9 @@ describe("the record of points", () => {
   it("closes a week once: the same pool gives the same record, another pool is refused, and a week still running cannot be closed", () => {
     const dir = tempDir();
     const rewards = quarters(dir);
-    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end - 1, CLEAR)).toThrow(/has not ended/);
-    expect(() => rewards.closeWeek("2026-41", 10n ** 18n, "ZEC", 1n, end, CLEAR)).toThrow(/not a week/);
-    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR);
+    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end - 1, CLEAR)).toThrow(/has not ended/);
+    expect(() => rewards.closeWeek("2026-41", 10n ** 18n, "NEAR", 1n, end, CLEAR)).toThrow(/not a week/);
+    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR);
     // Alice has 250 points and Bob 750: a quarter and three quarters.
     expect(closed.shares).toEqual(
       [
@@ -433,27 +444,27 @@ describe("the record of points", () => {
     expect(closed).toMatchObject({ v: 1, volumeUsdMicro: "100000000", totalPointsMicro: "1000000000", screenedWith: "test-list", txs: [] });
     const file = fs.readFileSync(path.join(dir, "rewards", "weeks", "2026-W41.json"), "utf8");
     // Closed again a day later, and by a fresh reading of the same folder: the very same record.
-    expect(rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end + 86_400_000, CLEAR)).toEqual(closed);
-    expect(createRewards(dir).closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end + 2 * 86_400_000, CLEAR)).toEqual(closed);
+    expect(rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end + 86_400_000, CLEAR)).toEqual(closed);
+    expect(createRewards(dir).closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end + 2 * 86_400_000, CLEAR)).toEqual(closed);
     expect(fs.readFileSync(path.join(dir, "rewards", "weeks", "2026-W41.json"), "utf8")).toBe(file);
-    expect(() => rewards.closeWeek("2026-W41", 2n * 10n ** 18n, "ZEC", 1n, end, CLEAR)).toThrow(/already closed/);
+    expect(() => rewards.closeWeek("2026-W41", 2n * 10n ** 18n, "NEAR", 1n, end, CLEAR)).toThrow(/already closed/);
     // A swap delivered late into that week, after it was closed, does not change what was shared out.
     rewards.recordDelivered(stored({ id: "D".repeat(27), amountInUsd: "9999" }));
-    expect(rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR)).toEqual(closed);
+    expect(rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR)).toEqual(closed);
   });
 
   it("works out what closing a week would write without writing it", () => {
     const dir = tempDir();
     const rewards = quarters(dir);
     const before = everything(dir);
-    const plan = rewards.planWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR);
+    const plan = rewards.planWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR);
     expect(everything(dir)).toEqual(before);
     expect(rewards.week("2026-W41")).toBeNull();
     // It refuses what closing refuses, and closing writes exactly what it showed.
-    expect(() => rewards.planWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end - 1, CLEAR)).toThrow(/has not ended/);
-    expect(rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR)).toEqual(plan);
-    expect(rewards.planWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end + 5, CLEAR)).toEqual(plan);
-    expect(() => rewards.planWeek("2026-W41", 1n, "ZEC", 1n, end, CLEAR)).toThrow(/already closed/);
+    expect(() => rewards.planWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end - 1, CLEAR)).toThrow(/has not ended/);
+    expect(rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR)).toEqual(plan);
+    expect(rewards.planWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end + 5, CLEAR)).toEqual(plan);
+    expect(() => rewards.planWeek("2026-W41", 1n, "NEAR", 1n, end, CLEAR)).toThrow(/already closed/);
   });
 
   it("carries a share too small to send into the next week, as points", () => {
@@ -461,7 +472,7 @@ describe("the record of points", () => {
     // Alice swapped 10 cents, which is one point. Bob swapped $500,000.
     rewards.recordDelivered(stored({ amountInUsd: "0.1" }));
     rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "500000" }));
-    const closed = rewards.closeWeek("2026-W41", 10n ** 15n, "ZEC", RESERVE_ASSET.minPayout, end, CLEAR);
+    const closed = rewards.closeWeek("2026-W41", 10n ** 15n, "NEAR", RESERVE_ASSET.minPayout, end, CLEAR);
     const alice = closed.shares.find((share) => share.address === ALICE.address)!;
     expect(alice).toMatchObject({ payout: "0", carriedMicro: "1000000" });
     // The week after, Alice starts with what was carried, and a new swap adds to it.
@@ -473,19 +484,19 @@ describe("the record of points", () => {
     // Points are counted once in the total over all time, in the week their swap was delivered.
     expect(view.allTimeMicro).toBe((1_000_000n + 200n * MICRO).toString());
     expect(view.payouts).toEqual([]);
-    expect(rewards.view(BOB.address, end).payouts).toEqual([{ week: "2026-W41", amount: closed.shares.find((share) => share.address === BOB.address)!.payout, asset: "ZEC", txs: [] }]);
+    expect(rewards.view(BOB.address, end).payouts).toEqual([{ week: "2026-W41", amount: closed.shares.find((share) => share.address === BOB.address)!.payout, asset: "NEAR", decimals: 18, txs: [] }]);
   });
 
   it("closes a week with a pool of nothing: nothing is to be sent, and every address's points are carried", () => {
     const rewards = quarters();
-    const closed = rewards.closeWeek("2026-W41", 0n, "ZEC", RESERVE_ASSET.minPayout, end, CLEAR);
+    const closed = rewards.closeWeek("2026-W41", 0n, "NEAR", RESERVE_ASSET.minPayout, end, CLEAR);
     expect(closed).toMatchObject({ pool: "0", paid: "0", left: "0", totalPointsMicro: "1000000000" });
     expect(shareOf(closed, ALICE)).toEqual({ address: ALICE.address, pointsMicro: "250000000", payout: "0", carriedMicro: "250000000" });
     expect(shareOf(closed, BOB)).toEqual({ address: BOB.address, pointsMicro: "750000000", payout: "0", carriedMicro: "750000000" });
     const next = rewards.weekPoints("2026-W42");
     expect([next.get(ALICE.address), next.get(BOB.address)]).toEqual([250n * MICRO, 750n * MICRO]);
     expect(rewards.view(ALICE.address, end + 1)).toMatchObject({ payouts: [], week: { id: "2026-W42", carriedInMicro: "250000000" } });
-    expect(() => rewards.closeWeek("2026-W42", -1n, "ZEC", 1n, end + WEEK_MS, CLEAR)).toThrow();
+    expect(() => rewards.closeWeek("2026-W42", -1n, "NEAR", 1n, end + WEEK_MS, CLEAR)).toThrow();
   });
 
   it("closes weeks in order: not while an earlier week that holds points is still open", () => {
@@ -494,18 +505,18 @@ describe("the record of points", () => {
     rewards.recordDelivered(stored());
     rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, finishedAt: new Date(end + 3_600_000).toISOString() }));
     const later = end + WEEK_MS;
-    expect(() => rewards.planWeek("2026-W42", 10n ** 18n, "ZEC", 1n, later, CLEAR)).toThrow(/Week 2026-W41 holds points and is still open\. Close it first/);
-    expect(() => rewards.closeWeek("2026-W42", 10n ** 18n, "ZEC", 1n, later, CLEAR)).toThrow(/Week 2026-W41 holds points and is still open\. Close it first/);
+    expect(() => rewards.planWeek("2026-W42", 10n ** 18n, "NEAR", 1n, later, CLEAR)).toThrow(/Week 2026-W41 holds points and is still open\. Close it first/);
+    expect(() => rewards.closeWeek("2026-W42", 10n ** 18n, "NEAR", 1n, later, CLEAR)).toThrow(/Week 2026-W41 holds points and is still open\. Close it first/);
     expect(rewards.week("2026-W42")).toBeNull();
-    rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, later, CLEAR);
-    expect(rewards.closeWeek("2026-W42", 10n ** 18n, "ZEC", 1n, later, CLEAR).shares.map((share) => share.address)).toEqual([BOB.address]);
+    rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, later, CLEAR);
+    expect(rewards.closeWeek("2026-W42", 10n ** 18n, "NEAR", 1n, later, CLEAR).shares.map((share) => share.address)).toEqual([BOB.address]);
     // A week in which nothing was delivered, and into which nothing was carried, holds no points: it is no one's to wait for.
     rewards.recordDelivered(stored({ id: "D".repeat(27), finishedAt: new Date(end + 2 * WEEK_MS + 3_600_000).toISOString() }));
-    expect(rewards.closeWeek("2026-W44", 10n ** 18n, "ZEC", 1n, end + 3 * WEEK_MS, CLEAR).shares).toHaveLength(1);
+    expect(rewards.closeWeek("2026-W44", 10n ** 18n, "NEAR", 1n, end + 3 * WEEK_MS, CLEAR).shares).toHaveLength(1);
     // Nor is a week whose only swap added no points.
     rewards.recordDelivered(stored({ id: "E".repeat(27), amountInUsd: "", finishedAt: new Date(end + 3 * WEEK_MS + 3_600_000).toISOString() }));
     expect(rewards.weekPoints("2026-W45").size).toBe(0);
-    expect(rewards.closeWeek("2026-W46", 10n ** 18n, "ZEC", 1n, end + 5 * WEEK_MS, CLEAR).shares).toEqual([]);
+    expect(rewards.closeWeek("2026-W46", 10n ** 18n, "NEAR", 1n, end + 5 * WEEK_MS, CLEAR).shares).toEqual([]);
   });
 
   it("carries points through every week between: what was carried out of week 41 reaches week 43 by way of week 42", () => {
@@ -513,18 +524,18 @@ describe("the record of points", () => {
     // Week 41: Alice's share is too small to send, and her one point is carried.
     rewards.recordDelivered(stored({ amountInUsd: "0.1" }));
     rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "500000" }));
-    expect(shareOf(rewards.closeWeek("2026-W41", 10n ** 15n, "ZEC", RESERVE_ASSET.minPayout, end, CLEAR), ALICE).carriedMicro).toBe("1000000");
+    expect(shareOf(rewards.closeWeek("2026-W41", 10n ** 15n, "NEAR", RESERVE_ASSET.minPayout, end, CLEAR), ALICE).carriedMicro).toBe("1000000");
     // Nothing is delivered in week 42. Bob swaps again in week 43.
     rewards.recordDelivered(stored({ id: "D".repeat(27), rewardsAddress: BOB.address, amountInUsd: "500000", finishedAt: new Date(end + WEEK_MS + 3_600_000).toISOString() }));
     const after = end + 2 * WEEK_MS;
     // Week 43 is not closed over week 42's head: Alice's point is in week 42, and would be lost there.
-    expect(() => rewards.closeWeek("2026-W43", 10n ** 18n, "ZEC", 1n, after, CLEAR)).toThrow(/Week 2026-W42 holds points and is still open\. Close it first, with a pool of nothing if nothing is to be paid for it\./);
+    expect(() => rewards.closeWeek("2026-W43", 10n ** 18n, "NEAR", 1n, after, CLEAR)).toThrow(/Week 2026-W42 holds points and is still open\. Close it first, with a pool of nothing if nothing is to be paid for it\./);
     expect(rewards.week("2026-W43")).toBeNull();
     // Week 42 is closed with nothing to pay, and the point goes on.
-    const middle = rewards.closeWeek("2026-W42", 0n, "ZEC", RESERVE_ASSET.minPayout, after, CLEAR);
+    const middle = rewards.closeWeek("2026-W42", 0n, "NEAR", RESERVE_ASSET.minPayout, after, CLEAR);
     expect(middle.shares).toEqual([{ address: ALICE.address, pointsMicro: "1000000", payout: "0", carriedMicro: "1000000" }]);
     expect(rewards.weekPoints("2026-W43").get(ALICE.address)).toBe(1_000_000n);
-    const last = rewards.closeWeek("2026-W43", 10n ** 18n, "ZEC", 1n, after, CLEAR);
+    const last = rewards.closeWeek("2026-W43", 10n ** 18n, "NEAR", 1n, after, CLEAR);
     expect(shareOf(last, ALICE)).toMatchObject({ pointsMicro: "1000000", carriedMicro: "0" });
     expect(BigInt(shareOf(last, ALICE).payout) > 0n).toBe(true);
   });
@@ -532,7 +543,7 @@ describe("the record of points", () => {
   it("screens the payout list as a week is closed: a listed address is sent nothing and carries nothing, and its share stays in the reserve", () => {
     const rewards = quarters();
     // The list names Bob, in small letters: an address is the same address however it is written.
-    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, createStaticSanctions([BOB.address.toLowerCase()]));
+    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, createStaticSanctions([BOB.address.toLowerCase()]));
     // Alice has her quarter and no more: Bob's three quarters are not handed to her.
     expect(shareOf(closed, ALICE)).toEqual({ address: ALICE.address, pointsMicro: "250000000", payout: "250000000000000000", carriedMicro: "0" });
     expect(shareOf(closed, BOB)).toEqual({ address: BOB.address, pointsMicro: "750000000", payout: "0", carriedMicro: "0", withheld: "750000000000000000" });
@@ -540,21 +551,21 @@ describe("the record of points", () => {
     // Nothing is carried for it, and its own view shows no payout for the week.
     expect(rewards.weekPoints("2026-W42").has(BOB.address)).toBe(false);
     expect(rewards.view(BOB.address, end + 1)).toMatchObject({ payouts: [], week: { id: "2026-W42", carriedInMicro: "0", pointsMicro: "0" } });
-    expect(rewards.view(ALICE.address, end + 1).payouts).toEqual([{ week: "2026-W41", amount: "250000000000000000", asset: "ZEC", txs: [] }]);
+    expect(rewards.view(ALICE.address, end + 1).payouts).toEqual([{ week: "2026-W41", amount: "250000000000000000", asset: "NEAR", decimals: 18, txs: [] }]);
     // And no transaction can be written down as having paid it.
     expect(() => rewards.recordPaid("2026-W41", [{ address: BOB.address, hash: `0x${"b2".repeat(32)}` }], end + 2)).toThrow(/has no payout in week 2026-W41/);
     // The same week closed against a list that names nobody sends Bob his share: the screening is what kept it back.
-    expect(shareOf(quarters().closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR), BOB)).toMatchObject({ payout: "750000000000000000", carriedMicro: "0" });
+    expect(shareOf(quarters().closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR), BOB)).toMatchObject({ payout: "750000000000000000", carriedMicro: "0" });
   });
 
   it("closes nothing while the sanctions list is missing or out of date, as no order is made without it", async () => {
     const dir = tempDir();
     const rewards = quarters(dir);
     const none = createStaticSanctions([], { available: false });
-    expect(() => rewards.planWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, none)).toThrow(/sanctions list is missing or out of date, so the payouts cannot be screened\. Nothing was closed/);
-    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, none)).toThrow(/sanctions list is missing or out of date, so the payouts cannot be screened\. Nothing was closed/);
+    expect(() => rewards.planWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, none)).toThrow(/sanctions list is missing or out of date, so the payouts cannot be screened\. Nothing was closed/);
+    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, none)).toThrow(/sanctions list is missing or out of date, so the payouts cannot be screened\. Nothing was closed/);
     // Not even a week with nothing to pay.
-    expect(() => rewards.closeWeek("2026-W41", 0n, "ZEC", 1n, end, none)).toThrow(/sanctions list is missing or out of date/);
+    expect(() => rewards.closeWeek("2026-W41", 0n, "NEAR", 1n, end, none)).toThrow(/sanctions list is missing or out of date/);
     expect(fs.readdirSync(path.join(dir, "rewards", "weeks"))).toEqual([]);
 
     // The list service the server screens orders with, on a saved list that cannot be fetched again.
@@ -563,19 +574,19 @@ describe("the record of points", () => {
     const save = (fetchedAt: number) => fs.writeFileSync(path.join(listDir, "sanctions", "sdn-addresses.json"), JSON.stringify({ publishDate: "2026-10-01", fetchedAt, addresses: [...Array.from({ length: 300 }, (_, i) => `0x${(i + 1).toString(16).padStart(40, "0")}`), BOB.address] }));
     const service = () => createSanctions({ dataDir: listDir, log: silentLogger, alerts: { send() {} }, fetchImpl: async () => Promise.reject(new Error("offline")), now: () => end });
     // Never loaded.
-    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, service())).toThrow(/sanctions list is missing or out of date/);
+    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, service())).toThrow(/sanctions list is missing or out of date/);
     // Saved three days and an hour ago: older than the list may be for an order, so older than it may be for a payout.
     save(end - 73 * 3_600_000);
     const stale = service();
     await stale.refresh();
     expect(stale.available()).toBe(false);
-    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, stale)).toThrow(/sanctions list is missing or out of date/);
+    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, stale)).toThrow(/sanctions list is missing or out of date/);
     expect(fs.readdirSync(path.join(dir, "rewards", "weeks"))).toEqual([]);
     // Saved an hour ago: it is used, and it names Bob.
     save(end - 3_600_000);
     const fresh = service();
     await fresh.refresh();
-    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, fresh);
+    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, fresh);
     expect(shareOf(closed, BOB)).toMatchObject({ payout: "0", carriedMicro: "0", withheld: "750000000000000000" });
     expect(shareOf(closed, ALICE)).toMatchObject({ payout: "250000000000000000" });
     expect(closed.screenedWith).toBe("2026-10-01");
@@ -587,7 +598,7 @@ describe("the record of points", () => {
     const file = path.join(dir, "rewards", "weeks", "2026-W41.json");
     const broken = '{"v":1,"week":"2026-W41","pool":"1","asset":"ZEC","shares":[{"address":"x"}],"txs":[]}';
     fs.writeFileSync(file, broken);
-    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR)).toThrow(/Week 2026-W41 has a record that cannot be read\. It was left as it is/);
+    expect(() => rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR)).toThrow(/Week 2026-W41 has a record that cannot be read\. It was left as it is/);
     expect(fs.readFileSync(file, "utf8")).toBe(broken);
     expect(rewards.week("2026-W41")).toBeNull();
     expect(rewards.summary(end)).toMatchObject({ weeks: [], totalPaid: "0", weeksPaid: 0 });
@@ -596,20 +607,20 @@ describe("the record of points", () => {
 
   it("keeps, with each share, the transaction that paid it, and shows an address its own transfer and no one else's", () => {
     const rewards = quarters();
-    rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR);
+    rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR);
     const forAlice = `0x${"a1".repeat(32)}`;
     const forBob = `0x${"b2".repeat(32)}`;
     const payouts = (who: { address: string }) => rewards.view(who.address, end + 10).payouts;
     // Closed and not yet sent: each sees its amount, and no transaction.
-    expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: "250000000000000000", asset: "ZEC", txs: [] }]);
+    expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: "250000000000000000", asset: "NEAR", decimals: 18, txs: [] }]);
     // Alice's is recorded, however the address and the hash are spelled.
     const one = rewards.recordPaid("2026-W41", [{ address: ALICE.address.toLowerCase(), hash: forAlice.toUpperCase().replace("0X", "0x") }], end + 2);
     expect(shareOf(one, ALICE).tx).toBe(forAlice);
     expect(shareOf(one, BOB).tx).toBeUndefined();
     expect(one.txs).toEqual([{ hash: forAlice, recordedAt: new Date(end + 2).toISOString() }]);
-    expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: "250000000000000000", asset: "ZEC", txs: [forAlice] }]);
+    expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: "250000000000000000", asset: "NEAR", decimals: 18, txs: [forAlice] }]);
     // Bob's is still being sent: he is not shown the transaction that paid Alice.
-    expect(payouts(BOB)).toEqual([{ week: "2026-W41", amount: "750000000000000000", asset: "ZEC", txs: [] }]);
+    expect(payouts(BOB)).toEqual([{ week: "2026-W41", amount: "750000000000000000", asset: "NEAR", decimals: 18, txs: [] }]);
     rewards.recordPaid("2026-W41", [{ address: BOB.address, hash: forBob }], end + 3);
     expect(payouts(BOB)[0]?.txs).toEqual([forBob]);
     expect(payouts(ALICE)[0]?.txs).toEqual([forAlice]);
@@ -628,8 +639,8 @@ describe("the record of points", () => {
     rewards.recordDelivered(stored());
     rewards.recordDelivered(stored({ id: "C".repeat(27), finishedAt: new Date(end + 3_600_000).toISOString() }));
     const later = end + WEEK_MS;
-    rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, later, CLEAR);
-    rewards.closeWeek("2026-W42", 10n ** 18n, "ZEC", 1n, later, CLEAR);
+    rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, later, CLEAR);
+    rewards.closeWeek("2026-W42", 10n ** 18n, "NEAR", 1n, later, CLEAR);
     const hash = `0x${"a1".repeat(32)}`;
     expect(rewards.weekOfTx(hash)).toBeNull();
     rewards.recordPaid("2026-W41", [{ address: ALICE.address, hash }], later);
@@ -645,18 +656,18 @@ describe("the record of points", () => {
     const running = rewards.summary(MONDAY + 86_400_000);
     expect(running).toMatchObject({ week: { id: "2026-W41" }, weekPointsMicro: (1000n * MICRO).toString() });
     expect(JSON.stringify(running)).not.toMatch(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])|250000000|750000000/);
-    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR);
+    const closed = rewards.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR);
     // Closed but not yet paid: not on the public list.
     expect(rewards.summary(end + 1)).toMatchObject({ week: { id: "2026-W42" }, weeks: [], totalPaid: "0", weeksPaid: 0 });
     const hash = `0x${"9a".repeat(32)}`;
     // Alice's quarter is on record as sent and Bob's three quarters are not: the week has paid a quarter, whatever was worked out for it.
     rewards.recordPaid("2026-W41", [{ address: ALICE.address, hash }], end + 2);
     expect(closed.paid).toBe((10n ** 18n).toString());
-    expect(rewards.summary(end + 3)).toMatchObject({ weeks: [{ week: "2026-W41", asset: "ZEC", paid: "250000000000000000", txs: [hash] }], totalPaid: "250000000000000000", weeksPaid: 1 });
+    expect(rewards.summary(end + 3)).toMatchObject({ weeks: [{ week: "2026-W41", asset: "NEAR", paid: "250000000000000000", txs: [hash] }], totalPaid: "250000000000000000", weeksPaid: 1 });
     const second = `0x${"9b".repeat(32)}`;
     rewards.recordPaid("2026-W41", [{ address: BOB.address, hash: second }], end + 4);
     const summary = rewards.summary(end + 5);
-    expect(summary).toMatchObject({ weeks: [{ week: "2026-W41", asset: "ZEC", paid: (10n ** 18n).toString(), txs: [hash, second] }], totalPaid: (10n ** 18n).toString(), weeksPaid: 1 });
+    expect(summary).toMatchObject({ weeks: [{ week: "2026-W41", asset: "NEAR", paid: (10n ** 18n).toString(), txs: [hash, second] }], totalPaid: (10n ** 18n).toString(), weeksPaid: 1 });
     expect(JSON.stringify(summary)).not.toMatch(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/);
     // The one thing it says of points is the week's total: here, the week after, nothing yet.
     expect(Object.keys(summary).sort()).toEqual(["totalPaid", "week", "weekPointsMicro", "weeks", "weeksPaid"]);
@@ -664,7 +675,7 @@ describe("the record of points", () => {
     expect(Object.keys(summary.week).sort()).toEqual(["end", "id", "start"]);
   });
 
-  it("still reads a week written before a share kept its own transaction, and shows nothing as sent that is not on record share by share", () => {
+  it("still reads a week written before a share kept its own transaction, and one closed in another coin: it is shown in its own coin, and not added to what was paid in NEAR", async () => {
     const dir = tempDir();
     fs.mkdirSync(path.join(dir, "rewards", "weeks"), { recursive: true });
     const earlier = `0x${"9a".repeat(32)}`;
@@ -687,14 +698,19 @@ describe("the record of points", () => {
     const rewards = createRewards(dir);
     expect(rewards.week("2026-W41")).toEqual(old);
     expect(rewards.summary(end + 2)).toMatchObject({ weeks: [], totalPaid: "0", weeksPaid: 0 });
-    expect(rewards.view(ALICE.address, end + 2).payouts).toEqual([{ week: "2026-W41", amount: "250", asset: "ZEC", txs: [] }]);
+    // The record names its own coin and no decimals: it is read as that coin, with the 18 every coin had then.
+    expect(rewards.view(ALICE.address, end + 2).payouts).toEqual([{ week: "2026-W41", amount: "250", asset: "ZEC", decimals: 18, txs: [] }]);
     // Its transaction is on record all the same, so it cannot be recorded for another week.
     expect(rewards.weekOfTx(earlier)).toBe("2026-W41");
     // A share of it can still be given the transfer that paid it.
     const own = `0x${"9c".repeat(32)}`;
     rewards.recordPaid("2026-W41", [{ address: ALICE.address, hash: own }], end + 3);
-    expect(rewards.summary(end + 4)).toMatchObject({ weeks: [{ week: "2026-W41", paid: "250", txs: [own] }], totalPaid: "250", weeksPaid: 1 });
-    expect(rewards.view(ALICE.address, end + 4).payouts[0]?.txs).toEqual([own]);
+    // It is on the list of paid weeks as what it was, and is no part of the total paid in NEAR.
+    expect(rewards.summary(end + 4)).toMatchObject({ weeks: [{ week: "2026-W41", asset: "ZEC", decimals: 18, paid: "250", txs: [own] }], totalPaid: "0", weeksPaid: 0 });
+    expect(rewards.view(ALICE.address, end + 4).payouts[0]).toMatchObject({ asset: "ZEC", txs: [own] });
+    // It cannot be closed again in NEAR, and the tool that records payouts in NEAR records none for it.
+    expect(() => rewards.closeWeek("2026-W41", 1000n, "NEAR", 1n, end + 5, CLEAR)).toThrow(/already closed, with a pool of 1000 ZEC/);
+    await expect(recordPayouts({ rewards, rpc: createFakeRpc(), reserve: ADDR.evm3, token: RESERVE_ASSET.contract, week: "2026-W41", hashes: [`0x${"9d".repeat(32)}`], now: end + 6 })).rejects.toThrow(/Week 2026-W41 was closed in ZEC, not in NEAR\. Only payouts in NEAR are recorded\. Nothing was recorded\./);
   });
 
   it("reads a closed week's file once, and again only when the tools have changed it", () => {
@@ -714,7 +730,7 @@ describe("the record of points", () => {
       // Nothing is closed: there is nothing to read.
       expect(ask()).toMatchObject({ summary: { weeksPaid: 0 }, mine: { payouts: [] }, read: 0 });
       // The tools close the week. The server's next answer has it, from one reading of the file.
-      tools.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end, CLEAR);
+      tools.closeWeek("2026-W41", 10n ** 18n, "NEAR", 1n, end, CLEAR);
       expect(ask()).toMatchObject({ summary: { weeksPaid: 0 }, mine: { payouts: [{ week: "2026-W41", txs: [] }] }, read: 1 });
       // Asked again and again, the file is not read again.
       for (let i = 0; i < 5; i++) expect(ask().read).toBe(0);
@@ -735,7 +751,9 @@ describe("the record of points", () => {
 describe("the payout tools", () => {
   const end = MONDAY + WEEK_MS;
   const RESERVE = ADDR.evm3;
-  const ZEC = RESERVE_ASSET.contract;
+  /** The reward token: NEAR on BNB Chain, by its contract there. */
+  const NEAR_TOKEN = RESERVE_ASSET.contract;
+  const TOKEN = { address: NEAR_TOKEN, decimals: 18 };
   const USDC_BSC = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d";
   const ONE = 10n ** 18n;
   /** keccak256("Approval(address,address,uint256)"): the first topic of a token's record of an approval. */
@@ -748,33 +766,64 @@ describe("the payout tools", () => {
     rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "50" }));
     return rewards;
   };
-  /** BNB Chain as the tools see it: the reserve wallet holds this much of the payout coin. */
+  /** BNB Chain as the tools see it: the reserve wallet holds this much NEAR. */
   const chain = (holds: bigint = 100n * ONE): FakeRpc => {
     const rpc = createFakeRpc();
     rpc.balances.set(RESERVE.toLowerCase(), holds);
     return rpc;
   };
   /** The export tool, as the script calls it. Without `close` it is a look. */
-  const run = (rewards: Rewards, pool: bigint, extra: Partial<Parameters<typeof exportWeek>[0]> = {}) => exportWeek({ rewards, sanctions: CLEAR, rpc: chain(), reserve: RESERVE, week: "2026-W41", pool, asset: "ZEC", now: end, ...extra });
+  const run = (rewards: Rewards, pool: bigint, extra: Partial<Parameters<typeof exportWeek>[0]> = {}) => exportWeek({ rewards, sanctions: CLEAR, rpc: chain(), reserve: RESERVE, token: TOKEN, week: "2026-W41", pool, asset: "NEAR", now: end, ...extra });
   const shareOf = (record: WeekRecord, who: { address: string }) => record.shares.find((share) => share.address === who.address)!;
 
   it("write the same list every time for the same week, and it adds up to the pool exactly", async () => {
     const rewards = seeded();
     const first = await run(rewards, 3n * ONE, { close: true });
-    const second = await run(rewards, 3n * ONE, { close: true, asset: "zec", now: end + 5 * 86_400_000 });
+    const second = await run(rewards, 3n * ONE, { close: true, asset: "near", now: end + 5 * 86_400_000 });
     expect(first).toMatchObject({ closed: true, already: false });
     expect(second).toMatchObject({ closed: true, already: true });
     expect(second.csv).toBe(first.csv);
     expect(second.summary).toEqual(first.summary);
     const [alice, bob] = [ALICE.address, BOB.address].sort();
-    expect(first.csv.split("\n")[0]).toBe("rewards_address,points,share,payout_zec,carried_points,withheld_zec");
+    expect(first.csv.split("\n")[0]).toBe("rewards_address,points,share,payout_near,carried_points,withheld_near");
     expect(first.csv.split("\n").slice(1, 3).map((line) => line.split(",")[0])).toEqual([alice, bob]);
     expect(first.csv).toContain(`${ALICE.address},250.000000,0.33333333,1,0.000000,0\n`);
     expect(first.csv).toContain(`${BOB.address},500.000000,0.66666666,2,0.000000,0\n`);
     // The week's volume is Alice's $25 and Bob's $50, and its points are ten times that.
-    expect(first.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "ZEC", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", volumeUsd: "75.000000" });
+    expect(first.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "NEAR", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", volumeUsd: "75.000000" });
     expect(BigInt(first.record.paid) + BigInt(first.record.left)).toBe(3n * ONE);
     expect(weekCsv(first.record)).toBe(first.csv);
+  });
+
+  it("work in NEAR, in the token's own 18 decimals: a pool of 12.5 is 12500000000000000000 of its smallest unit, each share is rounded down, and together they are never more than the pool", async () => {
+    expect(poolAmount("12.5", 18)).toBe(12_500_000_000_000_000_000n);
+    expect(poolAmount("0.000000000000000001", 18)).toBe(1n);
+    for (const bad of ["", "twelve", "-1", "1e3", "0.0000000000000000001", "1,2,3"]) expect(() => poolAmount(bad, 18), bad).toThrow(/is not an amount of NEAR\./);
+    // Alice has a third of the week's points and Bob two thirds.
+    const closed = await run(seeded(), poolAmount("12.5", 18), { close: true });
+    expect(closed.record).toMatchObject({ asset: "NEAR", decimals: 18, pool: "12500000000000000000", paid: "12499999999999999999", left: "1" });
+    expect(shareOf(closed.record, ALICE).payout).toBe("4166666666666666666");
+    expect(shareOf(closed.record, BOB).payout).toBe("8333333333333333333");
+    expect(closed.record.shares.reduce((sum, share) => sum + BigInt(share.payout), 0n) <= 12_500_000_000_000_000_000n).toBe(true);
+    // The list and the summary say it in NEAR, to the last decimal.
+    expect(closed.summary).toMatchObject({ asset: "NEAR", pool: "12.5", paid: "12.499999999999999999", leftInReserve: "0.000000000000000001" });
+    expect(closed.csv.split("\n")[0]).toBe("rewards_address,points,share,payout_near,carried_points,withheld_near");
+    expect(closed.csv).toContain(`${ALICE.address},250.000000,0.33333333,4.166666666666666666,0.000000,0\n`);
+    expect(closed.csv).toContain(`${BOB.address},500.000000,0.66666666,8.333333333333333333,0.000000,0\n`);
+
+    // The built-in token has 18 decimals. Any other is asked for its own, and where it will not say, nothing is guessed.
+    const rpc = chain();
+    expect(await rewardTokenDecimals(rpc, NEAR_TOKEN)).toBe(18);
+    expect(rpc.calls).toEqual([]);
+    rpc.decimals.set(ADDR.evm2.toLowerCase(), 6);
+    expect(await rewardTokenDecimals(rpc, ADDR.evm2)).toBe(6);
+    expect(await rewardTokenDecimals(rpc, ADDR.evm)).toBeNull();
+    // Worked in that token's units, the same pool typed the same way is another number, and the week keeps the decimals it was closed with.
+    expect(poolAmount("12.5", 6)).toBe(12_500_000n);
+    const six = await run(seeded(), poolAmount("12.5", 6), { close: true, rpc, token: { address: ADDR.evm2, decimals: 6 } });
+    expect(six.record).toMatchObject({ asset: "NEAR", decimals: 6, pool: "12500000", paid: "12499999", left: "1" });
+    expect(six.summary).toMatchObject({ pool: "12.5", paid: "12.499999" });
+    expect(six.reserveHolds).toBe(100n * ONE);
   });
 
   it("show what closing a week would do and write nothing at all, until told to close", async () => {
@@ -786,7 +835,7 @@ describe("the payout tools", () => {
     for (const look of looks) {
       expect(look).toMatchObject({ closed: false, already: false, reserveHolds: 100n * ONE });
       // All that closing would do is there to be read: the addresses, the points, the week's volume, each share and payout, what is carried, what is kept back and what stays in the reserve.
-      expect(look.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "ZEC", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", volumeUsd: "75.000000" });
+      expect(look.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "NEAR", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", volumeUsd: "75.000000" });
       expect(look.csv).toContain(`${ALICE.address},250.000000,0.33333333,1,0.000000,0\n`);
       expect(look.csv).toContain(`${BOB.address},500.000000,0.66666666,2,0.000000,0\n`);
     }
@@ -810,19 +859,19 @@ describe("the payout tools", () => {
     const dir = tempDir();
     const rewards = seeded(dir);
     const rpc = chain(2n * ONE);
-    await expect(run(rewards, 3n * ONE, { close: true, rpc })).rejects.toThrow(/The pool is 3 ZEC and the reserve wallet holds 2\. A week is not closed with more than the reserve holds\. Nothing was closed\./);
+    await expect(run(rewards, 3n * ONE, { close: true, rpc })).rejects.toThrow(/The pool is 3 NEAR and the reserve wallet holds 2\. A week is not closed with more than the reserve holds\. Nothing was closed\./);
     await expect(run(rewards, 2n * ONE + 1n, { close: true, rpc })).rejects.toThrow(/Nothing was closed/);
     expect(rewards.week("2026-W41")).toBeNull();
     // BNB Chain was asked: the payout coin's own contract, about the reserve wallet.
     const asked = rpc.calls.find((call) => call.call.method === "eth_call");
     expect(asked?.chain).toBe("bsc");
-    expect(JSON.stringify(asked?.call.params)).toContain(ZEC);
+    expect(JSON.stringify(asked?.call.params)).toContain(NEAR_TOKEN);
     expect(JSON.stringify(asked?.call.params)).toContain(`0x70a08231${RESERVE.slice(2).toLowerCase().padStart(64, "0")}`);
-    expect(await reserveHolds(rpc, RESERVE)).toBe(2n * ONE);
+    expect(await reserveHolds(rpc, RESERVE, NEAR_TOKEN)).toEqual({ amount: 2n * ONE, decimals: 18 });
     // The chain cannot be read: no week is closed with anything to pay, however little.
     const down = chain();
     down.down = true;
-    expect(await reserveHolds(down, RESERVE)).toBeNull();
+    expect(await reserveHolds(down, RESERVE, NEAR_TOKEN)).toBeNull();
     for (const pool of [3n * ONE, 1n]) await expect(run(rewards, pool, { close: true, rpc: down }), String(pool)).rejects.toThrow(/The reserve wallet's balance could not be read from BNB Chain, so the pool could not be checked against it\. Nothing was closed\./);
     // An answer that is no number is no balance.
     const odd = chain();
@@ -842,7 +891,7 @@ describe("the payout tools", () => {
 
   it("refuse another coin, a pool under nothing, and a second pool for a closed week", async () => {
     const rewards = seeded();
-    await expect(run(rewards, ONE, { asset: "BNB", close: true })).rejects.toThrow(/sent in ZEC/);
+    await expect(run(rewards, ONE, { asset: "BNB", close: true })).rejects.toThrow(/sent in NEAR/);
     await expect(run(rewards, -1n, { close: true })).rejects.toThrow(/less than nothing/);
     await run(rewards, ONE, { close: true });
     await expect(run(rewards, 2n * ONE, { close: true })).rejects.toThrow(/already closed/);
@@ -894,8 +943,8 @@ describe("the payout tools", () => {
     // A transfer to the address that was left out is no payout of this week, and is not recorded as one.
     const rpc = chain();
     const toBob = `0x${"b2".repeat(32)}`;
-    putMined(rpc, toBob, { from: RESERVE }, [transferLog(ZEC, RESERVE, BOB.address, 2n * ONE)]);
-    await expect(recordPayouts({ rewards, rpc, reserve: RESERVE, week: "2026-W41", hashes: [toBob], now: end })).rejects.toThrow(/holds no transfer/);
+    putMined(rpc, toBob, { from: RESERVE }, [transferLog(NEAR_TOKEN, RESERVE, BOB.address, 2n * ONE)]);
+    await expect(recordPayouts({ rewards, rpc, reserve: RESERVE, token: NEAR_TOKEN, week: "2026-W41", hashes: [toBob], now: end })).rejects.toThrow(/holds no transfer/);
   });
 
   it("show nothing and close nothing while the sanctions list is missing or out of date", async () => {
@@ -909,7 +958,7 @@ describe("the payout tools", () => {
 
   describe("recording what was sent", () => {
     const hashOf = (label: string) => `0x${createHash("sha256").update(`intentswap test payout ${label}`).digest("hex")}`;
-    const record = (rewards: Rewards, rpc: FakeRpc, hashes: string[], week = "2026-W41") => recordPayouts({ rewards, rpc, reserve: RESERVE, week, hashes, now: end + 60_000 });
+    const record = (rewards: Rewards, rpc: FakeRpc, hashes: string[], week = "2026-W41") => recordPayouts({ rewards, rpc, reserve: RESERVE, token: NEAR_TOKEN, week, hashes, now: end + 60_000 });
     /** Week 41 closed with a pool of 3: Alice is due 1 and Bob 2. */
     const closedWeek = async () => {
       const rewards = seeded();
@@ -919,41 +968,41 @@ describe("the payout tools", () => {
     /** A mined, successful transaction from the reserve wallet that holds one transfer. */
     const pay = (rpc: FakeRpc, label: string, to: string, amount: bigint, options: { from?: string; token?: string } = {}) => {
       const hash = hashOf(label);
-      putMined(rpc, hash, { from: RESERVE.toLowerCase(), to: options.token ?? ZEC }, [transferLog(options.token ?? ZEC, options.from ?? RESERVE, to, amount)]);
+      putMined(rpc, hash, { from: RESERVE.toLowerCase(), to: options.token ?? NEAR_TOKEN }, [transferLog(options.token ?? NEAR_TOKEN, options.from ?? RESERVE, to, amount)]);
       return hash;
     };
-    const none = /holds no transfer of ZEC from the reserve wallet to an address still to be paid in week 2026-W41, for exactly its payout\. Nothing was recorded\./;
+    const none = /holds no transfer of NEAR from the reserve wallet to an address still to be paid in week 2026-W41, for exactly its payout\. Nothing was recorded\./;
 
     it("check that a transaction was sent by the reserve wallet and went through, and read what it holds", async () => {
       const rpc = chain();
       const good = pay(rpc, "good", ALICE.address, ONE);
       // Each of these holds a transfer that would pass: what stops it is who sent it, or that it failed.
       const foreign = hashOf("foreign");
-      putMined(rpc, foreign, { from: ADDR.evm2 }, [transferLog(ZEC, RESERVE, BOB.address, 2n * ONE)]);
+      putMined(rpc, foreign, { from: ADDR.evm2 }, [transferLog(NEAR_TOKEN, RESERVE, BOB.address, 2n * ONE)]);
       const failed = hashOf("failed");
-      putMined(rpc, failed, { from: RESERVE }, [transferLog(ZEC, RESERVE, BOB.address, 2n * ONE)], "0x0");
+      putMined(rpc, failed, { from: RESERVE }, [transferLog(NEAR_TOKEN, RESERVE, BOB.address, 2n * ONE)], "0x0");
       const pending = hashOf("pending");
       rpc.txs.set(pending, { from: RESERVE });
-      expect(await checkPayoutTx(rpc, RESERVE, good)).toEqual({ ok: true, transfers: [{ to: ALICE.address.toLowerCase(), amount: ONE }] });
-      expect(await checkPayoutTx(rpc, RESERVE, foreign)).toEqual({ ok: false, reason: "it was not sent from the reserve wallet" });
-      expect(await checkPayoutTx(rpc, RESERVE, failed)).toEqual({ ok: false, reason: "it failed on-chain" });
-      expect(await checkPayoutTx(rpc, RESERVE, pending)).toEqual({ ok: false, reason: "it has not been included in a block yet" });
-      expect(await checkPayoutTx(rpc, RESERVE, hashOf("unknown"))).toEqual({ ok: false, reason: "no such transaction on BNB Chain" });
-      expect(await checkPayoutTx(rpc, RESERVE, "0x1234")).toEqual({ ok: false, reason: "that is not a transaction hash" });
-      // What it holds is the payout coin's own record of coins leaving the reserve wallet, and nothing else.
+      expect(await checkPayoutTx(rpc, RESERVE, good, NEAR_TOKEN)).toEqual({ ok: true, transfers: [{ to: ALICE.address.toLowerCase(), amount: ONE }] });
+      expect(await checkPayoutTx(rpc, RESERVE, foreign, NEAR_TOKEN)).toEqual({ ok: false, reason: "it was not sent from the reserve wallet" });
+      expect(await checkPayoutTx(rpc, RESERVE, failed, NEAR_TOKEN)).toEqual({ ok: false, reason: "it failed on-chain" });
+      expect(await checkPayoutTx(rpc, RESERVE, pending, NEAR_TOKEN)).toEqual({ ok: false, reason: "it has not been included in a block yet" });
+      expect(await checkPayoutTx(rpc, RESERVE, hashOf("unknown"), NEAR_TOKEN)).toEqual({ ok: false, reason: "no such transaction on BNB Chain" });
+      expect(await checkPayoutTx(rpc, RESERVE, "0x1234", NEAR_TOKEN)).toEqual({ ok: false, reason: "that is not a transaction hash" });
+      // What it holds is the reward token's own record of coins leaving the reserve wallet, and nothing else.
       const mixed = hashOf("mixed");
       putMined(rpc, mixed, { from: RESERVE }, [
         transferLog(USDC_BSC, RESERVE, ALICE.address, ONE),
-        transferLog(ZEC, ADDR.evm2, ALICE.address, ONE),
-        { address: ZEC, topics: [APPROVAL_TOPIC, word(RESERVE), word(ADDR.evm2)], data: `0x${ONE.toString(16).padStart(64, "0")}` },
-        transferLog(ZEC, RESERVE, ALICE.address, 0n),
+        transferLog(NEAR_TOKEN, ADDR.evm2, ALICE.address, ONE),
+        { address: NEAR_TOKEN, topics: [APPROVAL_TOPIC, word(RESERVE), word(ADDR.evm2)], data: `0x${ONE.toString(16).padStart(64, "0")}` },
+        transferLog(NEAR_TOKEN, RESERVE, ALICE.address, 0n),
         "not a log",
         null,
-        transferLog(ZEC, RESERVE, BOB.address, 2n * ONE),
+        transferLog(NEAR_TOKEN, RESERVE, BOB.address, 2n * ONE),
       ]);
-      expect(await checkPayoutTx(rpc, RESERVE, mixed)).toEqual({ ok: true, transfers: [{ to: BOB.address.toLowerCase(), amount: 2n * ONE }] });
+      expect(await checkPayoutTx(rpc, RESERVE, mixed, NEAR_TOKEN)).toEqual({ ok: true, transfers: [{ to: BOB.address.toLowerCase(), amount: 2n * ONE }] });
       rpc.down = true;
-      expect(await checkPayoutTx(rpc, RESERVE, good)).toEqual({ ok: false, reason: "BNB Chain could not be read" });
+      expect(await checkPayoutTx(rpc, RESERVE, good, NEAR_TOKEN)).toEqual({ ok: false, reason: "BNB Chain could not be read" });
     });
 
     it("record nothing unless every transaction passes", async () => {
@@ -964,10 +1013,10 @@ describe("the payout tools", () => {
       await run(rewards, 3n * ONE, { close: true });
       // One bad hash among good ones: nothing is recorded.
       const foreign = hashOf("foreign");
-      putMined(rpc, foreign, { from: ADDR.evm2 }, [transferLog(ZEC, RESERVE, BOB.address, 2n * ONE)]);
+      putMined(rpc, foreign, { from: ADDR.evm2 }, [transferLog(NEAR_TOKEN, RESERVE, BOB.address, 2n * ONE)]);
       await expect(record(rewards, rpc, [good, foreign])).rejects.toThrow(/not sent from the reserve wallet\. Nothing was recorded/);
       const failed = hashOf("failed");
-      putMined(rpc, failed, { from: RESERVE }, [transferLog(ZEC, RESERVE, BOB.address, 2n * ONE)], "0x0");
+      putMined(rpc, failed, { from: RESERVE }, [transferLog(NEAR_TOKEN, RESERVE, BOB.address, 2n * ONE)], "0x0");
       await expect(record(rewards, rpc, [good, failed])).rejects.toThrow(/it failed on-chain\. Nothing was recorded/);
       expect(rewards.week("2026-W41")?.txs).toEqual([]);
       expect(rewards.week("2026-W41")?.shares.every((share) => share.tx === undefined)).toBe(true);
@@ -984,7 +1033,7 @@ describe("the payout tools", () => {
       const rpc = chain();
       // The reserve wallet approves an unrelated contract to spend its coins: it came from the reserve and went through, and it pays nobody.
       const approval = hashOf("approval");
-      putMined(rpc, approval, { from: RESERVE, to: ZEC }, [{ address: ZEC, topics: [APPROVAL_TOPIC, word(RESERVE), word(ADDR.evm2)], data: `0x${"f".repeat(64)}` }]);
+      putMined(rpc, approval, { from: RESERVE, to: NEAR_TOKEN }, [{ address: NEAR_TOKEN, topics: [APPROVAL_TOPIC, word(RESERVE), word(ADDR.evm2)], data: `0x${"f".repeat(64)}` }]);
       await expect(record(rewards, rpc, [approval])).rejects.toThrow(none);
       // A plain payment of BNB out of the reserve, with no record of any coin moving.
       const plain = hashOf("plain");
@@ -1004,6 +1053,19 @@ describe("the payout tools", () => {
       await expect(record(rewards, rpc, [good, approval])).rejects.toThrow(none);
       expect(rewards.week("2026-W41")?.txs).toEqual([]);
       expect(rewards.week("2026-W41")?.shares.every((share) => share.tx === undefined)).toBe(true);
+    });
+
+    it("take only transfers of the reward token: the same amount of any other token, from the same wallet to the same address, is no payout", async () => {
+      const rewards = await closedWeek();
+      const rpc = chain();
+      const inUsdc = pay(rpc, "usdc", ALICE.address, ONE, { token: USDC_BSC });
+      const inNear = pay(rpc, "near", ALICE.address, ONE);
+      await expect(record(rewards, rpc, [inUsdc])).rejects.toThrow(none);
+      expect((await checkPayoutTx(rpc, RESERVE, inUsdc, NEAR_TOKEN))).toEqual({ ok: true, transfers: [] });
+      // The token is the one the server is set to, and no other: with the setting on another token, a transfer of the built-in one is refused in its turn.
+      await expect(recordPayouts({ rewards, rpc, reserve: RESERVE, token: USDC_BSC, week: "2026-W41", hashes: [inNear], now: end + 60_000 })).rejects.toThrow(none);
+      expect(rewards.week("2026-W41")?.txs).toEqual([]);
+      expect(shareOf(await record(rewards, rpc, [inNear]), ALICE).tx).toBe(inNear);
     });
 
     it("write down with each payout the transaction that made it, and record a payout once", async () => {
@@ -1028,7 +1090,7 @@ describe("the payout tools", () => {
       // One transaction may hold several payouts: it is written down with each of them, and once in the week's list.
       const other = await closedWeek();
       const both = hashOf("both");
-      putMined(rpc, both, { from: RESERVE }, [transferLog(ZEC, RESERVE, ALICE.address, ONE), transferLog(ZEC, RESERVE, BOB.address, 2n * ONE)]);
+      putMined(rpc, both, { from: RESERVE }, [transferLog(NEAR_TOKEN, RESERVE, ALICE.address, ONE), transferLog(NEAR_TOKEN, RESERVE, BOB.address, 2n * ONE)]);
       const all = await record(other, rpc, [both]);
       expect(all.shares.map((share) => share.tx)).toEqual([both, both]);
       expect(all.txs.map((tx) => tx.hash)).toEqual([both]);
@@ -1060,8 +1122,8 @@ describe("the payout tools", () => {
       await record(rewards, rpc, [own], "2026-W42");
       expect(rewards.summary(later)).toMatchObject({ weeksPaid: 2, totalPaid: (2n * ONE).toString() });
       expect(rewards.view(ALICE.address, later).payouts).toEqual([
-        { week: "2026-W42", amount: ONE.toString(), asset: "ZEC", txs: [own] },
-        { week: "2026-W41", amount: ONE.toString(), asset: "ZEC", txs: [paid] },
+        { week: "2026-W42", amount: ONE.toString(), asset: "NEAR", decimals: 18, txs: [own] },
+        { week: "2026-W41", amount: ONE.toString(), asset: "NEAR", decimals: 18, txs: [paid] },
       ]);
     });
 
@@ -1071,19 +1133,19 @@ describe("the payout tools", () => {
       const payouts = (who: { address: string }) => rewards.view(who.address, end + 120_000).payouts;
       // Closed, nothing recorded: no week is shown as paid, and each address sees its amount with no transaction.
       expect(rewards.summary(end + 1)).toMatchObject({ weeks: [], totalPaid: "0", weeksPaid: 0 });
-      expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: ONE.toString(), asset: "ZEC", txs: [] }]);
+      expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: ONE.toString(), asset: "NEAR", decimals: 18, txs: [] }]);
       const toAlice = pay(rpc, "alice", ALICE.address, ONE);
       await record(rewards, rpc, [toAlice]);
       // One payout of two is on record: the week has paid 1, not the 3 that were worked out for it.
       expect(rewards.week("2026-W41")?.paid).toBe((3n * ONE).toString());
-      expect(rewards.summary(end + 2)).toMatchObject({ weeks: [{ week: "2026-W41", asset: "ZEC", paid: ONE.toString(), txs: [toAlice] }], totalPaid: ONE.toString(), weeksPaid: 1 });
-      expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: ONE.toString(), asset: "ZEC", txs: [toAlice] }]);
-      expect(payouts(BOB)).toEqual([{ week: "2026-W41", amount: (2n * ONE).toString(), asset: "ZEC", txs: [] }]);
+      expect(rewards.summary(end + 2)).toMatchObject({ weeks: [{ week: "2026-W41", asset: "NEAR", paid: ONE.toString(), txs: [toAlice] }], totalPaid: ONE.toString(), weeksPaid: 1 });
+      expect(payouts(ALICE)).toEqual([{ week: "2026-W41", amount: ONE.toString(), asset: "NEAR", decimals: 18, txs: [toAlice] }]);
+      expect(payouts(BOB)).toEqual([{ week: "2026-W41", amount: (2n * ONE).toString(), asset: "NEAR", decimals: 18, txs: [] }]);
       const toBob = pay(rpc, "bob", BOB.address, 2n * ONE);
       await record(rewards, rpc, [toBob]);
       expect(rewards.summary(end + 3)).toMatchObject({ weeks: [{ week: "2026-W41", paid: (3n * ONE).toString(), txs: [toAlice, toBob] }], totalPaid: (3n * ONE).toString(), weeksPaid: 1 });
       // Each address is shown its own transfer, and not the other's.
-      expect(payouts(BOB)).toEqual([{ week: "2026-W41", amount: (2n * ONE).toString(), asset: "ZEC", txs: [toBob] }]);
+      expect(payouts(BOB)).toEqual([{ week: "2026-W41", amount: (2n * ONE).toString(), asset: "NEAR", decimals: 18, txs: [toBob] }]);
       expect(payouts(ALICE)[0]?.txs).toEqual([toAlice]);
     });
   });
@@ -1295,16 +1357,16 @@ describe("points over the wire", () => {
     const week = weekOf(h.clock.t);
     const after = weekBounds(week)!.end;
     const tools = createRewards(h.dataDir);
-    const closed = tools.closeWeek(week, 2n * 10n ** 18n, "ZEC", 1n, after, CLEAR);
+    const closed = tools.closeWeek(week, 2n * 10n ** 18n, "NEAR", 1n, after, CLEAR);
     const amount = closed.shares.find((share) => share.address === ALICE.address)!.payout;
     // Closed: Alice sees her payout, being sent. Nothing is shown to anyone as paid.
-    expect(await mine()).toEqual([{ week, amount, asset: "ZEC", txs: [] }]);
+    expect(await mine()).toEqual([{ week, amount, asset: "NEAR", decimals: 18, txs: [] }]);
     expect(await anyone()).toMatchObject({ weeks: [], totalPaid: "0", weeksPaid: 0 });
     // Paid and recorded: both answers have it.
     const hash = `0x${"a1".repeat(32)}`;
     tools.recordPaid(week, [{ address: ALICE.address, hash }], after + 1);
-    expect(await mine()).toEqual([{ week, amount, asset: "ZEC", txs: [hash] }]);
-    expect(await anyone()).toMatchObject({ weeks: [{ week, asset: "ZEC", paid: amount, txs: [hash] }], totalPaid: amount, weeksPaid: 1 });
+    expect(await mine()).toEqual([{ week, amount, asset: "NEAR", decimals: 18, txs: [hash] }]);
+    expect(await anyone()).toMatchObject({ weeks: [{ week, asset: "NEAR", paid: amount, txs: [hash] }], totalPaid: amount, weeksPaid: 1 });
     // What anyone is told still names no address.
     expect(JSON.stringify({ ...(await anyone()), reserve: null })).not.toMatch(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/);
   });
@@ -1443,45 +1505,33 @@ describe("points over the wire", () => {
     expect(h.rpc.calls.filter((call) => call.call.method === "eth_getBalance")).toEqual([]);
   });
 
-  it("tells anyone the current pool: the reserve wallet's BNB, payout coin and token, read from BNB Chain once a minute at most, with no address but the wallet's own", async () => {
-    const TOKEN = ADDR.evm2;
+  it("tells anyone the current pool: what the reserve wallet holds in NEAR on BNB Chain, with its decimals and its dollar value, read once a minute at most, with no other coin and no address but the wallet's own", async () => {
+    const TOKEN = RESERVE_ASSET.contract;
     const reserve = ADDR.evm3.toLowerCase();
-    const holding = (h: Harness, bnb: bigint, zec: bigint, token: bigint) => {
-      h.rpc.native.set(reserve, bnb);
-      h.rpc.tokenBalances.set(`${RESERVE_ASSET.contract.toLowerCase()}:${reserve}`, zec);
-      h.rpc.tokenBalances.set(`${TOKEN.toLowerCase()}:${reserve}`, token);
-      // The token says for itself how many decimals it has.
-      h.rpc.decimals.set(TOKEN.toLowerCase(), 9);
-    };
-    const reads = (h: Harness) => h.rpc.calls.filter((call) => call.call.method === "eth_getBalance").length;
+    /** The coin list with NEAR on BNB Chain on it, at this very contract, as the provider lists it: here at $4.80. */
+    const listed = { ok: true as const, status: 200, data: [...FIXTURE_TOKENS, { assetId: "nep245:v2_1.omni.hot.tg:56_near", decimals: 18, blockchain: "bsc", symbol: "NEAR", price: 4.8, contractAddress: TOKEN.toLowerCase() }] };
+    const holding = (h: Harness, near: bigint, token: string = TOKEN) => h.rpc.tokenBalances.set(`${token.toLowerCase()}:${reserve}`, near);
+    const reads = (h: Harness) => h.rpc.calls.filter((call) => call.chain === "bsc" && JSON.stringify(call.call.params).toLowerCase().includes(reserve.slice(2))).length;
     const ask = async (h: Harness) => (await h.get("/api/rewards")).body as RewardsPublic;
 
-    const h = await start({ env: { RESERVE_ADDRESS: ADDR.evm3, TOKEN_ADDRESS: TOKEN } });
-    // 2.5 BNB at $750, 42 of the payout coin at the listed ZEC's $1,200, and 250,000 of the token, which has no price.
-    holding(h, 25n * 10n ** 17n, 42n * 10n ** 18n, 250_000n * 10n ** 9n);
+    const h = await start({ env: { RESERVE_ADDRESS: ADDR.evm3, TOKEN_ADDRESS: ADDR.evm2 } });
+    h.tap.tokensResult = listed;
+    // 1,234.5678 NEAR at $4.80 is $5,925.92544. The wallet's BNB, and whatever else it holds, is no part of the pool.
+    holding(h, 12_345_678n * 10n ** 14n);
+    h.rpc.native.set(reserve, 50n * 10n ** 18n);
+    h.rpc.tokenBalances.set(`${ADDR.evm2.toLowerCase()}:${reserve}`, 999n * 10n ** 18n);
     const first = await ask(h);
-    expect(first.pool).toEqual({
-      address: ADDR.evm3,
-      totalUsdMicro: "52275000000",
-      coins: [
-        { symbol: "BNB", name: "BNB", decimals: 18, amount: (25n * 10n ** 17n).toString(), usdMicro: "1875000000" },
-        { symbol: "ZEC", name: "Binance-Peg ZEC", decimals: 18, amount: (42n * 10n ** 18n).toString(), usdMicro: "50400000000" },
-        { symbol: "$INT", name: "IntentSwap token", decimals: 9, amount: (250_000n * 10n ** 9n).toString(), usdMicro: null },
-      ],
-      readAt: new Date(h.clock.t).toISOString(),
-    });
-    expect(first.weekPointsMicro).toBe("0");
-    // The payout coin is the one the instruction names, and the one payouts are checked against.
-    expect(RESERVE_ASSET.contract).toBe("0x1Ba42e5193dfA8B03D15dd1B86a3113bbBEF8Eeb");
-    // The answer holds the wallet's own address and no other: not the token's, not a coin's contract.
+    expect(first.pool).toEqual({ address: ADDR.evm3, amount: (12_345_678n * 10n ** 14n).toString(), decimals: 18, usdMicro: "5925925440", readAt: new Date(h.clock.t).toISOString() });
+    // The answer holds the wallet's own address and no other: not the reward token's contract, not the site's token.
     expect([...new Set(JSON.stringify(first).match(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g))]).toEqual([ADDR.evm3]);
-    // One request to BNB Chain held all of it: the wallet's BNB, and what the two contracts say it holds.
+    expect(JSON.stringify(first)).not.toMatch(/BNB|ZEC|INT\b|coins/);
+    // One thing was asked of BNB Chain: what the reward token's own contract says the wallet holds.
     const asked = h.rpc.calls.filter((call) => call.chain === "bsc" && JSON.stringify(call.call.params).toLowerCase().includes(reserve.slice(2)));
-    expect(asked.map((call) => `${call.call.method} ${String((call.call.params[0] as { to?: string }).to ?? "")}`)).toEqual(["eth_getBalance ", `eth_call ${RESERVE_ASSET.contract}`, `eth_call ${TOKEN}`]);
-    expect(reads(h)).toBe(1);
+    expect(asked.map((call) => `${call.call.method} ${String((call.call.params[0] as { to?: string }).to ?? "")}`)).toEqual([`eth_call ${TOKEN}`]);
+    expect(h.config.rewardTokenAddress).toBe(TOKEN);
 
     // Asked again within the minute, by anyone: the same figures, and the chain is not read again.
-    holding(h, 3n * 10n ** 18n, 42n * 10n ** 18n, 0n);
+    holding(h, 3n * 10n ** 18n);
     h.clock.t += 59_000;
     expect((await h.get("/api/rewards", { ip: "198.51.100.7" })).body.pool).toEqual(first.pool);
     expect(reads(h)).toBe(1);
@@ -1489,35 +1539,34 @@ describe("points over the wire", () => {
     h.clock.t += 2_000;
     const second = await ask(h);
     expect(reads(h)).toBe(2);
-    expect(second.pool).toMatchObject({ totalUsdMicro: "52650000000", readAt: new Date(h.clock.t).toISOString() });
-    expect(second.pool?.coins.map((coin) => coin.amount)).toEqual([(3n * 10n ** 18n).toString(), (42n * 10n ** 18n).toString(), "0"]);
+    expect(second.pool).toEqual({ address: ADDR.evm3, amount: (3n * 10n ** 18n).toString(), decimals: 18, usdMicro: "14400000", readAt: new Date(h.clock.t).toISOString() });
     // A read that fails changes nothing: the last good figures stand, with the time they were read.
     h.rpc.down = true;
     h.clock.t += 61_000;
     expect((await ask(h)).pool).toEqual(second.pool);
     expect(reads(h)).toBe(3);
-    // And when the chain answers again, a minute later, so do the figures.
-    h.rpc.down = false;
-    holding(h, 0n, 10n ** 18n, 0n);
-    h.clock.t += 61_000;
-    expect((await ask(h)).pool).toMatchObject({ totalUsdMicro: "1200000000", readAt: new Date(h.clock.t).toISOString() });
 
-    // Where no read has ever worked there are no figures at all: the wallet, and nothing said of what it holds.
+    // Where no read has ever worked there is no figure at all: the wallet, and nothing said of what it holds.
     const unread = await start({ env: { RESERVE_ADDRESS: ADDR.evm3 } });
     unread.rpc.down = true;
-    expect((await ask(unread)).pool).toEqual({ address: ADDR.evm3, totalUsdMicro: null, coins: [], readAt: null });
+    expect((await ask(unread)).pool).toEqual({ address: ADDR.evm3, amount: null, decimals: 18, usdMicro: null, readAt: null });
 
-    // With no token set there are two coins. A coin with no price on the coin list is listed and not counted.
+    // With no price for the coin on the list just now, the amount is there and there is no dollar value.
     const unpriced = await start({ env: { RESERVE_ADDRESS: ADDR.evm3 } });
-    unpriced.tap.tokensResult = { ok: true, status: 200, data: FIXTURE_TOKENS.filter((token) => (token as { symbol?: string }).symbol !== "ZEC") };
-    holding(unpriced, 10n ** 18n, 5n * 10n ** 18n, 7n);
-    expect((await ask(unpriced)).pool).toMatchObject({
-      totalUsdMicro: "750000000",
-      coins: [
-        { symbol: "BNB", usdMicro: "750000000" },
-        { symbol: "ZEC", amount: (5n * 10n ** 18n).toString(), usdMicro: null },
-      ],
-    });
+    holding(unpriced, 5n * 10n ** 18n);
+    expect((await ask(unpriced)).pool).toEqual({ address: ADDR.evm3, amount: (5n * 10n ** 18n).toString(), decimals: 18, usdMicro: null, readAt: new Date(unpriced.clock.t).toISOString() });
+
+    // Where the setting names another token, that token is the one read, with the decimals it reports itself.
+    const other = await start({ env: { RESERVE_ADDRESS: ADDR.evm3, REWARD_TOKEN_ADDRESS: ADDR.evm2.toLowerCase() } });
+    expect(other.config.rewardTokenAddress).toBe(ADDR.evm2);
+    holding(other, 7_500_000n, ADDR.evm2);
+    holding(other, 99n * 10n ** 18n);
+    other.rpc.decimals.set(ADDR.evm2.toLowerCase(), 6);
+    expect((await ask(other)).pool).toMatchObject({ address: ADDR.evm3, amount: "7500000", decimals: 6, usdMicro: null });
+    // And if that token will not say how many decimals it has, nothing is guessed: there is no figure.
+    const mute = await start({ env: { RESERVE_ADDRESS: ADDR.evm3, REWARD_TOKEN_ADDRESS: ADDR.evm } });
+    holding(mute, 7_500_000n, ADDR.evm);
+    expect((await ask(mute)).pool).toMatchObject({ amount: null, readAt: null });
   });
 
   it("no route returns another wallet's points: of everyone else there is one total, and nothing to make a list from", async () => {
@@ -1641,18 +1690,10 @@ describe("the Rewards page, before the wallet is opened", () => {
 
 describe("the Rewards page, as it is drawn", () => {
   const week = { id: "2026-W41", start: new Date(MONDAY).toISOString(), end: new Date(MONDAY + 7 * 86_400_000).toISOString() };
-  const POOL = {
-    address: ADDR.evm3,
-    totalUsdMicro: "52275000000",
-    coins: [
-      { symbol: "BNB", name: "BNB", decimals: 18, amount: (25n * 10n ** 17n).toString(), usdMicro: "1875000000" },
-      { symbol: "ZEC", name: "Binance-Peg ZEC", decimals: 18, amount: (42n * 10n ** 18n).toString(), usdMicro: "50400000000" },
-      { symbol: "$INT", name: "IntentSwap token", decimals: 9, amount: (250_000n * 10n ** 9n).toString(), usdMicro: null },
-    ],
-    readAt: new Date(MONDAY + 3_600_000).toISOString(),
-  };
-  const summaryOf = (pool: RewardsPublic["pool"], points: bigint): RewardsPublic => ({ week, weekPointsMicro: (points * MICRO).toString(), weeks: [], totalPaid: "0", weeksPaid: 0, pool, serverNow: new Date(MONDAY + 3_600_000).toISOString() });
-  const mineOf = (points: bigint): RewardsView => ({ address: ALICE.address, week: { ...week, pointsMicro: (points * MICRO).toString(), carriedInMicro: "0" }, allTimeMicro: (points * MICRO).toString(), swaps: [], payouts: [] });
+  /** The reserve wallet holds 1,234.5678 NEAR, worth $5,925.92544. */
+  const POOL = { address: ADDR.evm3, amount: (12_345_678n * 10n ** 14n).toString(), decimals: 18, usdMicro: "5925925440", readAt: new Date(MONDAY + 3_600_000).toISOString() };
+  const summaryOf = (pool: RewardsPublic["pool"], points: bigint, extra: Partial<RewardsPublic> = {}): RewardsPublic => ({ week, weekPointsMicro: (points * MICRO).toString(), weeks: [], totalPaid: "0", weeksPaid: 0, pool, serverNow: new Date(MONDAY + 3_600_000).toISOString(), ...extra });
+  const mineOf = (points: bigint, payouts: RewardsView["payouts"] = []): RewardsView => ({ address: ALICE.address, week: { ...week, pointsMicro: (points * MICRO).toString(), carriedInMicro: "0" }, allTimeMicro: (points * MICRO).toString(), swaps: [], payouts });
   /** The page as it is first drawn from what its store holds: put there for the length of one drawing, and taken away again. */
   const draw = (summary: RewardsPublic, mine: RewardsView | null = null): string => {
     const first = useRewards.getInitialState() as unknown as Record<string, unknown>;
@@ -1664,7 +1705,8 @@ describe("the Rewards page, as it is drawn", () => {
       Object.assign(first, kept);
     }
   };
-  const read = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+  /** What a person reads: tags out, and what is written for a screen reader alone left out, so that an amount is read once. */
+  const read = (html: string) => html.replace(/<span class="sr-only">[^<]*<\/span>/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 
   it("has no part for the pool while no reserve wallet is set: nothing stands in its place", () => {
     const html = draw(summaryOf(null, 0n));
@@ -1678,41 +1720,75 @@ describe("the Rewards page, as it is drawn", () => {
     expect(signedIn).not.toMatch(/Estimated reward|An estimate\.|\$[\d,]+\.\d\d/);
   });
 
-  it("shows the current pool in dollars with its coins beneath, a link to the wallet on BscScan, and the week's points as one total", () => {
+  it("shows the current pool as an amount of NEAR with its dollar value beneath, a link to the wallet on BscScan, and no other coin", () => {
     const html = draw(summaryOf(POOL, 1000n));
     const text = read(html);
-    expect(html).toMatch(/<h2 id="rewards-pool" class="rewards-heading">Current pool<\/h2><p class="rewards-pool-total mono">\$52,275\.00<\/p>/);
-    expect(text).toContain("BNB 2.5 BNB $1,875.00 Binance-Peg ZEC 42 ZEC $50,400.00 IntentSwap token 250,000 $INT not counted in the total");
+    expect(html).toMatch(/<h2 id="rewards-pool" class="rewards-heading">Current pool<\/h2><p class="rewards-pool-total">/);
+    // The amount in the site's short form, rounded down, and in full for a screen reader; its dollars beneath.
+    expect(text).toContain("Current pool 1,234.56 NEAR about $5,925.92 What the rewards wallet holds in NEAR on BNB Chain");
+    expect(html).toContain('<span class="sr-only">1234.5678 NEAR</span>');
+    expect(text).toContain("Rewards are paid in NEAR on BNB Chain, to the address you signed in with.");
+    // NEAR's own mark beside the amount, as a coin's icon, from the site's own files.
+    expect(html).toMatch(/<p class="rewards-pool-total"><span class="coin-icon" data-size="32" aria-hidden="true"><img class="coin-icon-image" src="\/coins\/near\.webp"/);
     expect(html).toContain(`<a href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" class="outbound">View the wallet on BscScan`);
+    // Nothing else the wallet holds is listed, and nothing on the page names another coin for rewards.
+    expect(text).not.toMatch(/\bZEC\b|Zcash|\$INT|\bBNB\b(?! Chain)|not counted in the total|Binance-Peg/);
     expect(text).toContain("This week's points 1,000.00 Collected by everyone together.");
     // Nobody has signed in: no points of any one address, no share, and no address but the wallet's own.
     expect(html).not.toMatch(/rewards-points|Your share|Estimated reward/);
     // (An address is drawn in three parts, so that its two ends stand out: the parts are put together again before it is looked for.)
     expect([...new Set(html.replace(/<\/?span[^>]*>/g, "").replace(/<[^>]+>/g, " ").match(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g))]).toEqual([ADDR.evm3]);
+    // With no price for the coin just now, the amount is shown and no dollar line.
+    const unpriced = read(draw(summaryOf({ ...POOL, usdMicro: null }, 1000n)));
+    expect(unpriced).toContain("Current pool 1,234.56 NEAR What the rewards wallet holds in NEAR on BNB Chain");
+    expect(unpriced).not.toMatch(/about \$|\$[\d,]+\.\d\d/);
     // Before anyone has points this week: the pool is shown, and the page says so.
     const early = read(draw(summaryOf(POOL, 0n)));
-    expect(early).toContain("Current pool $52,275.00");
+    expect(early).toContain("Current pool 1,234.56 NEAR");
     expect(early).toContain("No points have been collected yet this week.");
     // Where the wallet's balance has never been read: its link, and one plain sentence.
-    const unread = draw(summaryOf({ address: ADDR.evm3, totalUsdMicro: null, coins: [], readAt: null }, 0n));
+    const unread = draw(summaryOf({ address: ADDR.evm3, amount: null, decimals: 18, usdMicro: null, readAt: null }, 0n));
     expect(read(unread)).toContain("Current pool The balance could not be read just now.");
     expect(unread).toContain("View the wallet on BscScan");
-    expect(read(unread)).not.toMatch(/\$[\d,]+\.\d\d/);
+    expect(read(unread)).not.toMatch(/\$[\d,]+\.\d\d|\d NEAR/);
   });
 
-  it("after a sign-in, shows the address its share of the week's points and what that share of the pool comes to, and says that it is an estimate", () => {
+  it("after a sign-in, shows the address its share of the week's points and what that share of the pool comes to in NEAR, with its dollars beside it, and says that it is an estimate", () => {
     const text = read(draw(summaryOf(POOL, 1000n), mineOf(250n)));
-    // 250 points of 1,000 is a quarter, and a quarter of $52,275.00 is $13,068.75.
+    // 250 points of 1,000 is a quarter, and a quarter of 1,234.5678 NEAR is 308.64195: shown rounded down, with a quarter of its dollars.
     expect(text).toContain("Your points this week 250.00");
-    expect(text).toContain("Your share 25.00% Estimated reward $13,068.75 An estimate. Your share changes as others swap, and the pool changes until the week closes.");
+    expect(text).toContain("Your share 25.00% Estimated reward 308.6419 NEAR about $1,481.48 An estimate. Your share changes as others swap, and the pool changes until the week closes.");
     expect(ESTIMATE_NOTE).toBe("An estimate. Your share changes as others swap, and the pool changes until the week closes.");
     expect(text).not.toContain("Make a swap to collect points.");
     // 1 point of 100 is 1%.
-    expect(read(draw(summaryOf(POOL, 100n), mineOf(1n)))).toContain("Your share 1.00% Estimated reward $522.75");
+    expect(read(draw(summaryOf(POOL, 100n), mineOf(1n)))).toContain("Your share 1.00% Estimated reward 12.3456 NEAR about $59.25");
+    // With no price for the coin: the estimate in NEAR, and nothing in dollars.
+    const unpriced = read(draw(summaryOf({ ...POOL, usdMicro: null }, 1000n), mineOf(250n)));
+    expect(unpriced).toContain("Your share 25.00% Estimated reward 308.6419 NEAR An estimate.");
+    expect(unpriced).not.toMatch(/about \$/);
     // With no points of its own: 0%, and a short way to the swap page.
     const none = draw(summaryOf(POOL, 1000n), mineOf(0n));
-    expect(read(none)).toContain("Your share 0% Estimated reward $0.00");
+    expect(read(none)).toContain("Your share 0% Estimated reward 0 NEAR about $0.00");
     expect(none).toMatch(/<a href="\/"[^>]*>Make a swap to collect points\.<\/a>/);
+  });
+
+  it("shows what has been paid in NEAR, and a week that was paid in another coin in that coin", () => {
+    const weeks = [
+      { week: "2026-W40", asset: "NEAR", decimals: 18, paid: (125n * 10n ** 17n).toString(), txs: [`0x${"a1".repeat(32)}`] },
+      { week: "2026-W39", asset: "ZEC", decimals: 18, paid: (3n * 10n ** 18n).toString(), txs: [`0x${"b2".repeat(32)}`] },
+    ];
+    const payouts = [
+      { week: "2026-W40", amount: (25n * 10n ** 17n).toString(), asset: "NEAR", decimals: 18, txs: [] },
+      { week: "2026-W39", amount: 10n ** 18n + "", asset: "ZEC", decimals: 18, txs: [] },
+    ];
+    const text = read(draw(summaryOf(POOL, 1000n, { weeks, totalPaid: (125n * 10n ** 17n).toString(), weeksPaid: 1 }), mineOf(250n, payouts)));
+    expect(text).toContain("Paid out so far: 12.5 NEAR over 1 week.");
+    expect(text).toContain("Week 40, 2026 12.5 NEAR");
+    expect(text).toContain("Week 39, 2026 3 ZEC");
+    expect(text).toContain("Week 40, 2026 2.5 NEAR");
+    expect(text).toContain("Week 39, 2026 1 ZEC");
+    // With every week paid in NEAR, the page nowhere names another coin.
+    expect(read(draw(summaryOf(POOL, 1000n, { weeks: weeks.slice(0, 1), totalPaid: weeks[0]!.paid, weeksPaid: 1 }), mineOf(250n, payouts.slice(0, 1))))).not.toMatch(/\bZEC\b|Zcash/);
   });
 });
 
