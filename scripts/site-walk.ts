@@ -310,7 +310,7 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     await desk.waitForTimeout(1200);
     expectThat((await desk.locator(".rewards-count").innerText()).trim() !== clock, "the week's countdown does not count");
     expectThat(await desk.getByRole("button", { name: "Connect to see your points" }).isVisible(), "the Rewards page does not offer to connect");
-    expectThat((await desk.locator(".rewards-rules li").count()) === 5, `the Rewards page gives ${await desk.locator(".rewards-rules li").count()} rules in short`);
+    expectThat((await desk.locator(".rewards-rules li").count()) === 3, `the Rewards page gives ${await desk.locator(".rewards-rules li").count()} rules in short`);
     const rewards = await desk.locator("main#main").innerText();
     expectThat(!/0x[0-9a-fA-F]{6}/.test(rewards) && (await desk.locator(".rewards-points").count()) === 0, "the Rewards page shows an address or a number of points to someone who has not signed in");
     expectThat((await desk.getByRole("heading", { name: "Current pool" }).count()) === 0, "the Rewards page shows a pool although no reserve address is set");
