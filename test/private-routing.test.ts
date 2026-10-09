@@ -10,7 +10,7 @@ import { routingOf, type Confidentiality, type OrderView, type QuoteView, type T
 import { QuotePanel } from "../web/src/components/QuotePanel.tsx";
 import { ReviewSheet } from "../web/src/components/ReviewSheet.tsx";
 import { SwapCard } from "../web/src/components/SwapCard.tsx";
-import { NO_FEE_NO_POINTS, PRIVATE_UNAVAILABLE, routingNote } from "../web/src/lib/swap-logic.ts";
+import { PRIVATE_UNAVAILABLE, routingNote } from "../web/src/lib/swap-logic.ts";
 import { OrderContent } from "../web/src/pages/OrderPage.tsx";
 import { useApp } from "../web/src/stores/app.ts";
 import { useSwap } from "../web/src/stores/swap.ts";
@@ -36,7 +36,8 @@ const PUBLIC_QUOTE: QuoteView = {
   amountOutUsd: "1260.59",
   slippageBps: 100,
   timeEstimate: 34,
-  fees: { appBps: 20, providerBps: 20, appAmount: "1000000000000000", providerAmount: "1000000000000000" },
+  // As the site runs: no fee of IntentSwap's, and the provider's own.
+  fees: { appBps: 0, providerBps: 20, appAmount: "0", providerAmount: "1000000000000000" },
   withdrawFee: "302700",
   refundFee: null,
   priceImpactBps: 36,
@@ -45,8 +46,8 @@ const PUBLIC_QUOTE: QuoteView = {
 };
 // The same swap routed privately: the same fees, and a little less out.
 const PRIVATE_QUOTE: QuoteView = { ...PUBLIC_QUOTE, amountOut: "1260079171", minAmountOut: "1247478379", routing: PRIVATELY };
-// And as it comes from a server set to take no fee of its own on a private swap.
-const NO_FEE_QUOTE: QuoteView = { ...PRIVATE_QUOTE, fees: { ...PUBLIC_QUOTE.fees, appBps: 0, appAmount: "0" } };
+// And as it comes from a server set to take a fee of its own.
+const FEE_QUOTE: QuoteView = { ...PRIVATE_QUOTE, fees: { ...PUBLIC_QUOTE.fees, appBps: 20, appAmount: "1000000000000000" } };
 
 const NOW = Date.parse("2026-10-08T12:10:00.000Z");
 function order(overrides: Partial<OrderView> = {}): OrderView {
@@ -136,27 +137,30 @@ describe("the quote's breakdown", () => {
   const panel = (quote: QuoteView, mode: Confidentiality | null, byChoice = false) => draw(createElement(QuotePanel, { quote, from: ETH, to: USDT, loading: false, stale: false, held: true, startOpen: true, routing: routingNote(mode, quote, byChoice), impactConfirmed: false, onConfirmImpact: () => undefined }));
   const rows = (html: string) => [...html.matchAll(/<div class="quote-row"[^>]*><dt class="muted">([^<]*)<\/dt>/g)].map((match) => match[1]);
 
-  it("a private quote: the routing first, then both fees in figures and the points, as on any quote", () => {
+  it("a private quote: the routing first, then no fee of IntentSwap's, the provider's in figures and the points, as on any quote", () => {
     const html = panel(PRIVATE_QUOTE, "basic");
     expect(rows(html)).toEqual(["Routing", "Minimum received", "IntentSwap fee", "Provider fee", "Solana network fee", "Estimated time", "Points"]);
     expect(html).toMatch(/<div class="quote-row" data-row="routing"><dt class="muted">Routing<\/dt><dd>Private<\/dd><\/div>/);
-    expect(read(html)).toMatch(/IntentSwap fee 0\.20%/);
+    expect(html).toMatch(/<dt class="muted">IntentSwap fee<\/dt><dd><span class="muted">None<\/span><\/dd>/);
+    expect(read(html)).not.toMatch(/0\.00%/);
     expect(read(html)).toMatch(/Provider fee 0\.20%/);
-    expect(read(html)).not.toMatch(/None/);
-    // The points are counted from the fee the quote shows, so they are a public quote's for the same fee.
+    // $1,265.13 paid: 12,651.3 points, ten to the dollar. They are a public quote's for the same amount.
+    expect(read(html)).toMatch(/Points \+12,651\.3 /);
     const pointsOf = (drawn: string) => /<div class="quote-row"[^>]*><dt class="muted">Points<\/dt>[\s\S]*?<\/div>/.exec(drawn)?.[0] ?? "";
     expect(pointsOf(html)).not.toBe("");
     expect(pointsOf(html)).toBe(pointsOf(panel(PUBLIC_QUOTE, "basic", true)));
   });
 
-  it("a private quote from a server that takes no fee on one: the fee row says None, and nothing is said of points", () => {
-    const html = panel(NO_FEE_QUOTE, "basic");
-    expect(rows(html)).toEqual(["Routing", "Minimum received", "IntentSwap fee", "Provider fee", "Solana network fee", "Estimated time"]);
-    expect(html).toMatch(/<dt class="muted">IntentSwap fee<\/dt><dd><span class="muted">None<\/span><\/dd>/);
-    expect(read(html)).not.toMatch(/points|Points/);
-    expect(read(html)).not.toMatch(/0\.00%/);
-    // The provider's own fee is given in figures, as ever.
+  it("a private quote from a server set to take a fee: the fee row gives it in figures, and the points are the same", () => {
+    const html = panel(FEE_QUOTE, "basic");
+    expect(rows(html)).toEqual(["Routing", "Minimum received", "IntentSwap fee", "Provider fee", "Solana network fee", "Estimated time", "Points"]);
+    expect(read(html)).toMatch(/IntentSwap fee 0\.20%/);
     expect(read(html)).toMatch(/Provider fee 0\.20%/);
+    expect(read(html)).not.toMatch(/None/);
+    // No fee is part of the sum: the points are those of the same swap with no fee.
+    const pointsOf = (drawn: string) => /<div class="quote-row"[^>]*><dt class="muted">Points<\/dt>[\s\S]*?<\/div>/.exec(drawn)?.[0] ?? "";
+    expect(pointsOf(html)).not.toBe("");
+    expect(pointsOf(html)).toBe(pointsOf(panel(PRIVATE_QUOTE, "basic")));
   });
 
   it("the line itself shows nothing new: the rate, the time and the chevron", () => {
@@ -169,7 +173,7 @@ describe("the quote's breakdown", () => {
     const html = panel(PUBLIC_QUOTE, "basic", true);
     expect(rows(html)).toEqual(["Routing", "Minimum received", "IntentSwap fee", "Provider fee", "Solana network fee", "Estimated time", "Points"]);
     expect(html).toMatch(/data-row="routing"><dt class="muted">Routing<\/dt><dd>Public, by your choice<\/dd>/);
-    expect(read(html)).toMatch(/IntentSwap fee 0\.20%/);
+    expect(read(html)).toMatch(/IntentSwap fee None Provider fee 0\.20%/);
   });
 
   it("where the server routes in public: no row, no new word, and markup the same as before there was such a thing", () => {
@@ -246,9 +250,9 @@ describe("the swap card", () => {
     const html = card();
     expect(pointsOn(html)).toEqual(inPublic);
     expect(html).toMatch(/data-row="routing"><dt class="muted">Routing<\/dt><dd>Private<\/dd>/);
-    // Only a quote with no IntentSwap fee has nothing of points on it.
-    held = { quote: NO_FEE_QUOTE, pay: "wallet" };
-    expect(read(card())).not.toMatch(/points/i);
+    // A quote with a fee of IntentSwap's on it says the same of points: no fee is part of the sum.
+    held = { quote: FEE_QUOTE, pay: "wallet" };
+    expect(pointsOn(card())).toEqual(inPublic);
   });
 });
 
@@ -258,27 +262,30 @@ describe("the review sheet", () => {
   const sentence = (html: string) => read(/<p class="review-sentence"[^>]*>([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "");
   const points = (html: string) => read(/<p class="review-address-label">Points[\s\S]*?(?=<p class="review-plain)/.exec(html)?.[0] ?? "");
 
-  it("a private swap: the third short sentence, the routing row with the tag near the top, and the fee and the points as ever", () => {
+  it("a private swap: the third short sentence, the routing row with the tag near the top, no fee of IntentSwap's, and somewhere for the points to go", () => {
     serverRoutes("basic");
     held = { quote: PRIVATE_QUOTE };
     const html = sheet();
     expect(sentence(html)).toBe("You send 0.5 ETH on Base. You receive about 1,260.07 USDT on Solana. Routed privately.");
     expect(rows(html).slice(0, 4)).toEqual(["You send", "You receive, about", "Routing", "Minimum received"]);
     expect(html).toMatch(/<div class="review-row" data-row="routing"><dt class="muted">Routing<\/dt><dd><span class="chip routing-tag" data-tone="private">Private<\/span><\/dd><\/div>/);
+    expect(html).toMatch(/<dt class="muted">IntentSwap fee<\/dt><dd><span class="muted">None<\/span><\/dd>/);
+    expect(read(html)).toMatch(/Provider fee 0\.001 ETH 0\.20%/);
+    // A swap with no fee of IntentSwap's has somewhere for its points to go, like any other.
+    expect(points(html)).toMatch(/^Points · BNB Chain /);
+    expect(html).toContain("Rewards address");
+    expect(read(html)).not.toMatch(/adds no points: IntentSwap/);
+  });
+
+  it("a private swap the server takes a fee on: the fee row gives it in figures, and the place for the points is the same", () => {
+    serverRoutes("basic");
+    held = { quote: FEE_QUOTE };
+    const html = sheet();
     expect(read(html)).toMatch(/IntentSwap fee 0\.001 ETH 0\.20%/);
     expect(points(html)).toMatch(/^Points · BNB Chain /);
     expect(html).toContain("Rewards address");
-    expect(read(html)).not.toContain(NO_FEE_NO_POINTS);
-  });
-
-  it("a private swap the server takes no fee on: the fee row says None, and one sentence stands where the points would go", () => {
-    serverRoutes("basic");
-    held = { quote: NO_FEE_QUOTE };
-    const html = sheet();
-    expect(html).toMatch(/<dt class="muted">IntentSwap fee<\/dt><dd><span class="muted">None<\/span><\/dd>/);
-    // One plain sentence in place of where the points go: no address, no field for one.
-    expect(points(html)).toBe(`Points ${NO_FEE_NO_POINTS}`);
-    expect(html).not.toContain("Rewards address");
+    held = { quote: PRIVATE_QUOTE };
+    expect(points(html)).toBe(points(sheet()));
   });
 
   it("public by the person's own choice: the routing row says so in words, with no tag, and the rest is as ever", () => {
@@ -288,7 +295,7 @@ describe("the review sheet", () => {
     expect(sentence(html)).toBe("You send 0.5 ETH on Base. You receive about 1,261.34 USDT on Solana.");
     expect(html).toMatch(/<div class="review-row" data-row="routing"><dt class="muted">Routing<\/dt><dd>Public, by your choice<\/dd><\/div>/);
     expect(html).not.toContain("routing-tag");
-    expect(read(html)).toMatch(/IntentSwap fee 0\.001 ETH 0\.20%/);
+    expect(read(html)).toMatch(/IntentSwap fee None/);
     expect(points(html)).toMatch(/^Points · BNB Chain /);
     expect(html).toContain("Rewards address");
   });
@@ -321,14 +328,15 @@ describe("an order's page", () => {
       expect(head(html), String(mode)).toBe('<div class="order-title-row"><h1 id="order-title" class="order-title">0.5 ETH to USDT</h1><span class="chip routing-tag" data-tone="private">Private</span></div>');
       expect(rows(html).slice(0, 4)).toEqual(["You send", "You receive, about", "Routing", "Minimum received"]);
       expect(html).toMatch(/<div class="review-row" data-row="routing"><dt class="muted">Routing<\/dt><dd>Private<\/dd><\/div>/);
-      // Its fee and its points read as any order's do.
-      expect(read(html)).toMatch(/IntentSwap fee 0\.001 ETH 0\.20%/);
+      // Its fee row and its points read as any order's do: no fee of IntentSwap's, and points that turn on its rewards address alone.
+      expect(html).toMatch(/<dt class="muted">IntentSwap fee<\/dt><dd><span class="muted">None<\/span><\/dd>/);
       expect(read(html)).toContain("This swap adds no points: it was made without a rewards address.");
       expect(read(page({ ...privateOrder, rewardsAddress: "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83" }, mode))).toContain("This swap's points go to this address when it is delivered.");
-      // One made where the server took no fee on a private swap says so, in the fee row and of its points.
-      const unpaid = page({ ...privateOrder, fees: NO_FEE_QUOTE.fees }, mode);
-      expect(unpaid).toMatch(/<dt class="muted">IntentSwap fee<\/dt><dd><span class="muted">None<\/span><\/dd>/);
-      expect(read(unpaid)).toContain(`Points ${NO_FEE_NO_POINTS}`);
+      // One made where the server took a fee gives it in figures, and says the same of its points.
+      const paid = page({ ...privateOrder, fees: FEE_QUOTE.fees, rewardsAddress: "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83" }, mode);
+      expect(read(paid)).toMatch(/IntentSwap fee 0\.001 ETH 0\.20%/);
+      expect(read(paid)).toContain("This swap's points go to this address when it is delivered.");
+      expect(read(html)).not.toMatch(/IntentSwap takes no fee on it/);
     }
   });
 
@@ -380,7 +388,9 @@ describe("the page of component states", () => {
     expect(read(group)).toContain("You send 0.5 ETH on Base. You receive about 1,260.07 USDT on Solana. Routed privately.");
     expect(group).toMatch(/<div class="review-row" data-row="routing"><dt class="muted">Routing<\/dt><dd><span class="chip routing-tag" data-tone="private">Private<\/span><\/dd><\/div>/);
     expect(group).toMatch(/<div class="review-row" data-row="routing"><dt class="muted">Routing<\/dt><dd>Public, by your choice<\/dd><\/div>/);
-    expect(read(group)).toContain(NO_FEE_NO_POINTS);
+    // And a quote from a server set to take a fee: the row then gives it in figures.
+    expect(read(group)).toMatch(/IntentSwap fee 0\.20%/);
+    expect(read(html)).not.toMatch(/adds no points: IntentSwap/);
     // The review's own button and line when an order could not be made privately, and the two orders.
     expect(html).toMatch(/<button type="button" class="button-primary">Close<\/button>/);
     expect(read(html)).toContain(`${PRIVATE_UNAVAILABLE} No order was made.`);

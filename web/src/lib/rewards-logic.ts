@@ -34,12 +34,10 @@ export function weekName(week: string): string {
 }
 
 const REASON_WORDS: Record<PointsReason, string> = {
-  dollar_pair: `Counts at ${REWARDS.reducedShareBps / 100}%: a swap between two dollar coins.`,
-  same_coin: `Counts at ${REWARDS.reducedShareBps / 100}%: the same coin on both sides, wrapped or not.`,
   no_usd_value: "No points: the swap had no dollar value on record.",
 };
 
-/** Why a swap counted for less than in full, in words. Nothing when it counted in full. */
+/** Why a swap on the record added no points, in words. Nothing for a swap that added its points. */
 export function reasonWords(reasons: readonly PointsReason[]): string {
   return reasons.map((reason) => REASON_WORDS[reason]).join(" ");
 }
@@ -51,9 +49,7 @@ export function pairText(from: { symbol: string; chain: string }, to: { symbol: 
 
 /** The rules in short, each one a sentence, from the same numbers the server counts by. */
 export const RULES_IN_SHORT: readonly string[] = [
-  `A delivered swap adds ${REWARDS.pointsPerUsd} points for each $1 of IntentSwap's fee on it. A swap that is refunded, fails or runs out adds none.`,
-  `A swap between two dollar coins, or of a coin for the same coin, wrapped or not, counts at ${REWARDS.reducedShareBps / 100}%.`,
-  `In one week the first $${REWARDS.weeklyFullFeeUsd} of fee counts in full, and fee beyond it counts for less.`,
-  "A week runs from Monday 00:00 to Sunday 23:59 UTC. After it closes, its payout is shared out by points and sent by hand on BNB Chain.",
+  `A delivered swap adds ${REWARDS.pointsPerUsd} points for each $1 swapped: one point for every 10 cents of its dollar value. A swap that is refunded, fails or runs out adds none.`,
+  "A week runs from Monday 00:00 to Sunday 23:59 UTC. After it closes, its payout is shared out by points: an address's share is its points out of all the points of that week. It is sent by hand on BNB Chain.",
   "Points have no money value. A payout is at IntentSwap's discretion and can change or stop.",
 ];

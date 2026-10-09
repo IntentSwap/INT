@@ -18,9 +18,9 @@ const coins = (raw: bigint): string => formatExact(raw, RESERVE_ASSET.decimals);
 
 /**
  * The list of payouts for a week, as a CSV: one line per rewards address, in the order of the
- * addresses, with its points, its share of the week's points, its payout, the points carried into
- * the next week, and what was kept back from an address on the sanctions list. The same week
- * always gives the same text.
+ * addresses, with its points (ten for each dollar it swapped, and what was carried in), its share
+ * of the week's points, its payout, the points carried into the next week, and what was kept back
+ * from an address on the sanctions list. The same week always gives the same text.
  */
 export function weekCsv(week: WeekRecord): string {
   const total = BigInt(week.totalPointsMicro);
@@ -52,8 +52,8 @@ export interface WeekSummary {
   addressesCarried: number;
   addressesWithheld: number;
   totalPoints: string;
-  /** The week's counted fee in US dollars, every address's together. Null for a week closed before it was kept. */
-  countedFeeUsd: string | null;
+  /** The week's volume in US dollars, every address's swaps together. Null for a week closed before it was kept. */
+  volumeUsd: string | null;
 }
 
 export function weekSummary(week: WeekRecord): WeekSummary {
@@ -73,7 +73,7 @@ export function weekSummary(week: WeekRecord): WeekSummary {
     addressesCarried: week.shares.filter((share) => BigInt(share.carriedMicro) > 0n).length,
     addressesWithheld: kept.length,
     totalPoints: sixPlaces(BigInt(week.totalPointsMicro)),
-    countedFeeUsd: week.countedFeeUsdMicro === undefined ? null : sixPlaces(BigInt(week.countedFeeUsdMicro)),
+    volumeUsd: week.volumeUsdMicro === undefined ? null : sixPlaces(BigInt(week.volumeUsdMicro)),
   };
 }
 

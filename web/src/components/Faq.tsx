@@ -95,7 +95,7 @@ const FAQ: readonly Question[] = [
     question: "What are points?",
     answer: (_contact, privateRouting) => (
       <p>
-        Each delivered swap adds points to a rewards address: {REWARDS.pointsPerUsd} for each $1 of IntentSwap's fee on that swap.{privateRouting ? <> A privately routed swap adds points the same way.</> : null} Each week a payout is shared out by points and sent by hand. Points have no money value, and a payout is at IntentSwap's discretion and can change. <Link href="/docs/rewards">The rules in full</Link>
+        Each delivered swap adds points to a rewards address: {REWARDS.pointsPerUsd} for each $1 swapped. A swap that is refunded or fails adds nothing.{privateRouting ? <> A privately routed swap adds points the same way.</> : null} Each week a payout is shared out by points and sent by hand. Points have no money value, and a payout is at IntentSwap's discretion and can change. <Link href="/docs/rewards">The rules in full</Link>
       </p>
     ),
   },

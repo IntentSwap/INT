@@ -332,29 +332,25 @@ function Safety() {
 }
 
 function Rewards() {
-  const percent = REWARDS.reducedShareBps / 100;
   const privateOn = usePrivateRouting();
   return (
     <DocsLayout href={docHref("rewards")} title="Points and weekly rewards" lead="Each delivered swap adds points to a rewards address. Each week a payout is shared out among that week's addresses by their points.">
       <DocSection title="How points are counted" id="points">
         <ul>
           <li>
-            <strong>{REWARDS.pointsPerUsd} points for each $1 of IntentSwap's fee</strong> on the swap, as the quote showed it. Points follow the fee, never the size of the swap.
+            <strong>{REWARDS.pointsPerUsd} points for each $1 swapped:</strong> one point for every 10 cents of the swap's value in US dollars. The value is the provider's, for what you paid, as the quote showed it.
           </li>
           <li>
             <strong>Only delivered swaps count.</strong> A refunded, failed or expired order, or one whose deposit was too small, adds none.
           </li>
+          <li>
+            <strong>Every delivered swap counts the same way,</strong> whatever the coins and the chains. No fee is part of the sum.
+          </li>
           {privateOn ? (
             <li>
-              <strong>A privately routed swap adds points the same way.</strong> They are counted from IntentSwap's fee on it, as its quote showed it.
+              <strong>A privately routed swap adds points the same way.</strong> They are counted from its value in US dollars, as for any swap.
             </li>
           ) : null}
-          <li>
-            <strong>Some swaps count at {percent}%:</strong> a swap between two dollar coins, and a swap of a coin for the same coin, wrapped or not: ETH for ETH on another chain, or ETH for WETH.
-          </li>
-          <li>
-            <strong>A weekly ceiling:</strong> in one week, the first ${REWARDS.weeklyFullFeeUsd} of fee counts in full. Fee beyond that counts at the square root of the amount over, and never for more than that amount itself.
-          </li>
         </ul>
         <p>Points have no money value. They cannot be bought, sold or moved to another address.</p>
       </DocSection>
@@ -383,7 +379,7 @@ function Rewards() {
         </Callout>
       </DocSection>
       <DocSection title="Payouts" id="payouts">
-        <p>After a week has closed, its payout is shared out by points and sent by hand from the reserve wallet to each rewards address on BNB Chain. The Rewards page lists each payout with its transaction.</p>
+        <p>After a week has closed, its payout is shared out by points: an address's share is its points divided by all the points of that week. It is sent by hand from the reserve wallet to each rewards address on BNB Chain. The Rewards page lists each payout with its transaction.</p>
         <p>The addresses on a week's list are screened again as the list is made. One that is on a sanctions list is sent nothing.</p>
         <p>A share too small to send is not lost: its points are carried into the next week. So are every address's points in a week for which nothing is paid.</p>
         <Callout tone="warning" title="A payout is not owed.">
@@ -476,7 +472,7 @@ function PrivateRouting() {
       <DocSection title="What it costs" id="cost">
         <p>IntentSwap takes no fee. The only fee is the provider's 0.20%. A privately routed swap costs what any swap does, and its quote shows it before you confirm: what you pay, and what you receive after the provider's fee and the network fee.</p>
         <p>
-          Such a swap adds <Link href={docHref("rewards")}>points</Link> as any other does: they are counted from IntentSwap's fee on it. A weekly payout is a public transfer to the rewards address, so it shows that the address has used IntentSwap. It says nothing of either end of any swap.
+          Such a swap adds <Link href={docHref("rewards")}>points</Link> as any other does: they are counted from its value in US dollars. A weekly payout is a public transfer to the rewards address, so it shows that the address has used IntentSwap. It says nothing of either end of any swap.
         </p>
       </DocSection>
       <DocSection title="When it is not available" id="unavailable">

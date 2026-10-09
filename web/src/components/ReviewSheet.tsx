@@ -7,7 +7,7 @@ import { chainInfo, chainName, sendWindowMs } from "../../../shared/chains.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { api, ApiError } from "../api.ts";
 import { IMPACT_BLOCK_BPS, IMPACT_WARN_BPS } from "../config.ts";
-import { aboutMinutes, appFeeWords, feeFree, minutesText, modeTold, NO_FEE_NO_POINTS, orderDiffers, PRIVATE_UNAVAILABLE, rateText, refundFor, reviewAction, reviewSentence, routedPrivately, routingChoice, routingNote, walletAddressFor, type ReviewPhase, type Reviewed } from "../lib/swap-logic.ts";
+import { aboutMinutes, appFeeWords, minutesText, modeTold, orderDiffers, PRIVATE_UNAVAILABLE, rateText, refundFor, reviewAction, reviewSentence, routedPrivately, routingChoice, routingNote, walletAddressFor, type ReviewPhase, type Reviewed } from "../lib/swap-logic.ts";
 import { clockTime } from "../lib/order-logic.ts";
 import { navigate } from "../router.ts";
 import { useApp } from "../stores/app.ts";
@@ -88,9 +88,8 @@ export function ReviewSheet() {
   // How this swap is routed, as the quote on screen says it. With the server routing in public, nothing is said.
   const routing = routingNote(privacyMode, quote, swap.withoutPrivate);
   const privately = routedPrivately(quote);
+  // "None" unless the server is set to take a fee. Points do not turn on it: they are counted from the size of the swap.
   const noFee = appFeeWords(quote);
-  // A swap IntentSwap takes no fee on adds no points: they are counted from that fee, as the quote shows it.
-  const noPoints = feeFree(quote);
   // Addresses are shown, sent and compared in their one standard spelling (the letter-case that
   // carries the checksum, for example). The server stores that spelling; anything else typed here
   // would come back looking different and stop the order.
@@ -117,8 +116,7 @@ export function ReviewSheet() {
   const walletRewards =
     swap.pay !== "wallet" || wallet.status !== "connected" ? null : walletAddressFor(REWARDS.chain, chainInfo(REWARDS.chain).family, { address: wallet.address, chain: wallet.chain, family: wallet.chain === null ? null : chainInfo(wallet.chain).family, plain: wallet.plain });
   const rewardsTyped = rewardsText.trim();
-  // Where a swap adds no points no address for them is shown, and so none is sent: nothing is in force unseen.
-  const rewardsTo = noPoints ? "" : rewardsTyped !== "" ? standard(REWARDS.chain, rewardsTyped) : (walletRewards ?? "");
+  const rewardsTo = rewardsTyped !== "" ? standard(REWARDS.chain, rewardsTyped) : (walletRewards ?? "");
   const rewardsValid = rewardsTo === "" || checkAddress(REWARDS.chain, rewardsTo).ok;
   const keepRefund = () => {
     // Leaves the field. Something half-typed is dropped; a valid new address stays the refund address.
@@ -420,11 +418,9 @@ export function ReviewSheet() {
 
         <div className="review-address">
           <p className="review-address-label">
-            Points{noPoints ? null : <span className="muted"> · {chainName(REWARDS.chain)}</span>}
+            Points<span className="muted"> · {chainName(REWARDS.chain)}</span>
           </p>
-          {noPoints ? (
-            <p className="review-address-note muted">{NO_FEE_NO_POINTS}</p>
-          ) : walletRewards !== null && rewardsTyped === "" && !editingRewards ? (
+          {walletRewards !== null && rewardsTyped === "" && !editingRewards ? (
             <>
               <p className="review-address-value">
                 <Address value={walletRewards} />

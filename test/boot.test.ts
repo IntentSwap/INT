@@ -316,8 +316,8 @@ describe("start-up wiring", () => {
           ...extra,
         }),
       );
-    // Two delivered orders. The first is a record with no fees on it, as a fault or an older version might leave one: working out its points fails.
-    put("A".repeat(27), ADDR.evm2, { fees: undefined });
+    // Two delivered orders. The first is a record with no paying coin on it, as a fault might leave one: working out its entry fails.
+    put("A".repeat(27), ADDR.evm2, { from: undefined });
     put("B".repeat(27), ADDR.evm3);
     const b = start(production());
     expect(b.liveOrders).toBe(true);

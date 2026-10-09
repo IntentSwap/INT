@@ -492,7 +492,7 @@ describe("private wording is shown only where swaps are routed privately", () =>
         "Only the link between them is kept out of public records.",
         // What it costs, and that it adds points as any swap does.
         "IntentSwap takes no fee. The only fee is the provider's 0.20%. A privately routed swap costs what any swap does, and its quote shows it before you confirm",
-        "Such a swap adds points as any other does: they are counted from IntentSwap's fee on it.",
+        "Such a swap adds points as any other does: they are counted from its value in US dollars.",
         // When it cannot be had: the choice is the person's, and a swap made without it is an ordinary public one.
         'the card says so and offers "Swap without private routing". That is an ordinary public swap: its deposit and its delivery can be matched to each other in public records.',
         "Nothing is switched without your choosing it.",
@@ -512,7 +512,7 @@ describe("private wording is shown only where swaps are routed privately", () =>
       expect(safety).toContain("Your deposit and your delivery are public on-chain: anyone can see those two transfers on the chains involved. With private routing the link between them is not in public records. Private routing is not anonymity.");
       expect(safety).not.toContain("Swaps are public on-chain.");
       expect(safety).toContain("On a privately routed swap the order's page shows both ends of it: share the link only with someone you would show both to.");
-      expect(wordsOf(drawnWith(config, docs("rewards")))).toContain("A privately routed swap adds points the same way. They are counted from IntentSwap's fee on it, as its quote showed it.");
+      expect(wordsOf(drawnWith(config, docs("rewards")))).toContain("A privately routed swap adds points the same way. They are counted from its value in US dollars, as for any swap.");
       // Nothing drawn on a private site says any longer that a private swap pays IntentSwap no fee or adds no points.
       for (const page of [faq, docs(null), docs("fees"), docs("rewards"), docs("private"), docs("safety")]) expect(wordsOf(drawnWith(config, page))).not.toMatch(/takes no fee of its own|privately routed swap adds no(ne| points)|pays IntentSwap no fee/);
       // Two pages have nothing to say of it, and say nothing of their own: the one mention on them is the name

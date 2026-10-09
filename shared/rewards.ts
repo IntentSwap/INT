@@ -2,14 +2,13 @@
 // server counts by them, the tools that close a week use them, and the site's pages state them,
 // so the three cannot come apart. Every amount is a whole number: US dollars in millionths
 // ("micro"), points in millionths, coins in their smallest unit. No floating point anywhere.
+//
+// Points are counted from the size of a delivered swap and from nothing else: the provider's US
+// dollar value of what was paid. No fee, no coin and no route is any part of the sum.
 
 export const REWARDS = {
-  /** Points for each US dollar of IntentSwap's own fee on a delivered swap. */
-  pointsPerUsd: 100,
-  /** A swap between two dollar coins, or of a coin for the same coin (on another chain, or wrapped), counts at this share (basis points: 1,000 is 10%). */
-  reducedShareBps: 1_000,
-  /** In one week, fee up to this many US dollars counts in full for one rewards address. Fee beyond it counts at the square root of the excess. */
-  weeklyFullFeeUsd: 500,
+  /** Points for each US dollar of a delivered swap's value: one point for every 10 cents. */
+  pointsPerUsd: 10,
   /** How long a sign-in on the Rewards page lasts, in minutes. */
   sessionMinutes: 30,
   /** How long the one-time code of a sign-in is good for, in minutes. */
@@ -35,39 +34,8 @@ export const RESERVE_ASSET = {
 
 export const MICRO = 1_000_000n;
 
-/** Coins that are a US dollar by design. A swap from one of these to another moves no price, and counts at the reduced share. */
-export const DOLLAR_COINS: ReadonlySet<string> = new Set(["USDT", "USDC", "DAI", "USDE", "USDT0", "FRAX", "USD1", "USDF", "XDAI", "FDUSD", "TUSD", "PYUSD", "USDS", "GUSD", "BUSD"]);
-
-/**
- * Coins that are one coin under more than one name: a coin and its wrapped self. A swap of one for
- * another of its family moves no price, like the same coin on another chain, and counts at the
- * reduced share. Symbols are written here in capitals and compared in capitals.
- */
-export const COIN_FAMILIES: readonly (readonly string[])[] = [
-  ["ETH", "WETH"],
-  ["BTC", "WBTC", "CBBTC"],
-  ["BNB", "WBNB"],
-  ["SOL", "WSOL"],
-  ["NEAR", "WNEAR"],
-];
-
-const FAMILY_OF: ReadonlyMap<string, string> = new Map(COIN_FAMILIES.flatMap((family) => family.map((symbol) => [symbol, family[0] ?? symbol] as const)));
-
-/** The coin a symbol (in capitals) stands for: the first name of its family, or the symbol itself. */
-const coinOf = (symbol: string): string => FAMILY_OF.get(symbol) ?? symbol;
-
-export type ReducedReason = "dollar_pair" | "same_coin";
-export type ZeroReason = "no_usd_value";
-export type PointsReason = ReducedReason | ZeroReason;
-
-/** Why a swap counts at the reduced share, or null when it counts in full. */
-export function reducedReason(fromSymbol: string, toSymbol: string): ReducedReason | null {
-  const from = fromSymbol.toUpperCase();
-  const to = toSymbol.toUpperCase();
-  if (coinOf(from) === coinOf(to)) return "same_coin";
-  if (DOLLAR_COINS.has(from) && DOLLAR_COINS.has(to)) return "dollar_pair";
-  return null;
-}
+/** Why a swap that is on the record added no points: the provider gave no dollar value for it. */
+export type PointsReason = "no_usd_value";
 
 /** A decimal string of US dollars ("1234.5678") as millionths of a dollar, rounded down. Null for anything that is not a plain decimal. */
 export function usdToMicro(value: unknown): bigint | null {
@@ -76,54 +44,9 @@ export function usdToMicro(value: unknown): bigint | null {
   return BigInt(whole) * MICRO + BigInt(frac.slice(0, 6).padEnd(6, "0"));
 }
 
-/**
- * IntentSwap's fee on a swap, in millionths of a dollar: the provider's dollar value of what was
- * paid, times the share that is IntentSwap's (in basis points), rounded down. Null when the
- * provider gave no dollar value.
- */
-export function feeUsdMicro(amountInUsd: unknown, appBps: number): bigint | null {
-  const paid = usdToMicro(amountInUsd);
-  if (paid === null || !Number.isInteger(appBps) || appBps < 0 || appBps > 10_000) return null;
-  return (paid * BigInt(appBps)) / 10_000n;
-}
-
-/** The fee that counts for one swap: all of it, or the reduced share of it. */
-export function countedFeeMicro(fee: bigint, reduced: boolean): bigint {
-  return reduced ? (fee * BigInt(REWARDS.reducedShareBps)) / 10_000n : fee;
-}
-
-/** The whole-number square root, rounded down. */
-export function isqrt(value: bigint): bigint {
-  if (value < 0n) throw new RangeError("square root of a negative number");
-  if (value < 2n) return value;
-  let low = 1n;
-  let high = value;
-  while (low < high) {
-    const mid = (low + high + 1n) / 2n;
-    if (mid * mid <= value) low = mid;
-    else high = mid - 1n;
-  }
-  return low;
-}
-
-/**
- * The fee that counts for one rewards address in one week, given the sum of its swaps' counted
- * fees: in full up to the ceiling, and beyond it the square root of the excess (both in dollars).
- * The square root of less than a dollar is more than it, so the excess itself is taken where that
- * is the smaller: more fee never counts for less, and never for more than it is.
- */
-export function weekFeeMicro(sum: bigint): bigint {
-  const full = BigInt(REWARDS.weeklyFullFeeUsd) * MICRO;
-  if (sum <= full) return sum < 0n ? 0n : sum;
-  const excess = sum - full;
-  // The square root of (excess / 1e6) dollars, in millionths, is the square root of (excess * 1e6).
-  const root = isqrt(excess * MICRO);
-  return full + (root < excess ? root : excess);
-}
-
-/** Points for a counted fee, in millionths of a point. */
-export function pointsMicro(countedFee: bigint): bigint {
-  return countedFee * BigInt(REWARDS.pointsPerUsd);
+/** Points for a swap's volume (US dollars in millionths), in millionths of a point: ten points to the dollar. */
+export function pointsMicro(volumeMicro: bigint): bigint {
+  return volumeMicro * BigInt(REWARDS.pointsPerUsd);
 }
 
 /** Millionths of a point as text with two decimals, rounded down: 123456789n gives "123.45". */
@@ -134,15 +57,13 @@ export function showPoints(micro: bigint): string {
 }
 
 /**
- * The points one swap adds when it is delivered, in millionths of a point, from what a quote says of
- * it: the dollar value of what is paid, IntentSwap's share of it, and the two coins. The same sum the
- * server does for the delivered order. Null when the provider gave no dollar value. (Where an address
- * has passed the weekly ceiling, the week's count grows by less than this.)
+ * The points one swap adds when it is delivered, in millionths of a point, from the dollar value a
+ * quote gives for what is paid. The same sum the server does for the delivered order. Null when
+ * the provider gave no dollar value.
  */
-export function swapPointsMicro(amountInUsd: unknown, appBps: number, fromSymbol: string, toSymbol: string): bigint | null {
-  const fee = feeUsdMicro(amountInUsd, appBps);
-  if (fee === null) return null;
-  return pointsMicro(countedFeeMicro(fee, reducedReason(fromSymbol, toSymbol) !== null));
+export function swapPointsMicro(amountInUsd: unknown): bigint | null {
+  const volume = usdToMicro(amountInUsd);
+  return volume === null ? null : pointsMicro(volume);
 }
 
 /** Points as they are shown in a small label: two decimals, rounded down, with no noughts at the end. 20000000n gives "20", 250000n gives "0.25". */
@@ -200,8 +121,8 @@ export interface Share {
 }
 
 /**
- * Shares a pool out by points. Whole-number maths, every share rounded down; what is left stays
- * in the reserve. An address whose share is under the smallest payout gets nothing this week and
+ * Shares a pool out by points: an address's share is its points out of all the points handed in.
+ * Whole-number maths, every share rounded down; what is left stays in the reserve. An address whose share is under the smallest payout gets nothing this week and
  * keeps its points for the next. The result depends only on what is passed in: the same week
  * closed twice gives the same shares, in the same order (by address).
  */
@@ -222,7 +143,7 @@ export function sharePool(pool: bigint, points: ReadonlyMap<string, bigint>, min
 /** What one address is shown of its own points. Nothing here is about any other address. */
 export interface RewardsView {
   address: string;
-  week: { id: string; start: string; end: string; pointsMicro: string; ceiling: boolean; carriedInMicro: string };
+  week: { id: string; start: string; end: string; pointsMicro: string; carriedInMicro: string };
   allTimeMicro: string;
   swaps: { at: string; week: string; from: { symbol: string; chain: string }; to: { symbol: string; chain: string }; pointsMicro: string; reasons: PointsReason[] }[];
   payouts: { week: string; amount: string; asset: string; txs: string[] }[];

@@ -161,8 +161,16 @@ word after the command runs only the protections whose file or label contains it
 
 Each delivered swap that names a rewards address adds an entry to the points record
 (`DATA_DIR/rewards/entries`, one small file per swap; the rules are in
-`shared/rewards.ts`). Nothing needs doing for points to be counted. Payouts are
-sent by hand, from the reserve wallet, once a week:
+`shared/rewards.ts`). The rule is one line: 10 points for each US dollar of a
+delivered swap's value (one point for every 10 cents), where the value is the
+provider's dollar value of what was paid, as the order's record holds it. A swap
+that is refunded, fails, runs out or is under-paid adds nothing. No fee, coin or
+route changes the count, and there is no weekly limit. An address's share of a
+week's pool is its points divided by all the points of that week. Nobody is shown
+another address's points: there is no list and no ranking.
+
+Nothing needs doing for points to be counted. Payouts are sent by hand, from the
+reserve wallet, once a week:
 
 1. After the week has ended (Sunday 23:59 UTC), look at what closing it would do with
    the pool you have in mind:
@@ -171,8 +179,8 @@ sent by hand, from the reserve wallet, once a week:
    npm run rewards:export -- --week 2026-W41 --pool 12.5
    ```
 
-   This writes nothing. It prints the addresses, the total points, the week's counted
-   fee in dollars, each share and payout, what is carried, what is withheld, what stays
+   This writes nothing. It prints the addresses, the total points, the week's volume
+   in dollars, each share and payout, what is carried, what is withheld, what stays
    in the reserve, and what the reserve wallet holds. Run it with another pool as often
    as you like. Whole-number maths, every share rounded down; the remainder stays in
    the reserve. A share under the smallest payout is not sent and its points are
@@ -273,7 +281,7 @@ bad value stops the server with the variable's name in the log.
 While `PRIVACY_MODE` is `basic`, every quote asks the provider for private
 routing, and a person can still choose to route one swap in public. The fees a
 quote shows are the ones the provider's answer holds, and points are counted
-from our fee as it was shown, on a private swap as on any other. When the provider will not give a private quote, the site
+from the swap's dollar value, on a private swap as on any other. When the provider will not give a private quote, the site
 says "Private routing is not available for this swap right now." and offers
 "Swap without private routing"; it never routes a swap in public by itself. A
 privately routed order is not found from its deposit address on the Track order

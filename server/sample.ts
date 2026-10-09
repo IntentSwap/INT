@@ -14,7 +14,7 @@ import path from "node:path";
 import { toChecksumAddress } from "../shared/addresses.ts";
 import type { CoinRef, OrderDetails, OrderStatus } from "../shared/api.ts";
 import { explorerTxUrl } from "../shared/chains.ts";
-import { RESERVE_ASSET, sharePool, weekBounds, weekOf } from "../shared/rewards.ts";
+import { pointsMicro, RESERVE_ASSET, sharePool, weekBounds, weekOf } from "../shared/rewards.ts";
 import type { Config } from "./config.ts";
 import { orderHash, type PointsEntry, type Rewards, type WeekRecord } from "./rewards.ts";
 import { QUARTER_MS, type Delivery, type Stats } from "./stats.ts";
@@ -43,6 +43,8 @@ export function holdsSampleContent(dataDir: string): boolean {
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+/** What the other sample addresses swapped last week and the week before, in millionths of a US dollar ($2,000 and $1,250), times one, two or three. */
+const OTHERS_USD_MICRO = [2_000_000_000n, 1_250_000_000n] as const;
 
 const COIN: Record<string, CoinRef> = {
   baseEth: { id: "nep141:base.omft.near", symbol: "ETH", name: "Ethereum", chain: "base", decimals: 18, contract: null },
@@ -245,9 +247,9 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
   const start = weekBounds(thisWeek)?.start ?? now;
   const past = [weekOf(start - 1), weekOf(start - 7 * DAY - 1)];
 
-  const addEntry = (who: string, label: string, at: number, feeMicro: bigint, pair: [CoinRef, CoinRef], reasons: PointsEntry["reasons"] = []) => {
-    const counted = reasons.length > 0 ? feeMicro / 10n : feeMicro;
-    const entry: PointsEntry = { v: 1, order: orderHash(`sample ${label} ${who}`), address: who, week: weekOf(at), at: new Date(at).toISOString(), feeUsdMicro: feeMicro.toString(), countedMicro: counted.toString(), reasons, from: { symbol: pair[0].symbol, chain: pair[0].chain }, to: { symbol: pair[1].symbol, chain: pair[1].chain } };
+  /** One delivered swap of so many US dollars (in millionths), as the points record holds it. */
+  const addEntry = (who: string, label: string, at: number, volumeMicro: bigint, pair: [CoinRef, CoinRef]) => {
+    const entry: PointsEntry = { v: 2, order: orderHash(`sample ${label} ${who}`), address: who, week: weekOf(at), at: new Date(at).toISOString(), volumeUsdMicro: volumeMicro.toString(), reasons: [], from: { symbol: pair[0].symbol, chain: pair[0].chain }, to: { symbol: pair[1].symbol, chain: pair[1].chain } };
     // Once: an entry that is already there is left as it is.
     rewards.record(entry);
   };
@@ -258,15 +260,16 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
     ensureStats,
     ensureFor(who, at) {
       // Points in this week and in the two before it.
-      addEntry(who, "this week a", Math.min(at, start + 6 * HOUR), 2_481_640n, [COIN.baseEth!, COIN.solUsdt!]);
-      addEntry(who, "this week b", Math.min(at, start + 30 * HOUR), 499_820n, [COIN.arbUsdc!, COIN.baseEth!]);
-      addEntry(who, "this week c", Math.min(at, start + 31 * HOUR), 200_000n, [COIN.arbUsdc!, COIN.solUsdt!], ["dollar_pair"]);
-      addEntry(who, "last week a", start - 2 * DAY, 5_210_000n, [COIN.bnb!, COIN.arbUsdc!]);
-      addEntry(who, "last week b", start - 5 * DAY, 1_120_500n, [COIN.baseEth!, COIN.arbUsdc!]);
-      addEntry(who, "two weeks ago", start - 10 * DAY, 3_300_000n, [COIN.baseEth!, COIN.solUsdt!]);
+      // Swaps of $1,240.82, $249.91 and $100 this week, of $2,605 and $560.25 last week, and of $1,650 the week before.
+      addEntry(who, "this week a", Math.min(at, start + 6 * HOUR), 1_240_820_000n, [COIN.baseEth!, COIN.solUsdt!]);
+      addEntry(who, "this week b", Math.min(at, start + 30 * HOUR), 249_910_000n, [COIN.arbUsdc!, COIN.baseEth!]);
+      addEntry(who, "this week c", Math.min(at, start + 31 * HOUR), 100_000_000n, [COIN.arbUsdc!, COIN.solUsdt!]);
+      addEntry(who, "last week a", start - 2 * DAY, 2_605_000_000n, [COIN.bnb!, COIN.arbUsdc!]);
+      addEntry(who, "last week b", start - 5 * DAY, 560_250_000n, [COIN.baseEth!, COIN.arbUsdc!]);
+      addEntry(who, "two weeks ago", start - 10 * DAY, 1_650_000_000n, [COIN.baseEth!, COIN.solUsdt!]);
       others.forEach((other, index) => {
-        addEntry(other, "last week", start - (2 + index) * DAY, BigInt(4_000_000 * (index + 1)), [COIN.baseEth!, COIN.solUsdt!]);
-        addEntry(other, "two weeks ago", start - (9 + index) * DAY, BigInt(2_500_000 * (index + 2)), [COIN.arbUsdc!, COIN.baseEth!]);
+        addEntry(other, "last week", start - (2 + index) * DAY, OTHERS_USD_MICRO[0] * BigInt(index + 1), [COIN.baseEth!, COIN.solUsdt!]);
+        addEntry(other, "two weeks ago", start - (9 + index) * DAY, OTHERS_USD_MICRO[1] * BigInt(index + 2), [COIN.arbUsdc!, COIN.baseEth!]);
       });
       // The two past weeks, closed and paid. Each is written once for the addresses known then; a new
       // address is added to its shares, so that whoever signs in on a practice server sees payouts.
@@ -274,8 +277,9 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
         const file = path.join(weeksDir, `${week}.json`);
         const points = new Map<string, bigint>();
         const add = (holder: string, micro: bigint) => points.set(holder, (points.get(holder) ?? 0n) + micro);
-        others.forEach((other, at2) => add(other, BigInt((index === 0 ? 4_000_000 : 2_500_000) * (index === 0 ? at2 + 1 : at2 + 2)) * 100n));
-        add(who, index === 0 ? 633_050_000n : 330_000_000n);
+        // Ten points for each dollar of the swaps above.
+        others.forEach((other, at2) => add(other, pointsMicro(OTHERS_USD_MICRO[index === 0 ? 0 : 1] * BigInt(index === 0 ? at2 + 1 : at2 + 2))));
+        add(who, pointsMicro(index === 0 ? 3_165_250_000n : 1_650_000_000n));
         let held: WeekRecord | null;
         try {
           held = JSON.parse(fs.readFileSync(file, "utf8")) as WeekRecord;

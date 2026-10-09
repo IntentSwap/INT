@@ -281,7 +281,7 @@ describe("how an order's page says it was routed", () => {
   // An order as the server kept it before routing was kept: the field is not there at all.
   const old = order();
   const inPublic = order({ routing: IN_PUBLIC });
-  // A private order as it is made now, with IntentSwap's fee on it, and one made where the server takes none.
+  // A private order made where the server is set to take a fee, and one as orders are made unless it is: with no fee of IntentSwap's.
   const privately = order({ routing: PRIVATELY });
   const unpaid = order({ routing: PRIVATELY, fees: noAppFee });
 

@@ -24,7 +24,7 @@ import { socialLinks } from "../lib/site-logic.ts";
 import { PayPanel } from "../components/WalletPay.tsx";
 import { payAction, payMessage, paySecondary, type PayAction, type PayPhase } from "../lib/order-logic.ts";
 import { COIN_ICONS, COIN_LOGOS } from "../lib/icons.ts";
-import { NO_FEE_NO_POINTS, PRIVATE_UNAVAILABLE, primaryAction, reviewAction, reviewSentence, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
+import { PRIVATE_UNAVAILABLE, primaryAction, reviewAction, reviewSentence, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
 import { DepositDetails, OrderContent } from "./OrderPage.tsx";
 import { setTheme, useTheme } from "../theme.ts";
 import "../styles/states.css";
@@ -55,7 +55,8 @@ const QUOTE: QuoteView = {
   amountOutUsd: "1260.59",
   slippageBps: 100,
   timeEstimate: 34,
-  fees: { appBps: 20, providerBps: 20, appAmount: "1000000000000000", providerAmount: "1000000000000000" },
+  // As the site runs: no fee of IntentSwap's, and the provider's own.
+  fees: { appBps: 0, providerBps: 20, appAmount: "0", providerAmount: "1000000000000000" },
   withdrawFee: "302700",
   refundFee: null,
   priceImpactBps: 36,
@@ -64,8 +65,8 @@ const QUOTE: QuoteView = {
 };
 // The same swap with private routing: the same fees, and a little less out.
 const PRIVATE_QUOTE: QuoteView = { ...QUOTE, amountOut: "1260079171", minAmountOut: "1247478379", amountOutUsd: "1259.33", routing: routingOf("basic") };
-// And where the server is set to take no fee of its own on a private swap.
-const NO_FEE_QUOTE: QuoteView = { ...PRIVATE_QUOTE, fees: { ...QUOTE.fees, appBps: 0, appAmount: "0" } };
+// And where the server is set to take a fee of its own: the row then gives it in figures.
+const FEE_QUOTE: QuoteView = { ...PRIVATE_QUOTE, fees: { ...QUOTE.fees, appBps: 20, appAmount: "1000000000000000" } };
 
 // A fixed moment, so the page looks the same every time it is photographed.
 const NOW = Date.parse("2026-10-08T12:10:00.000Z");
@@ -582,8 +583,8 @@ export default function StatesPage() {
         <Case label="Sending it yourself: nothing is said of points until an address for them is given" wide>
           <QuotePanel quote={QUOTE} from={ETH} to={USDT} loading={false} stale={false} held pointsShown={false} impactConfirmed={false} onConfirmImpact={never} />
         </Case>
-        <Case label="A swap between two dollar coins: a tenth of the points" wide>
-          <QuotePanel quote={{ ...QUOTE, amountIn: "1265130000", amountInUsd: "1265.13", fees: { ...QUOTE.fees, appAmount: "2530260", providerAmount: "2530260" } }} from={HOOD} to={USDT} loading={false} stale={false} held impactConfirmed={false} onConfirmImpact={never} />
+        <Case label="A swap between two dollar coins: its points are counted like any other swap's" wide>
+          <QuotePanel quote={{ ...QUOTE, amountIn: "1265130000", amountInUsd: "1265.13", fees: { ...QUOTE.fees, providerAmount: "2530260" } }} from={HOOD} to={USDT} loading={false} stale={false} held impactConfirmed={false} onConfirmImpact={never} />
         </Case>
         <Case label="Refreshing: old numbers dimmed" wide>
           <QuotePanel quote={QUOTE} from={ETH} to={USDT} loading stale held startOpen impactConfirmed={false} onConfirmImpact={never} />
@@ -688,8 +689,8 @@ export default function StatesPage() {
         <Case label="A private quote: one line, with its points" wide>
           <QuotePanel quote={PRIVATE_QUOTE} from={ETH} to={USDT} loading={false} stale={false} held routing={routingNote("basic", PRIVATE_QUOTE)} impactConfirmed={false} onConfirmImpact={never} />
         </Case>
-        <Case label="A private quote where IntentSwap is set to take no fee, opened: the fee row says so, and nothing is said of points" wide>
-          <QuotePanel quote={NO_FEE_QUOTE} from={ETH} to={USDT} loading={false} stale={false} held startOpen routing={routingNote("basic", NO_FEE_QUOTE)} impactConfirmed={false} onConfirmImpact={never} />
+        <Case label="A private quote where IntentSwap is set to take a fee, opened: the fee row gives it in figures, and the points are the same" wide>
+          <QuotePanel quote={FEE_QUOTE} from={ETH} to={USDT} loading={false} stale={false} held startOpen routing={routingNote("basic", FEE_QUOTE)} impactConfirmed={false} onConfirmImpact={never} />
         </Case>
         <Case label="A public quote by the person's own choice, opened" wide>
           <QuotePanel quote={QUOTE} from={ETH} to={USDT} loading={false} stale={false} held startOpen routing={routingNote("basic", QUOTE, true)} impactConfirmed={false} onConfirmImpact={never} />
@@ -722,12 +723,6 @@ export default function StatesPage() {
               </dl>
             ),
           )}
-        </Case>
-        <Case label="The review's words on points for a swap IntentSwap takes no fee on">
-          <div className="review-address">
-            <p className="review-address-label">Points</p>
-            <p className="review-address-note muted">{NO_FEE_NO_POINTS}</p>
-          </div>
         </Case>
       </Group>
 

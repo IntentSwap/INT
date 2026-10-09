@@ -92,7 +92,6 @@ function Mine({ mine }: { mine: RewardsView | null }) {
         <p className="muted">
           All time: <span className="mono">{showPoints(BigInt(mine.allTimeMicro))}</span>
         </p>
-        {mine.week.ceiling ? <p className="muted">This week's fee is past ${REWARDS.weeklyFullFeeUsd}: the part beyond it counts for less.</p> : null}
         {carried > 0n ? <p className="muted">Includes {showPoints(carried)} carried from last week, when no payout was sent for them.</p> : null}
         <p className="rewards-who muted">
           Signed in as <span className="mono">{shortAddress(mine.address)}</span>

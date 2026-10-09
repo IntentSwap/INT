@@ -17,7 +17,7 @@ import { swapPointsMicro } from "../shared/rewards.ts";
 import { readRecent, withOrder } from "../web/src/stores/orders.ts";
 import { quoteAge } from "../web/src/stores/swap.ts";
 import { isToken } from "../web/src/stores/tokens.ts";
-import { aboutMinutes, addressParts, amountStep, cleanAmount, coinLabel, estimateUsd, lookAlikes, maxSpendable, fitAmount, isContractCode, maxAmountChars, minimumNote, minutesText, orderDiffers, parsePrefill, refreshDue, retriesItself, reviewAction, reviewSentence, shouldAnnounce, walletAddressFor, primaryAction, rateText, roundUpForDisplay, searchTokens, shortAddress, sortTokens, chainCoins, contractChain, gridMove, pickerInHistory, pickerRows, searchChains, type ActionInput, percentToBps, slippageAdvice, SLIPPAGE_CHOICES, balanceCalls, readBalance, refundFor, asksForRefund, fitLabel, pointsByDefault, appFeeWords, cardRouting, feeFree, modeTold, quoteAnnouncement, routedPrivately, routingChoice, routingNote, CARD_BUTTON_ROOM, NO_FEE_NO_POINTS, PRIVATE_UNAVAILABLE } from "../web/src/lib/swap-logic.ts";
+import { aboutMinutes, addressParts, amountStep, cleanAmount, coinLabel, estimateUsd, lookAlikes, maxSpendable, fitAmount, isContractCode, maxAmountChars, minimumNote, minutesText, orderDiffers, parsePrefill, refreshDue, retriesItself, reviewAction, reviewSentence, shouldAnnounce, walletAddressFor, primaryAction, rateText, roundUpForDisplay, searchTokens, shortAddress, sortTokens, chainCoins, contractChain, gridMove, pickerInHistory, pickerRows, searchChains, type ActionInput, percentToBps, slippageAdvice, SLIPPAGE_CHOICES, balanceCalls, readBalance, refundFor, asksForRefund, fitLabel, pointsByDefault, appFeeWords, cardRouting, feeFree, modeTold, quoteAnnouncement, routedPrivately, routingChoice, routingNote, CARD_BUTTON_ROOM, PRIVATE_UNAVAILABLE } from "../web/src/lib/swap-logic.ts";
 import { matchRoute } from "../web/src/router.ts";
 
 const coin = (symbol: string, chain: string, extra: Partial<TokenView> = {}): TokenView => ({ id: `${chain}:${symbol}`, symbol, name: symbol, chain, decimals: 18, price: "1", contract: null, wallet: false, ...extra });
@@ -904,7 +904,7 @@ describe("words the site never uses", () => {
     expect(banned.test("How it differs from a mixer, and why it is untraceable".replace(NOT_ONE, ""))).toBe(true);
     // The check can fail, and the words now allowed pass it.
     for (const sentence of ["Fully anonymous swaps.", "An untraceable route.", "Works like a mixer.", "Invisible to everyone.", "Guaranteed delivery.", "Hidden from authorities.", "A swap that cannot be traced.", "It can't be traced."]) expect(banned.test(sentence), sentence).toBe(true);
-    for (const sentence of ["Private", "Use private routing", "Swap without private routing", "A private swap", PRIVATE_UNAVAILABLE, NO_FEE_NO_POINTS, "A privately routed swap adds points the same way.", "Routed privately.", "Public, by your choice"]) expect(banned.test(sentence), sentence).toBe(false);
+    for (const sentence of ["Private", "Use private routing", "Swap without private routing", "A private swap", PRIVATE_UNAVAILABLE, "IntentSwap takes no fee. The only fee is the provider's 0.20%.", "A privately routed swap adds points the same way.", "Routed privately.", "Public, by your choice"]) expect(banned.test(sentence), sentence).toBe(false);
   });
 
   it("never states a minimum in dollars in its own words: only the server's answer to a person's own quote can", () => {
@@ -1357,34 +1357,31 @@ describe("private routing: what is shown, and when", () => {
     expect(modeTold({}, { routing: "advanced" })).toBeNull();
   });
 
-  it("the IntentSwap fee row gives the fee in figures, on a private swap as on a public one, and says None only for a fee of nothing", () => {
-    // A private swap carries IntentSwap's fee like any other: the figures its echo held are what is shown.
+  it("the IntentSwap fee row says None for a fee of nothing, as every swap has unless the server is set to take one, and gives a fee in figures", () => {
+    // No fee of IntentSwap's: the row says so in a word, in place of "0.00% · 0 ETH", however the swap is routed.
+    for (const routing of [PRIVATELY, IN_PUBLIC, undefined]) expect(appFeeWords(view(routing, noAppFee)), String(routing)).toBe("None");
+    // Where the server is set to take a fee, the figures its echo held are what is shown.
     expect(appFeeWords(view(PRIVATELY))).toBeNull();
     expect(appFeeWords(view(IN_PUBLIC))).toBeNull();
     expect(appFeeWords(view(undefined))).toBeNull();
-    // Where the server is set to take no fee on a private swap, the row says so in a word, in place of "0.00% · 0 ETH".
-    expect(appFeeWords(view(PRIVATELY, noAppFee))).toBe("None");
-    // Only a fee of nothing in both figures is said so: the real fee is never hidden behind the word.
+    // Only a fee of nothing in both figures is said so: a real fee is never hidden behind the word.
     expect(appFeeWords(view(PRIVATELY, { ...noAppFee, appAmount: "1" }))).toBeNull();
     expect(appFeeWords(view(PRIVATELY, { ...noAppFee, appBps: 1 }))).toBeNull();
     expect(appFeeWords(null)).toBeNull();
   });
 
-  it("a private swap adds points from its IntentSwap fee as a public one does: only a swap with no such fee adds none, and the review then says so", () => {
+  it("points do not turn on a fee or on routing: a swap with no IntentSwap fee is shown its points like any other", () => {
     expect(feeFree(view(PRIVATELY))).toBe(false);
     expect(feeFree(view(IN_PUBLIC))).toBe(false);
-    expect(feeFree(null)).toBe(false);
-    // The same fee in the echo, the same points, however the swap is routed: routing is no part of the sum.
-    expect(swapPointsMicro("1265.13", view(PRIVATELY).fees.appBps, "ETH", "USDT")).toBe(swapPointsMicro("1265.13", view(IN_PUBLIC).fees.appBps, "ETH", "USDT"));
-    expect(swapPointsMicro("1265.13", 20, "ETH", "USDT") ?? 0n).toBeGreaterThan(0n);
-    // With no fee there are none to show: the quote's label and row are left out, and the review says why in one sentence.
     expect(feeFree(view(PRIVATELY, noAppFee))).toBe(true);
-    expect(swapPointsMicro("1265.13", 0, "ETH", "USDT") ?? 0n).toBe(0n);
-    expect(NO_FEE_NO_POINTS).toBe("This swap adds no points: IntentSwap takes no fee on it.");
-    // The page decides it from the quote alone, never from how the card is set: a private swap is not taken to add none.
-    const review = fs.readFileSync(path.resolve("web", "src", "components", "ReviewSheet.tsx"), "utf8");
-    expect(review).toContain("const noPoints = feeFree(quote);");
-    expect(fs.readFileSync(path.resolve("web", "src", "components", "QuotePanel.tsx"), "utf8")).toContain("ready && pointsShown && !feeFree(quote) ? swapPointsMicro(quote.amountInUsd, quote.fees.appBps, from.symbol, to.symbol) : null");
+    expect(feeFree(null)).toBe(false);
+    // The points a quote shows come from the dollar value of what is paid, ten to the dollar, and from nothing else.
+    expect(swapPointsMicro("1265.13")).toBe(12_651_300_000n);
+    // The page takes them from that value alone. Nothing that draws a quote, a review or an order asks whether there is a fee before it speaks of points.
+    const read = (file: string) => fs.readFileSync(path.resolve("web", "src", file), "utf8");
+    expect(read("components/QuotePanel.tsx")).toContain("const points = ready && pointsShown ? swapPointsMicro(quote.amountInUsd) : null;");
+    for (const file of ["components/QuotePanel.tsx", "components/ReviewSheet.tsx", "pages/OrderPage.tsx"]) expect(read(file), file).not.toMatch(/feeFree|noPoints|adds no points: IntentSwap/);
+    expect(read("lib/swap-logic.ts")).not.toMatch(/NO_FEE_NO_POINTS|adds no points: IntentSwap/);
   });
 
   it("tells a screen reader that a new quote is privately routed, in two words, or says nothing of routing", () => {

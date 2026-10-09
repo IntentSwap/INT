@@ -309,7 +309,7 @@ describe("what the wider pages state as fact", () => {
     const today = [
       { key: "swaps", title: "Cross-chain swaps", text: "Swap a coin on one chain for a coin on another. Quotes, orders and delivery run on NEAR Intents, and every fee is shown before you confirm.", link: { href: "/docs", label: "How a swap works" } },
       { key: "tracking", title: "Order tracking and automatic refunds", text: "Every order has its own page, which follows the deposit, the swap and the delivery. If a swap fails, the provider sends your coins back to your refund address.", link: { href: "/track", label: "Track an order" } },
-      { key: "rewards", title: "Points and weekly rewards", text: "Each delivered swap adds points to the wallet behind it, counted from the fee the swap paid. Each week a payout is shared out by points. Payouts are at IntentSwap's discretion and can change.", link: { href: "/rewards", label: "See your points" } },
+      { key: "rewards", title: "Points and weekly rewards", text: "Each delivered swap adds points to the wallet behind it: 10 for each $1 swapped. Each week a payout is shared out by points. Payouts are at IntentSwap's discretion and can change.", link: { href: "/rewards", label: "See your points" } },
     ];
     expect(features(false)).toEqual(today);
     expect(features(false, false)).toEqual(today);
@@ -331,7 +331,7 @@ describe("what the wider pages state as fact", () => {
     expect(token).toEqual(features(true, false)[3]);
     // A privately routed swap adds points as any other does, so what is said of points is the same either way.
     expect(rewards).toEqual(today[2]);
-    expect(rewards?.text).toBe("Each delivered swap adds points to the wallet behind it, counted from the fee the swap paid. Each week a payout is shared out by points. Payouts are at IntentSwap's discretion and can change.");
+    expect(rewards?.text).toBe("Each delivered swap adds points to the wallet behind it: 10 for each $1 swapped. Each week a payout is shared out by points. Payouts are at IntentSwap's discretion and can change.");
     for (const item of features(true, true)) expect(item.text, item.key).not.toMatch(/adds none|no fee|no points/i);
   });
 

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { signInHost } from "../server/app.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
-import { briefPoints, COIN_FAMILIES, countedFeeMicro, feeUsdMicro, isqrt, isSignInMessage, MICRO, nextWeek, pointsMicro, reducedReason, RESERVE_ASSET, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekFeeMicro, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
+import { briefPoints, isSignInMessage, MICRO, nextWeek, pointsMicro, RESERVE_ASSET, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
 import { silentLogger } from "../server/log.ts";
 import { createRewards, createSignIn, entryFor, orderHash, rewardsAddressOf, type PointsEntry, type Rewards, type WeekRecord } from "../server/rewards.ts";
 import { checkPayoutTx, exportWeek, recordPayouts, reserveHolds, weekCsv } from "../server/rewards-tools.ts";
@@ -55,119 +55,36 @@ const MONDAY = Date.parse("2026-10-05T00:00:00.000Z");
 
 describe("the rules for points, as numbers", () => {
   it("are the ones the site states", () => {
-    expect(REWARDS).toMatchObject({ pointsPerUsd: 100, reducedShareBps: 1000, weeklyFullFeeUsd: 500, sessionMinutes: 30, chain: "bsc", chainId: 56, holderBoostBps: 0 });
+    expect(REWARDS).toEqual({ pointsPerUsd: 10, sessionMinutes: 30, nonceMinutes: 5, chain: "bsc", chainId: 56, holderBoostBps: 0 });
     expect(RESERVE_ASSET).toMatchObject({ chain: "bsc", symbol: "ZEC", decimals: 18, contract: "0x1Ba42e5193dfA8B03D15dd1B86a3113bbBEF8Eeb" });
   });
 
   it.each([
-    ["1234.5678", 20, 2_469_135n],
-    ["100", 20, 200_000n],
-    ["0.000001", 10_000, 1n],
-    ["0.0000009", 10_000, 0n],
-    ["2500", 0, 0n],
-    ["1000000", 25, 2_500_000_000n],
-  ])("the fee on $%s paid at %s basis points is %s millionths of a dollar, rounded down", (paid, bps, expected) => {
-    expect(feeUsdMicro(paid, bps)).toBe(expected);
+    // One point for every 10 cents: ten points to the dollar, in millionths of a point.
+    ["1", 10_000_000n],
+    ["0.10", 1_000_000n],
+    ["12.34", 123_400_000n],
+    ["1265.13", 12_651_300_000n],
+    ["0.99", 9_900_000n],
+    ["1000000", 10_000_000_000_000n],
+    // Below a millionth of a dollar there is nothing to count: rounded down, never up.
+    ["0.000001", 10n],
+    ["0.0000009", 0n],
+    ["0", 0n],
+  ])("a swap of $%s adds %s millionths of a point", (paid, expected) => {
+    expect(swapPointsMicro(paid)).toBe(expected);
+    expect(pointsMicro(usdToMicro(paid)!)).toBe(expected);
   });
 
-  it.each([[undefined], [null], [""], ["1e3"], ["-5"], ["12.5.1"], [1234], ["NaN"], ["1".repeat(41)]])("no dollar value (%s) gives no fee, not a guess", (paid) => {
-    expect(feeUsdMicro(paid, 20)).toBeNull();
+  it.each([[undefined], [null], [""], ["1e3"], ["-5"], ["12.5.1"], ["12,5"], [1234], ["NaN"], ["1".repeat(41)]])("no dollar value (%s) gives no points, not a guess", (paid) => {
     expect(usdToMicro(paid)).toBeNull();
+    expect(swapPointsMicro(paid)).toBeNull();
   });
 
-  it("refuses a share of the fee that is not a whole number of basis points between nothing and all", () => {
-    for (const bps of [-1, 10_001, 0.5, Number.NaN]) expect(feeUsdMicro("100", bps)).toBeNull();
-  });
-
-  it.each([
-    ["USDT", "USDC", "dollar_pair"],
-    ["usdc", "DAI", "dollar_pair"],
-    ["USDC", "USDC", "same_coin"],
-    ["ETH", "eth", "same_coin"],
-    // A coin and its wrapped self are one coin, whichever way round and however the symbol is written.
-    ["ETH", "WETH", "same_coin"],
-    ["weth", "ETH", "same_coin"],
-    ["BTC", "WBTC", "same_coin"],
-    ["cbBTC", "BTC", "same_coin"],
-    ["WBTC", "cbBTC", "same_coin"],
-    ["BNB", "WBNB", "same_coin"],
-    ["wSOL", "SOL", "same_coin"],
-    ["NEAR", "wNEAR", "same_coin"],
-    ["ETH", "USDT", null],
-    ["USDT", "BTC", null],
-    ["ZEC", "SOL", null],
-    // Two wrapped coins of different families are two coins, and so is a wrapped coin and a dollar coin.
-    ["WETH", "WBTC", null],
-    ["ETH", "WBNB", null],
-    ["WETH", "USDC", null],
-    ["WBTC", "ZEC", null],
-  ])("a swap of %s for %s counts at the reduced share: %s", (from, to, expected) => {
-    expect(reducedReason(from, to)).toBe(expected);
-  });
-
-  it("names the coins that are one coin under two names, in capitals, each in one family only", () => {
-    expect(COIN_FAMILIES).toEqual([
-      ["ETH", "WETH"],
-      ["BTC", "WBTC", "CBBTC"],
-      ["BNB", "WBNB"],
-      ["SOL", "WSOL"],
-      ["NEAR", "WNEAR"],
-    ]);
-    const all = COIN_FAMILIES.flat();
-    expect(new Set(all).size).toBe(all.length);
-    for (const symbol of all) expect(symbol).toBe(symbol.toUpperCase());
-  });
-
-  it("counts a reduced swap at a tenth of its fee, and any other in full", () => {
-    expect(countedFeeMicro(usd(12.5), false)).toBe(usd(12.5));
-    expect(countedFeeMicro(usd(12.5), true)).toBe(usd(1.25));
-    expect(countedFeeMicro(9n, true)).toBe(0n);
-  });
-
-  it.each([
-    [0n, 0n],
-    [1n, 1n],
-    [3n, 1n],
-    [4n, 2n],
-    [15n, 3n],
-    [16n, 4n],
-    [10n ** 24n, 10n ** 12n],
-    [10n ** 24n - 1n, 10n ** 12n - 1n],
-  ])("the whole-number square root of %s is %s", (value, root) => {
-    expect(isqrt(value)).toBe(root);
-    expect(() => isqrt(-1n)).toThrow();
-  });
-
-  it.each([
-    [0, 0],
-    [1.5, 1.5],
-    [499.999999, 499.999999],
-    [500, 500],
-    // Beyond the ceiling: the square root of the excess, in dollars; or the excess itself, where that is less.
-    [500.25, 500.25],
-    [501, 501],
-    [504, 502],
-    [600, 510],
-    [10_500, 600],
-    [1_000_500, 1500],
-  ])("in one week $%s of fee counts as $%s", (sum, counted) => {
-    expect(weekFeeMicro(usd(sum))).toBe(usd(counted));
-  });
-
-  it("never lets more fee count for less: the count rises with the fee, and never above it", () => {
-    let before = -1n;
-    for (const sum of [0, 1, 499, 500, 500.000001, 500.5, 501, 750, 5000, 1e6, 1e9]) {
-      const counted = weekFeeMicro(usd(sum));
-      expect(counted >= before, String(sum)).toBe(true);
-      expect(counted <= usd(sum), String(sum)).toBe(true);
-      before = counted;
-    }
-  });
-
-  it("gives a hundred points for each dollar of fee that counts, and shows them rounded down", () => {
-    expect(pointsMicro(usd(1))).toBe(100n * MICRO);
-    expect(pointsMicro(usd(0.025))).toBe(2_500_000n);
-    expect(showPoints(pointsMicro(usd(12.3456789)))).toBe("1,234.56");
+  it("gives ten points for each dollar, and shows them rounded down", () => {
+    expect(pointsMicro(usd(1))).toBe(10n * MICRO);
+    expect(pointsMicro(usd(0.1))).toBe(MICRO);
+    expect(showPoints(pointsMicro(usd(123.456789)))).toBe("1,234.56");
     expect(showPoints(999_999n)).toBe("0.99");
     expect(showPoints(0n)).toBe("0.00");
     expect(showPoints(-5n)).toBe("0.00");
@@ -270,8 +187,8 @@ function stored(overrides: Partial<OrderRecord> & { status?: string; finishedAt?
     amountIn: "500000000000000000",
     amountOut: "1",
     minAmountOut: "1",
-    amountInUsd: "1250.00",
-    amountOutUsd: "1245.00",
+    amountInUsd: "25.00",
+    amountOutUsd: "24.95",
     slippageBps: 100,
     timeEstimate: 30,
     fees: { appBps: 20, appAmount: "1", providerBps: 20, providerAmount: "1" },
@@ -293,14 +210,28 @@ function stored(overrides: Partial<OrderRecord> & { status?: string; finishedAt?
 }
 
 describe("what a swap adds", () => {
-  it("is counted from the fee of a delivered order: 100 points for each dollar of IntentSwap's own fee", () => {
+  it("is counted from the dollar value of a delivered order: 10 points for each dollar that was paid", () => {
     const entry = entryFor(stored())!;
-    // $1,250 paid at 20 basis points is a fee of $2.50: 250 points.
-    expect(entry).toMatchObject({ v: 1, order: orderHash("A".repeat(27)), address: ALICE.address, week: "2026-W41", feeUsdMicro: "2500000", countedMicro: "2500000", reasons: [], from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" } });
-    expect(pointsMicro(BigInt(entry.countedMicro))).toBe(250n * MICRO);
+    // $25 paid: 250 points.
+    expect(entry).toEqual({ v: 2, order: orderHash("A".repeat(27)), address: ALICE.address, week: "2026-W41", at: new Date(MONDAY + 3_600_000).toISOString(), volumeUsdMicro: "25000000", reasons: [], from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" } });
+    expect(pointsMicro(BigInt(entry.volumeUsdMicro))).toBe(250n * MICRO);
     // The order's own ID is not in it, nor any address but the rewards address.
     expect(JSON.stringify(entry)).not.toContain("A".repeat(27));
-    expect(Object.keys(entry).sort()).toEqual(["address", "at", "countedMicro", "feeUsdMicro", "from", "order", "reasons", "to", "v", "week"]);
+    // With cents: $1,265.13 is 12,651.30 points.
+    expect(entryFor(stored({ amountInUsd: "1265.13" }))?.volumeUsdMicro).toBe("1265130000");
+  });
+
+  it("counts every delivered swap by its size alone: no fee, coin or route changes it", () => {
+    const usual = entryFor(stored())!;
+    // No fee of IntentSwap's, or one: the same points.
+    for (const fees of [{ appBps: 0, appAmount: "0", providerBps: 20, providerAmount: "1" }, { appBps: 40, appAmount: "2", providerBps: 1, providerAmount: "1" }]) expect(entryFor(stored({ fees }))).toEqual(usual);
+    // Two dollar coins, the same coin on another chain, a coin and its wrapped self: each counts in full.
+    for (const [from, to] of [["USDC", "USDT"], ["ETH", "ETH"], ["ETH", "WETH"], ["cbBTC", "BTC"]] as const) {
+      const entry = entryFor(stored({ from: { id: "a", symbol: from, name: "", chain: "base", decimals: 18, contract: null }, to: { id: "b", symbol: to, name: "", chain: "arb", decimals: 18, contract: null } }))!;
+      expect(entry, `${from} to ${to}`).toMatchObject({ volumeUsdMicro: usual.volumeUsdMicro, reasons: [] });
+    }
+    // Routed privately or in public: the same.
+    expect(entryFor(stored({ confidentiality: "basic" }))).toEqual(usual);
   });
 
   it.each(["waiting", "deposit_seen", "swapping", "refunded", "failed", "expired", "deposit_too_small"])("an order that is %s adds nothing", (status) => {
@@ -318,25 +249,8 @@ describe("what a swap adds", () => {
     expect(rewardsAddressOf(mistyped)).toBeNull();
   });
 
-  it("a swap between two dollar coins, or of a coin for itself, counts at a tenth and says why", () => {
-    const dollars = entryFor(stored({ from: { id: "a", symbol: "USDC", name: "", chain: "base", decimals: 6, contract: "x" }, to: { id: "b", symbol: "USDT", name: "", chain: "sol", decimals: 6, contract: "y" } }))!;
-    expect(dollars).toMatchObject({ feeUsdMicro: "2500000", countedMicro: "250000", reasons: ["dollar_pair"] });
-    const same = entryFor(stored({ from: { id: "a", symbol: "ETH", name: "", chain: "base", decimals: 18, contract: null }, to: { id: "b", symbol: "ETH", name: "", chain: "arb", decimals: 18, contract: null } }))!;
-    expect(same).toMatchObject({ countedMicro: "250000", reasons: ["same_coin"] });
-  });
-
-  it("a swap of a coin for its wrapped self counts at a tenth, like the same coin on another chain", () => {
-    const wrapped = entryFor(stored({ from: { id: "a", symbol: "ETH", name: "", chain: "base", decimals: 18, contract: null }, to: { id: "b", symbol: "WETH", name: "", chain: "base", decimals: 18, contract: "y" } }))!;
-    expect(wrapped).toMatchObject({ feeUsdMicro: "2500000", countedMicro: "250000", reasons: ["same_coin"] });
-    const bitcoin = entryFor(stored({ from: { id: "a", symbol: "cbBTC", name: "", chain: "base", decimals: 8, contract: "x" }, to: { id: "b", symbol: "BTC", name: "", chain: "btc", decimals: 8, contract: null } }))!;
-    expect(bitcoin).toMatchObject({ countedMicro: "250000", reasons: ["same_coin"] });
-    // The points a quote is shown to add follow the same rule.
-    expect(swapPointsMicro("1265.13", 20, "ETH", "WETH")).toBe(25_302_600n);
-    expect(swapPointsMicro("1265.13", 20, "WETH", "WBTC")).toBe(253_026_000n);
-  });
-
   it("an order the provider gave no dollar value for adds an entry of no points, which says why", () => {
-    expect(entryFor(stored({ amountInUsd: "" }))).toMatchObject({ feeUsdMicro: "0", countedMicro: "0", reasons: ["no_usd_value"] });
+    for (const amountInUsd of ["", "about 5", "1e3"]) expect(entryFor(stored({ amountInUsd })), amountInUsd).toMatchObject({ volumeUsdMicro: "0", reasons: ["no_usd_value"] });
   });
 
   it("belongs to the week in which it was delivered, not the one in which it was made", () => {
@@ -347,35 +261,17 @@ describe("what a swap adds", () => {
 
 describe("the points a quote is shown to add", () => {
   it("are the points the server counts for the same swap once it is delivered", () => {
-    const pairs = [
-      [{ symbol: "ETH", chain: "base" }, { symbol: "USDT", chain: "sol" }],
-      [{ symbol: "USDC", chain: "base" }, { symbol: "USDT", chain: "sol" }],
-      [{ symbol: "ETH", chain: "base" }, { symbol: "ETH", chain: "arb" }],
-    ] as const;
-    for (const [from, to] of pairs) {
-      for (const amountInUsd of ["1265.13", "0.99", "250000", "12.3456789"]) {
-        const record = stored({ amountInUsd, from: { id: "a", name: "", decimals: 18, contract: null, ...from }, to: { id: "b", name: "", decimals: 6, contract: "y", ...to } });
-        const entry = entryFor(record)!;
-        expect(swapPointsMicro(amountInUsd, record.fees.appBps, from.symbol, to.symbol), `${from.symbol} to ${to.symbol}, $${amountInUsd}`).toBe(pointsMicro(BigInt(entry.countedMicro)));
-      }
+    for (const amountInUsd of ["1265.13", "0.99", "250000", "12.3456789"]) {
+      const entry = entryFor(stored({ amountInUsd }))!;
+      expect(swapPointsMicro(amountInUsd), `$${amountInUsd}`).toBe(pointsMicro(BigInt(entry.volumeUsdMicro)));
     }
   });
 
-  it("are 100 for each dollar of the fee, a tenth of that between dollar coins, and nothing where no dollar value is known", () => {
-    // $1,265.13 at 0.20% is a fee of $2.53026.
-    expect(swapPointsMicro("1265.13", 20, "ETH", "USDT")).toBe(253_026_000n);
-    expect(swapPointsMicro("1265.13", 20, "USDC", "USDT")).toBe(25_302_600n);
-    expect(swapPointsMicro("1265.13", 20, "ETH", "eth")).toBe(25_302_600n);
-    for (const none of ["", null, undefined, "1e3", "-5", "12,5"]) expect(swapPointsMicro(none, 20, "ETH", "USDT"), String(none)).toBeNull();
-    expect(swapPointsMicro("1265.13", 20.5, "ETH", "USDT")).toBeNull();
-  });
-
   it("are written short: two decimals, rounded down, with no noughts at the end", () => {
+    expect(briefPoints(12_651_300_000n)).toBe("12,651.3");
     expect(briefPoints(253_026_000n)).toBe("253.02");
-    expect(briefPoints(25_302_600n)).toBe("25.3");
     expect(briefPoints(20_000_000n)).toBe("20");
     expect(briefPoints(1_234_000_000n)).toBe("1,234");
-    expect(briefPoints(1_000_500_000n)).toBe("1,000.5");
     expect(briefPoints(250_000n)).toBe("0.25");
     expect(briefPoints(100_000n)).toBe("0.1");
     expect(briefPoints(9_999n)).toBe("0");
@@ -399,7 +295,7 @@ describe("the record of points", () => {
   const quarters = (dir = tempDir()) => {
     const rewards = createRewards(dir);
     rewards.recordDelivered(stored());
-    rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "3750" }));
+    rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "75" }));
     return rewards;
   };
   const shareOf = (record: WeekRecord, who: { address: string }) => record.shares.find((share) => share.address === who.address)!;
@@ -415,10 +311,10 @@ describe("the record of points", () => {
     expect(fs.readdirSync(path.join(dir, "rewards", "entries"))).toEqual([`${orderHash(order.id)}.json`]);
     const again = createRewards(dir);
     expect(again.entriesFor(ALICE.address.toLowerCase())).toEqual(rewards.entriesFor(ALICE.address));
-    // Told once more after the restart, it is still one entry, with the fee it had the first time.
+    // Told once more after the restart, it is still one entry, with the value it had the first time.
     again.recordDelivered({ ...order, amountInUsd: "999999" });
     expect(again.entriesFor(ALICE.address)).toHaveLength(1);
-    expect(again.entriesFor(ALICE.address)[0]?.feeUsdMicro).toBe("2500000");
+    expect(again.entriesFor(ALICE.address)[0]?.volumeUsdMicro).toBe("25000000");
     expect(rewards.recordDelivered(stored({ status: "refunded" }))).toBeNull();
   });
 
@@ -442,23 +338,36 @@ describe("the record of points", () => {
     expect(fs.readFileSync(young, "utf8")).toBe('{"v":1');
   });
 
-  it("sums an address's week under the ceiling, and keeps each address's points apart", () => {
+  it("sums an address's week with no limit, and keeps each address's points apart", () => {
     const rewards = createRewards(tempDir());
-    // Alice: three swaps with fees of $400, $300 and $104 in one week: $804, which counts as 500 + the root of 304.
+    // Alice: three swaps of $200,000, $150,000 and $52,000 in one week. All of it counts: 4,020,000 points.
     for (const [index, paid] of ["200000", "150000", "52000"].entries()) rewards.recordDelivered(stored({ id: `${"B".repeat(26)}${index}`, amountInUsd: paid }));
     rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, sender: BOB.address }));
     const week = rewards.weekPoints("2026-W41");
-    expect(week.get(ALICE.address)).toBe(pointsMicro(usd(500) + isqrt(usd(304) * MICRO)));
+    expect(week.get(ALICE.address)).toBe(4_020_000n * MICRO);
     expect(week.get(BOB.address)).toBe(250n * MICRO);
     expect([...week.keys()].sort()).toEqual([ALICE.address, BOB.address].sort());
     expect(rewards.weekPoints("2026-W42").size).toBe(0);
     const view = rewards.view(ALICE.address, MONDAY + 86_400_000);
-    expect(view.week).toMatchObject({ id: "2026-W41", ceiling: true, pointsMicro: week.get(ALICE.address)!.toString() });
+    expect(view.week).toEqual({ id: "2026-W41", start: new Date(MONDAY).toISOString(), end: new Date(MONDAY + 7 * 86_400_000).toISOString(), pointsMicro: week.get(ALICE.address)!.toString(), carriedInMicro: "0" });
+    expect(view.allTimeMicro).toBe(view.week.pointsMicro);
     expect(view.swaps).toHaveLength(3);
-    // Each swap is shown with its own points; the ceiling shows in the week's total.
-    expect(view.swaps.map((swap) => swap.pointsMicro).sort()).toEqual([pointsMicro(usd(104)), pointsMicro(usd(300)), pointsMicro(usd(400))].map(String).sort());
+    // Each swap is shown with its own points, and they add up to the week's.
+    expect(view.swaps.map((swap) => swap.pointsMicro).sort()).toEqual([pointsMicro(usd(52_000)), pointsMicro(usd(150_000)), pointsMicro(usd(200_000))].map(String).sort());
     expect(JSON.stringify(view)).not.toContain(BOB.address);
     expect(JSON.stringify(rewards.view(BOB.address, MONDAY))).not.toContain(ALICE.address);
+  });
+
+  it("does not read an entry written while points were counted from a fee: its file is left as it is, and adds nothing", () => {
+    const dir = tempDir();
+    const entries = path.join(dir, "rewards", "entries");
+    fs.mkdirSync(entries, { recursive: true });
+    const old = JSON.stringify({ v: 1, order: "c".repeat(64), address: ALICE.address, week: "2026-W41", at: new Date(MONDAY).toISOString(), feeUsdMicro: "2500000", countedMicro: "2500000", reasons: [], from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" } });
+    fs.writeFileSync(path.join(entries, `${"c".repeat(64)}.json`), old);
+    const rewards = createRewards(dir);
+    expect(rewards.entriesFor(ALICE.address)).toEqual([]);
+    expect(rewards.weekPoints("2026-W41").size).toBe(0);
+    expect(fs.readFileSync(path.join(entries, `${"c".repeat(64)}.json`), "utf8")).toBe(old);
   });
 
   it("closes a week once: the same pool gives the same record, another pool is refused, and a week still running cannot be closed", () => {
@@ -475,8 +384,8 @@ describe("the record of points", () => {
       ].sort((a, b) => (a.address < b.address ? -1 : 1)),
     );
     expect(BigInt(closed.paid) + BigInt(closed.left)).toBe(10n ** 18n);
-    // Kept with the week: the fee that counted in it ($2.50 and $7.50), and the list its payouts were screened against.
-    expect(closed).toMatchObject({ countedFeeUsdMicro: "10000000", screenedWith: "test-list", txs: [] });
+    // Kept with the week: its volume ($25 and $75), and the list its payouts were screened against.
+    expect(closed).toMatchObject({ v: 1, volumeUsdMicro: "100000000", totalPointsMicro: "1000000000", screenedWith: "test-list", txs: [] });
     const file = fs.readFileSync(path.join(dir, "rewards", "weeks", "2026-W41.json"), "utf8");
     // Closed again a day later, and by a fresh reading of the same folder: the very same record.
     expect(rewards.closeWeek("2026-W41", 10n ** 18n, "ZEC", 1n, end + 86_400_000, CLEAR)).toEqual(closed);
@@ -504,14 +413,15 @@ describe("the record of points", () => {
 
   it("carries a share too small to send into the next week, as points", () => {
     const rewards = createRewards(tempDir());
-    rewards.recordDelivered(stored({ amountInUsd: "5" }));
+    // Alice swapped 10 cents, which is one point. Bob swapped $500,000.
+    rewards.recordDelivered(stored({ amountInUsd: "0.1" }));
     rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "500000" }));
     const closed = rewards.closeWeek("2026-W41", 10n ** 15n, "ZEC", RESERVE_ASSET.minPayout, end, CLEAR);
     const alice = closed.shares.find((share) => share.address === ALICE.address)!;
     expect(alice).toMatchObject({ payout: "0", carriedMicro: "1000000" });
     // The week after, Alice starts with what was carried, and a new swap adds to it.
     expect(rewards.weekPoints("2026-W42").get(ALICE.address)).toBe(1_000_000n);
-    rewards.recordDelivered(stored({ id: "E".repeat(27), finishedAt: new Date(end + 60_000).toISOString(), amountInUsd: "1000" }));
+    rewards.recordDelivered(stored({ id: "E".repeat(27), finishedAt: new Date(end + 60_000).toISOString(), amountInUsd: "20" }));
     expect(rewards.weekPoints("2026-W42").get(ALICE.address)).toBe(1_000_000n + 200n * MICRO);
     const view = rewards.view(ALICE.address, end + 120_000);
     expect(view.week).toMatchObject({ id: "2026-W42", carriedInMicro: "1000000", pointsMicro: (1_000_000n + 200n * MICRO).toString() });
@@ -556,7 +466,7 @@ describe("the record of points", () => {
   it("carries points through every week between: what was carried out of week 41 reaches week 43 by way of week 42", () => {
     const rewards = createRewards(tempDir());
     // Week 41: Alice's share is too small to send, and her one point is carried.
-    rewards.recordDelivered(stored({ amountInUsd: "5" }));
+    rewards.recordDelivered(stored({ amountInUsd: "0.1" }));
     rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "500000" }));
     expect(shareOf(rewards.closeWeek("2026-W41", 10n ** 15n, "ZEC", RESERVE_ASSET.minPayout, end, CLEAR), ALICE).carriedMicro).toBe("1000000");
     // Nothing is delivered in week 42. Bob swaps again in week 43.
@@ -783,7 +693,7 @@ describe("the payout tools", () => {
   const seeded = (dir = tempDir()) => {
     const rewards = createRewards(dir);
     rewards.recordDelivered(stored());
-    rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "2500" }));
+    rewards.recordDelivered(stored({ id: "C".repeat(27), rewardsAddress: BOB.address, amountInUsd: "50" }));
     return rewards;
   };
   /** BNB Chain as the tools see it: the reserve wallet holds this much of the payout coin. */
@@ -809,8 +719,8 @@ describe("the payout tools", () => {
     expect(first.csv.split("\n").slice(1, 3).map((line) => line.split(",")[0])).toEqual([alice, bob]);
     expect(first.csv).toContain(`${ALICE.address},250.000000,0.33333333,1,0.000000,0\n`);
     expect(first.csv).toContain(`${BOB.address},500.000000,0.66666666,2,0.000000,0\n`);
-    // The week's counted fee is Alice's $2.50 and Bob's $5.
-    expect(first.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "ZEC", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", countedFeeUsd: "7.500000" });
+    // The week's volume is Alice's $25 and Bob's $50, and its points are ten times that.
+    expect(first.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "ZEC", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", volumeUsd: "75.000000" });
     expect(BigInt(first.record.paid) + BigInt(first.record.left)).toBe(3n * ONE);
     expect(weekCsv(first.record)).toBe(first.csv);
   });
@@ -823,8 +733,8 @@ describe("the payout tools", () => {
     const looks = [await run(rewards, 3n * ONE), await run(rewards, 3n * ONE, { close: false }), await run(rewards, 3n * ONE, { close: "yes" as never }), await run(rewards, 3n * ONE, { close: 1 as never })];
     for (const look of looks) {
       expect(look).toMatchObject({ closed: false, already: false, reserveHolds: 100n * ONE });
-      // All that closing would do is there to be read: the addresses, the points, the fee that counted, each share and payout, what is carried, what is kept back and what stays in the reserve.
-      expect(look.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "ZEC", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", countedFeeUsd: "7.500000" });
+      // All that closing would do is there to be read: the addresses, the points, the week's volume, each share and payout, what is carried, what is kept back and what stays in the reserve.
+      expect(look.summary).toEqual({ week: "2026-W41", from: "2026-10-05T00:00:00.000Z", to: "2026-10-11T23:59:59.999Z", asset: "ZEC", pool: "3", paid: "3", leftInReserve: "0", withheld: "0", addresses: 2, addressesPaid: 2, addressesCarried: 0, addressesWithheld: 0, totalPoints: "750.000000", volumeUsd: "75.000000" });
       expect(look.csv).toContain(`${ALICE.address},250.000000,0.33333333,1,0.000000,0\n`);
       expect(look.csv).toContain(`${BOB.address},500.000000,0.66666666,2,0.000000,0\n`);
     }
@@ -1273,7 +1183,11 @@ describe("points over the wire", () => {
     const order = await delivered(h, { rewardsAddress: ALICE.address, points: "999999999", pointsMicro: "999999999", fees: { appBps: 9999 } });
     const [entry] = h.rewards.entriesFor(ALICE.address) as [PointsEntry];
     const record = h.store.get(order.id)!;
-    expect(entry.feeUsdMicro).toBe(feeUsdMicro(record.amountInUsd, record.fees.appBps)!.toString());
+    // The order's own dollar value, as the verified quote gave it, and no fee: the server takes none here.
+    expect(record.fees.appBps).toBe(0);
+    expect(entry.volumeUsdMicro).toBe(usdToMicro(record.amountInUsd)!.toString());
+    expect(BigInt(entry.volumeUsdMicro)).toBeGreaterThan(0n);
+    expect(h.rewards.view(ALICE.address, h.clock.t).allTimeMicro).toBe((BigInt(entry.volumeUsdMicro) * 10n).toString());
     expect(entry.order).toBe(orderHash(order.id));
     // An order that ends any other way adds nothing.
     const other = asOrder(await h.order({ rewardsAddress: BOB.address, recipient: ADDR.evm3 }));
@@ -1288,7 +1202,7 @@ describe("points over the wire", () => {
   });
 
   it("shows an address its own points after one signature, and never anyone else's", async () => {
-    const h = await start({ practice: true, env: { FEE_BPS: "40" } });
+    const h = await start({ practice: true });
     await delivered(h, { rewardsAddress: ALICE.address });
     await delivered(h, { rewardsAddress: BOB.address, recipient: ADDR.evm3 });
     // Without a sign-in: nothing.
@@ -1317,7 +1231,7 @@ describe("points over the wire", () => {
   });
 
   it("a week closed, and then paid, by the tools while the server runs is in the server's next answer", async () => {
-    const h = await start({ practice: true, env: { FEE_BPS: "40" } });
+    const h = await start({ practice: true });
     await delivered(h, { rewardsAddress: ALICE.address });
     await delivered(h, { rewardsAddress: BOB.address, recipient: ADDR.evm3 });
     const token = await signedIn(h, ALICE);

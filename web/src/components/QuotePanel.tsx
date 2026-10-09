@@ -5,7 +5,7 @@ import type { QuoteView, TokenView } from "../../../shared/api.ts";
 import { chainName } from "../../../shared/chains.ts";
 import { briefPoints, swapPointsMicro } from "../../../shared/rewards.ts";
 import { IMPACT_BLOCK_BPS, IMPACT_WARN_BPS, SLOW_SWAP_SECONDS } from "../config.ts";
-import { aboutMinutes, appFeeWords, feeFree, rateText, type RoutingNote } from "../lib/swap-logic.ts";
+import { aboutMinutes, appFeeWords, rateText, type RoutingNote } from "../lib/swap-logic.ts";
 import { Amount, Said } from "./Amount.tsx";
 
 interface Props {
@@ -76,8 +76,8 @@ export function QuotePanel({ quote, from, to, loading, stale, held = false, poin
   const open = ready || first || held;
   const impact = ready ? quote.priceImpactBps : null;
   const slow = ready && quote.timeEstimate > SLOW_SWAP_SECONDS;
-  // Points are counted from the IntentSwap fee the quote shows. A quote with none adds none: nothing is said of points then.
-  const points = ready && pointsShown && !feeFree(quote) ? swapPointsMicro(quote.amountInUsd, quote.fees.appBps, from.symbol, to.symbol) : null;
+  // Points are counted from the dollar value of what is paid, as the quote gives it. No fee is part of the sum.
+  const points = ready && pointsShown ? swapPointsMicro(quote.amountInUsd) : null;
   const noFee = ready ? appFeeWords(quote) : null;
   const shown = ready && expanded;
 

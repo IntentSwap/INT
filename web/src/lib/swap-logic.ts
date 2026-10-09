@@ -301,9 +301,6 @@ export type PrivacyMode = Confidentiality | null;
 /** What is said when a private quote, or a private order, could not be had. The card and the review say it in the same words. */
 export const PRIVATE_UNAVAILABLE = "Private routing is not available for this swap right now.";
 
-/** What the review says of points for a swap IntentSwap takes no fee on, in place of where the points go. */
-export const NO_FEE_NO_POINTS = "This swap adds no points: IntentSwap takes no fee on it.";
-
 /**
  * Whether a quote or an order is routed privately, by its own word. One that says nothing (an
  * order made before routing was kept) is public, and so is any word but the one for private.
@@ -363,15 +360,15 @@ export function routingNote(mode: PrivacyMode, view: { routing?: unknown } | nul
 }
 
 /**
- * True for a quote or an order with no IntentSwap fee at all. Only a privately routed swap can be
- * one, and only where the server is set to take no fee on those. Such a swap adds no points:
- * points are counted from that fee.
+ * True for a quote or an order with no IntentSwap fee at all: every one, unless the server is set
+ * to take a fee. It decides what the fee row says and nothing else. Points are counted from the
+ * size of a swap, so a swap with no IntentSwap fee adds them like any other.
  */
 export function feeFree(view: { fees: { appBps: number; appAmount: string } } | null): boolean {
   return view !== null && view.fees.appBps === 0 && /^0+$/.test(view.fees.appAmount);
 }
 
-/** What the "IntentSwap fee" row says in place of "0.00% · 0 ETH". Null where the fee is given in figures, as ever. */
+/** What the "IntentSwap fee" row says in place of "0.00% · 0 ETH". Null where there is a fee, which is then given in figures. */
 export function appFeeWords(view: Pick<QuoteView, "fees"> | null): string | null {
   return feeFree(view) ? "None" : null;
 }

@@ -116,7 +116,7 @@ export function TermsPage() {
 
       <Section title="11. Points and weekly rewards">
         <p>
-          IntentSwap keeps a record of points for delivered swaps, and may send a weekly payout shared out by points. <Link href="/docs/rewards">The rules</Link> are part of these terms.
+          IntentSwap keeps a record of points for delivered swaps: {REWARDS.pointsPerUsd} points for each US dollar of a delivered swap's value, and nothing for a swap that is refunded or fails. It may send a weekly payout shared out by points. <Link href="/docs/rewards">The rules</Link> are part of these terms.
         </p>
         <ul>
           <li>Points are a record and nothing more. They have no money value. They are not a currency, an investment or a claim on anything, and they cannot be bought, sold or moved.</li>
@@ -187,7 +187,7 @@ export function PrivacyPage() {
             <strong>Running log.</strong> The server also writes a log of its own work, which the host keeps for the host's own period: when each order's status changed, naming the order by a one-way fingerprint; the alerts raised for the operator; and the provider's reference numbers. It holds no address and no order link.
           </li>
           <li>
-            <strong>Points.</strong> When a swap is delivered and has a rewards address, the server writes down: a one-way fingerprint of the order's ID, the rewards address, IntentSwap's fee on that swap in US dollars, why the swap counted for less than in full if it did, the two coins and their chains, and the time. When a week is closed it writes down the pool, each rewards address's points and payout, and afterwards the payout transactions. These are the record of what was counted and paid, and are kept.
+            <strong>Points.</strong> When a swap is delivered and has a rewards address, the server writes down: a one-way fingerprint of the order's ID, the rewards address, the swap's value in US dollars, the two coins and their chains, and the time. When a week is closed it writes down the pool, each rewards address's points and payout, and afterwards the payout transactions. These are the record of what was counted and paid, and are kept.
           </li>
           <li>
             <strong>Stats.</strong> For the Stats page the server keeps running totals of delivered swaps and, for 48 hours, one rounded row for each (the two coins and their chains, a size band and a quarter of an hour), with no address, no transaction hash, no exact amount and no exact time in either.

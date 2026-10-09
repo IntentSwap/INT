@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { checkAddress } from "../shared/addresses.ts";
 import { isRouting, routingOf, TERMS_VERSION, type OrderView, type QuoteView } from "../shared/api.ts";
+import { swapPointsMicro } from "../shared/rewards.ts";
 import { orderDiffers } from "../web/src/lib/swap-logic.ts";
 import { toOrderView } from "../server/app.ts";
 import { createStaticGeo } from "../server/geo.ts";
@@ -3032,7 +3033,7 @@ describe("private routing", () => {
     for (const level of ["advanced", "private", "BASIC", "", true, null]) expect(toOrderView({ ...record, confidentiality: level as never }, h.clock.t).routing, JSON.stringify(level)).toBe(IN_PUBLIC);
   });
 
-  it("counts a delivered private order's points from the fee its echo showed, as a public order's are", async () => {
+  it("counts a delivered private order's points from its dollar value, as a public order's are, whether or not a fee is taken", async () => {
     const delivering = (h: Harness) => async (overrides: Record<string, unknown>) => {
       const order = asOrder(await h.order(overrides));
       h.stub.control(order.depositAddress!, "deposit");
@@ -3041,32 +3042,38 @@ describe("private routing", () => {
       expect(h.store.get(order.id)?.state.status).toBe("delivered");
       return order;
     };
-    const h = await start(PRIVATE_FEES);
+    const h = await start(PRIVATE);
     const deliver = delivering(h);
     const order = await deliver({ rewardsAddress: ADDR.evm3 });
-    expect(order).toMatchObject({ routing: PRIVATELY, rewardsAddress: ADDR.evm3, fees: { appBps: 20 } });
+    // No fee of IntentSwap's on it, and its points are there all the same: ten for each dollar its record says was paid.
+    expect(order).toMatchObject({ routing: PRIVATELY, rewardsAddress: ADDR.evm3, fees: { appBps: 0, appAmount: "0" } });
     const entries = h.rewards.entriesFor(ADDR.evm3);
     expect(entries).toHaveLength(1);
-    expect(BigInt(entries[0]!.feeUsdMicro)).toBeGreaterThan(0n);
-    expect(BigInt(entries[0]!.countedMicro)).toBeGreaterThan(0n);
-    expect(BigInt(h.rewards.view(ADDR.evm3, h.clock.t).allTimeMicro)).toBeGreaterThan(0n);
-    // The same swap routed in public, by the person's choice: the same amount paid and the same share
-    // of ours in the echo (20 of the 40 sent), and so the same fee counted and the same points.
+    expect(entries[0]).toMatchObject({ v: 2, reasons: [] });
+    const volume = BigInt(entries[0]!.volumeUsdMicro);
+    expect(volume).toBeGreaterThan(0n);
+    expect(swapPointsMicro(h.store.get(order.id)!.amountInUsd)).toBe(volume * 10n);
+    expect(h.rewards.view(ADDR.evm3, h.clock.t)).toMatchObject({ allTimeMicro: (volume * 10n).toString(), week: { pointsMicro: (volume * 10n).toString() } });
+    // The same swap routed in public, by the person's choice: the same amount paid, and so the same points.
     await deliver({ rewardsAddress: ADDR.evm2, withoutPrivate: true, recipient: ADDR.evm3 });
     const counted = h.rewards.entriesFor(ADDR.evm2);
     expect(counted).toHaveLength(1);
-    expect(counted[0]!.feeUsdMicro).toBe(entries[0]!.feeUsdMicro);
-    expect(counted[0]!.countedMicro).toBe(entries[0]!.countedMicro);
+    expect(counted[0]!.volumeUsdMicro).toBe(entries[0]!.volumeUsdMicro);
     expect(h.rewards.view(ADDR.evm2, h.clock.t).allTimeMicro).toBe(h.rewards.view(ADDR.evm3, h.clock.t).allTimeMicro);
 
-    // Where the server takes no fee on a private swap, the order is on the record with a fee of nothing, and so with no points.
-    const free = await start(PRIVATE);
-    const unpaid = await delivering(free)({ rewardsAddress: ADDR.evm3 });
-    expect(unpaid).toMatchObject({ routing: PRIVATELY, rewardsAddress: ADDR.evm3, fees: { appBps: 0, appAmount: "0" } });
-    const none = free.rewards.entriesFor(ADDR.evm3);
-    expect(none).toHaveLength(1);
-    expect(none[0]).toMatchObject({ feeUsdMicro: "0", countedMicro: "0", reasons: [] });
-    expect(free.rewards.view(ADDR.evm3, free.clock.t)).toMatchObject({ allTimeMicro: "0", week: { pointsMicro: "0" } });
+    // Where the server is set to take a fee, the same swap adds the same points: no fee is part of the sum.
+    const charging = await start(PRIVATE_FEES);
+    const paidFor = await delivering(charging)({ rewardsAddress: ADDR.evm3 });
+    expect(paidFor).toMatchObject({ routing: PRIVATELY, fees: { appBps: 20 } });
+    expect(charging.rewards.entriesFor(ADDR.evm3).map((entry) => entry.volumeUsdMicro)).toEqual([entries[0]!.volumeUsdMicro]);
+
+    // An order that is refunded adds nothing.
+    const refunded = asOrder(await h.order({ rewardsAddress: ADDR.evm, recipient: ADDR.evm2, amount: "6000000000000000" }));
+    h.stub.control(refunded.depositAddress!, "refund");
+    h.clock.t += 30_000;
+    await h.poller.recheck(refunded.id);
+    expect(h.store.get(refunded.id)?.state.status).toBe("refunded");
+    expect(h.rewards.entriesFor(ADDR.evm)).toEqual([]);
   });
 
   it("never finds a privately routed order from its deposit address: that would publish the link private routing keeps out of public records", async () => {

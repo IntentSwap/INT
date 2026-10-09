@@ -4,8 +4,12 @@
 // the moment one is delivered. The browser can never submit, name or change a number of points.
 // One small file per swap that adds points (DATA_DIR/rewards/entries) and one per closed week
 // (DATA_DIR/rewards/weeks). An entry names its order only by a one-way hash; it holds the rewards
-// address, the fee in dollars, why the swap counted less than in full if it did, the two coins and
-// the time. These are transaction records and are kept as such.
+// address, the swap's value in dollars, the two coins and the time. These are transaction records
+// and are kept as such.
+//
+// Points are counted from a swap's value: ten for each US dollar. An entry written while they were
+// counted from a fee (v: 1) holds no value of the swap, and is not read: its file is left where it
+// is, and adds nothing. A week closed then is still read, as it was written.
 //
 // A week is closed by a tool the operator runs by hand, in another process (see rewards-tools.ts).
 // Closing screens the payout list against the sanctions list, and a week is closed only once every
@@ -15,12 +19,12 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import fs from "node:fs";
 import path from "node:path";
 import { checkAddress, toChecksumAddress } from "../shared/addresses.ts";
-import { countedFeeMicro, feeUsdMicro, nextWeek, pointsMicro, reducedReason, REWARDS, sharePool, signInMessage, weekBounds, weekFeeMicro, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
+import { nextWeek, pointsMicro, REWARDS, sharePool, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
 import type { Sanctions } from "./sanctions.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
 
 export interface PointsEntry {
-  v: 1;
+  v: 2;
   /** sha256 of the order's ID, in hex. The ID itself is not kept here. */
   order: string;
   /** The rewards address, in its standard spelling. */
@@ -28,10 +32,9 @@ export interface PointsEntry {
   week: string;
   /** When the swap was delivered. */
   at: string;
-  /** IntentSwap's fee on the swap, in millionths of a US dollar. */
-  feeUsdMicro: string;
-  /** The part of it that counts (all of it, or the reduced share). */
-  countedMicro: string;
+  /** The swap's value: the provider's dollar value of what was paid, in millionths of a US dollar. Its points are ten times this. */
+  volumeUsdMicro: string;
+  /** Empty, or why the swap added no points. */
   reasons: PointsReason[];
   from: { symbol: string; chain: string };
   to: { symbol: string; chain: string };
@@ -63,8 +66,8 @@ export interface WeekRecord {
   paid: string;
   left: string;
   totalPointsMicro: string;
-  /** The week's counted fee, every address's together, in millionths of a US dollar. Absent on records written before it was kept. */
-  countedFeeUsdMicro?: string;
+  /** The week's volume, every address's swaps together, in millionths of a US dollar. Absent on records written before it was kept. */
+  volumeUsdMicro?: string;
   /** The date of the sanctions list the payouts were screened against. Absent on records written before payouts were screened. */
   screenedWith?: string;
   shares: WeekShare[];
@@ -97,19 +100,17 @@ export function entryFor(record: OrderRecord): PointsEntry | null {
   const at = record.state.finishedAt ?? record.state.statusSince;
   const when = Date.parse(at);
   if (!Number.isFinite(when)) return null;
-  const fee = feeUsdMicro(record.amountInUsd, record.fees.appBps);
-  const reduced = reducedReason(record.from.symbol, record.to.symbol);
-  const reasons: PointsReason[] = fee === null ? ["no_usd_value"] : reduced !== null ? [reduced] : [];
-  const counted = fee === null ? 0n : countedFeeMicro(fee, reduced !== null);
+  // The swap's value alone: the dollar value of what was paid, as the order's record holds it.
+  // No fee, coin or route is read: every delivered swap counts by its size.
+  const volume = usdToMicro(record.amountInUsd);
   return {
-    v: 1,
+    v: 2,
     order: orderHash(record.id),
     address,
     week: weekOf(when),
     at: new Date(when).toISOString(),
-    feeUsdMicro: (fee ?? 0n).toString(),
-    countedMicro: counted.toString(),
-    reasons,
+    volumeUsdMicro: (volume ?? 0n).toString(),
+    reasons: volume === null ? ["no_usd_value"] : [],
     from: { symbol: record.from.symbol, chain: record.from.chain },
     to: { symbol: record.to.symbol, chain: record.to.chain },
   };
@@ -118,7 +119,7 @@ export function entryFor(record: OrderRecord): PointsEntry | null {
 function isEntry(value: unknown): value is PointsEntry {
   if (typeof value !== "object" || value === null) return false;
   const e = value as Partial<PointsEntry>;
-  return e.v === 1 && typeof e.order === "string" && ORDER_HASH_SHAPE.test(e.order) && typeof e.address === "string" && typeof e.week === "string" && WEEK_SHAPE.test(e.week) && typeof e.countedMicro === "string" && /^\d+$/.test(e.countedMicro) && typeof e.feeUsdMicro === "string" && /^\d+$/.test(e.feeUsdMicro) && Array.isArray(e.reasons);
+  return e.v === 2 && typeof e.order === "string" && ORDER_HASH_SHAPE.test(e.order) && typeof e.address === "string" && typeof e.week === "string" && WEEK_SHAPE.test(e.week) && typeof e.volumeUsdMicro === "string" && /^\d+$/.test(e.volumeUsdMicro) && Array.isArray(e.reasons);
 }
 
 const isDigits = (value: unknown): value is string => typeof value === "string" && /^\d+$/.test(value);
@@ -160,7 +161,7 @@ export interface Rewards {
   /** Writes an entry down, once. What recordDelivered does with the entry it worked out; also how a practice server's sample entries are put in. No route reaches it. */
   record(entry: PointsEntry): void;
   entriesFor(address: string): PointsEntry[];
-  /** Every address's points for a week, in millionths: its own swaps under the weekly ceiling, plus what was carried in from the week before. */
+  /** Every address's points for a week, in millionths: its own swaps, plus what was carried in from the week before. */
   weekPoints(week: string): Map<string, bigint>;
   week(week: string): WeekRecord | null;
   weeks(): WeekRecord[];
@@ -251,16 +252,15 @@ export function createRewards(dataDir: string): Rewards {
         return week === null ? [] : [week];
       });
 
-  /** An address's own points in a week, before anything carried in: its swaps' counted fees, summed, under the weekly ceiling. */
-  const ownWeek = (entries: readonly PointsEntry[], week: string): { counted: bigint; points: bigint; ceiling: boolean } => {
-    const sum = entries.filter((entry) => entry.week === week).reduce((total, entry) => total + BigInt(entry.countedMicro), 0n);
-    const counted = weekFeeMicro(sum);
-    return { counted, points: pointsMicro(counted), ceiling: counted < sum };
+  /** An address's own swaps in a week, before anything carried in: their volume, summed, and the points for it. */
+  const ownWeek = (entries: readonly PointsEntry[], week: string): { volume: bigint; points: bigint } => {
+    const volume = entries.filter((entry) => entry.week === week).reduce((total, entry) => total + BigInt(entry.volumeUsdMicro), 0n);
+    return { volume, points: pointsMicro(volume) };
   };
-  /** A week's counted fee, every address's together, in millionths of a dollar. */
-  const weekFee = (week: string): bigint => {
+  /** A week's volume, every address's swaps together, in millionths of a dollar. */
+  const weekVolume = (week: string): bigint => {
     let total = 0n;
-    for (const entries of byAddress.values()) total += ownWeek(entries, week).counted;
+    for (const entries of byAddress.values()) total += ownWeek(entries, week).volume;
     return total;
   };
   /** What a closed week carried forward for each address: shares too small to send, and every share of a week nothing was paid for. */
@@ -360,7 +360,7 @@ export function createRewards(dataDir: string): Rewards {
         paid: paid.toString(),
         left: (pool - paid).toString(),
         totalPointsMicro: result.totalPoints.toString(),
-        countedFeeUsdMicro: weekFee(week).toString(),
+        volumeUsdMicro: weekVolume(week).toString(),
         screenedWith: sanctions.version() ?? "",
         shares,
         txs: [],
@@ -417,9 +417,9 @@ export function createRewards(dataDir: string): Rewards {
       for (const item of weeksWithEntries) allTime += ownWeek(entries, item).points;
       return {
         address: toChecksumAddress(address),
-        week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString(), pointsMicro: (own.points + carriedIn).toString(), ceiling: own.ceiling, carriedInMicro: carriedIn.toString() },
+        week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString(), pointsMicro: (own.points + carriedIn).toString(), carriedInMicro: carriedIn.toString() },
         allTimeMicro: allTime.toString(),
-        swaps: entries.slice(0, 200).map((entry) => ({ at: entry.at, week: entry.week, from: entry.from, to: entry.to, pointsMicro: pointsMicro(BigInt(entry.countedMicro)).toString(), reasons: entry.reasons })),
+        swaps: entries.slice(0, 200).map((entry) => ({ at: entry.at, week: entry.week, from: entry.from, to: entry.to, pointsMicro: pointsMicro(BigInt(entry.volumeUsdMicro)).toString(), reasons: entry.reasons })),
         // Its own payout and its own transfer, and no other address's: none yet until that transfer is on record.
         payouts: closed
           .flatMap((item) => {

@@ -20,7 +20,7 @@ import { QrCode } from "../components/QrCode.tsx";
 import { WalletPay } from "../components/WalletPay.tsx";
 import { clockSpan, clockTime, ending, payWindow, pollDelay, sendBy, tabTitle, orderTitle, timeline, type Step } from "../lib/order-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
-import { aboutMinutes, appFeeWords, feeFree, NO_FEE_NO_POINTS, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
+import { aboutMinutes, appFeeWords, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
 import { navigate } from "../router.ts";
 import { serverNow, useApp } from "../stores/app.ts";
 import { useOrders } from "../stores/orders.ts";
@@ -289,11 +289,10 @@ function Summary({ order, privacyMode }: { order: OrderView; privacyMode: Privac
       </div>
       <div className="review-address">
         <p className="review-address-label">
-          Points{feeFree(order) ? null : <span className="muted"> · {chainName(REWARDS.chain)}</span>}
+          Points<span className="muted"> · {chainName(REWARDS.chain)}</span>
         </p>
-        {feeFree(order) ? (
-          <p className="review-address-note muted">{NO_FEE_NO_POINTS}</p>
-        ) : order.rewardsAddress !== null ? (
+        {/* Whether an order adds points turns on its rewards address alone, never on a fee. */}
+        {order.rewardsAddress !== null ? (
           <>
             <p className="review-address-value">
               <Address value={order.rewardsAddress} />
