@@ -150,19 +150,21 @@ try {
       if (slowdown !== 4) result = (await measure(page)) ?? result;
     }
     // A speed score moves a point or two from one measurement to the next. A page that falls short is
-    // measured twice more and judged by the middle one of its three scores, which is how the tool itself says to read it.
+    // measured twice more and judged by the middle one of its three measurements, which is how the tool itself says to
+    // read it. Every figure below is then that one measurement's own: a measurement that came back empty scores
+    // nothing, sorts first and is never the one the page is judged by unless most of them were empty.
     const speedOf = (measured: NonNullable<typeof result>) => Math.round((measured.lhr.categories.performance?.score ?? 0) * 100);
-    let speed = speedOf(result);
-    if (speed < LEAST.performance) {
-      const scores = [speed];
+    if (speedOf(result) < LEAST.performance) {
+      const runs = [result];
       for (let again = 0; again < 2; again++) {
         const more = await measure(page);
-        if (more !== undefined) scores.push(speedOf(more));
+        if (more !== undefined) runs.push(more);
       }
-      scores.sort((a, b) => a - b);
-      speed = scores[Math.floor(scores.length / 2)] ?? speed;
-      console.log(`page-quality: ${named(page)}: measured ${scores.length} times for speed (${scores.join(", ")}); judged by the middle one, ${speed}`);
+      runs.sort((a, b) => speedOf(a) - speedOf(b));
+      result = runs[Math.floor(runs.length / 2)] ?? result;
+      console.log(`page-quality: ${named(page)}: measured ${runs.length} times for speed (${runs.map(speedOf).join(", ")}); judged by the middle one, ${speedOf(result)}`);
     }
+    const speed = speedOf(result);
     const { categories, audits } = result.lhr;
     const score = (name: keyof typeof LEAST) => (name === "performance" ? speed : Math.round((categories[name]?.score ?? 0) * 100));
     const shown = (id: string) => audits[id]?.displayValue ?? "?";
