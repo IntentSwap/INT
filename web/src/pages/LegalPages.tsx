@@ -195,11 +195,11 @@ export function PrivacyPage() {
           <li>
             {statsOn ? (
               <>
-                <strong>Stats.</strong> Every delivered swap is listed on the <Link href="/stats">Stats page</Link> for 48 hours, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Nothing about where the swap was delivered is listed or kept for that page: not the coin received, not its amount, not the receiving address and not the delivery transaction. Beside those rows the server keeps running totals of what delivered swaps sent: how many there were, and their value in US dollars by coin, by chain and by hour.
+                <strong>Stats.</strong> Every delivered swap is listed on the <Link href="/stats">Stats page</Link> for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Nothing about where the swap was delivered is listed or kept for that page: not the coin received, not its amount, not the receiving address and not the delivery transaction. Beside those rows the server keeps running totals of what delivered swaps sent: how many there were, and their value in US dollars by coin, by chain and by hour.
               </>
             ) : (
               <>
-                <strong>Stats.</strong> The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for 48 hours, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Nothing about where a swap was delivered is kept in them, and no page of this site shows them.
+                <strong>Stats.</strong> The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Nothing about where a swap was delivered is kept in them, and no page of this site shows them.
               </>
             )}
           </li>

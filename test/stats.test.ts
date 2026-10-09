@@ -16,14 +16,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { boot, type Booted } from "../server/boot.ts";
 import { createLogger, hashId } from "../server/log.ts";
 import { createStats, shareOf, type Delivery, type Stats, type StatsFile } from "../server/stats.ts";
-import { createOrderStore, type OrderRecord, type OrderState, type OrderStore } from "../server/store.ts";
+import { createOrderStore, FINISHED_RETENTION_MS, type OrderRecord, type OrderState, type OrderStore } from "../server/store.ts";
 import { formatExact } from "../shared/amounts.ts";
 import type { CoinRef, Confidentiality, OrderStatus, StatsResponse } from "../shared/api.ts";
 import { chainInfo, chainName } from "../shared/chains.ts";
 import { chainGrid, whenText, shortTx, statsPageOn } from "../web/src/lib/stats-logic.ts";
 import { ChainGrid, StatsContent } from "../web/src/pages/StatsPage.tsx";
 import { navItems } from "../web/src/router.ts";
-import { FIXTURE_TOKENS, harness, type Harness } from "./helpers.ts";
+import { asOrder, FIXTURE_TOKENS, harness, type Harness } from "./helpers.ts";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -308,9 +308,55 @@ describe("the totals", () => {
     expect(shown.feed).toEqual([]);
     // A swap delivered from now on is counted on top of what was there.
     const s = site({ dir });
+    expect(s.file().v).toBe(3);
     s.end(1, { usd: "400", from: ETH, to: BTC });
     expect(s.stats.view()).toMatchObject({ totals: { swaps: 8, volumeUsd: 3000, chains: 2 }, chainsUsed: [{ chain: "arb", swaps: 0, share: 20 }, { chain: "base", swaps: 1, share: 80 }] });
     expect(s.stats.view().feed).toHaveLength(1);
+  });
+
+  it("a file from before rows were kept as long as their orders is put right once, at a start: a delivered order still on disk gets its row back and is counted for its chain, the totals do not move, and a second start changes nothing", () => {
+    /** A folder with one delivered order that is already counted, and a file of totals as given. */
+    const folder = (file: object) => {
+      const dir = tempDir();
+      const store = createOrderStore(dir);
+      const made = order(1, NOON - 40_000, { usd: "3.4" });
+      store.create(made);
+      store.saveState(made.id, ended(made, NOON));
+      expect(store.markCounted(made.id)).toBe(true);
+      fs.mkdirSync(path.join(dir, "stats"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "stats", "stats.json"), JSON.stringify(file));
+      return { dir, record: store.get(made.id)! };
+    };
+    const totals = { swaps: 1, volumeMicro: "3400000", deliverySeconds: 40, deliveriesTimed: 1, coins: [{ symbol: "ETH", chain: "base", volumeMicro: "3400000" }], hours: {} };
+    const rowOf = (record: OrderRecord) => ({ coin: { symbol: "ETH", chain: "base", decimals: 18 }, amount: record.amountIn, at: begunText(record), tx: depositOf(record) });
+
+    // The swap was counted by the first Stats page: it is in the totals, its chain has its volume and no swap, and it has no row.
+    const first = folder({ v: 2, ...totals, chains: { base: { swaps: 0, volumeMicro: "3400000" } }, rows: [] });
+    const s = site({ dir: first.dir, t: NOON + HOUR });
+    const shown = s.stats.view();
+    expect(shown.totals).toEqual({ swaps: 1, volumeUsd: 3, volume24hUsd: 0, chains: 1, deliverySeconds: 40 });
+    expect(shown.chainsUsed).toEqual([{ chain: "base", swaps: 1, share: 100 }]);
+    expect(shown.coins).toEqual([{ coin: { symbol: "ETH", chain: "base" }, volumeUsd: 3 }]);
+    expect(shown.feed).toEqual([rowOf(first.record)]);
+    expect(s.file()).toMatchObject({ v: 3, swaps: 1, volumeMicro: "3400000", chains: { base: { swaps: 1, volumeMicro: "3400000" } }, rows: [rowOf(first.record)] });
+    // Started again, and again: the file is the same to the letter.
+    const text = s.text();
+    for (let start = 0; start < 2; start++) {
+      const again = site({ dir: first.dir, t: NOON + HOUR });
+      expect(again.text()).toBe(text);
+      expect(again.stats.view()).toEqual(shown);
+    }
+
+    // The swap was counted for its chain when it was delivered, and only its row had gone (rows used to go after 48 hours): the row comes back, and the count stays.
+    const aged = folder({ v: 2, ...totals, chains: { base: { swaps: 1, volumeMicro: "3400000" } }, rows: [] });
+    expect(site({ dir: aged.dir, t: NOON + 3 * DAY }).stats.view()).toMatchObject({ totals: { swaps: 1, volumeUsd: 3 }, chainsUsed: [{ chain: "base", swaps: 1, share: 100 }], feed: [rowOf(aged.record)] });
+    // The file holds the order's row already: nothing is added.
+    const whole = folder({ v: 2, ...totals, chains: { base: { swaps: 1, volumeMicro: "3400000" } }, rows: [] });
+    fs.writeFileSync(path.join(whole.dir, "stats", "stats.json"), JSON.stringify({ v: 2, ...totals, chains: { base: { swaps: 1, volumeMicro: "3400000" } }, rows: [rowOf(whole.record)] }));
+    expect(site({ dir: whole.dir, t: NOON + HOUR }).stats.view()).toMatchObject({ totals: { swaps: 1 }, chainsUsed: [{ chain: "base", swaps: 1, share: 100 }], feed: [rowOf(whole.record)] });
+    // A file that says it has been put right is left as it is, whatever it lacks.
+    const done = folder({ v: 3, ...totals, chains: { base: { swaps: 0, volumeMicro: "3400000" } }, rows: [] });
+    expect(site({ dir: done.dir, t: NOON + HOUR }).stats.view()).toMatchObject({ totals: { swaps: 1 }, chainsUsed: [{ chain: "base", swaps: 0, share: 100 }], feed: [] });
   });
 
   it("the last 24 hours end on the hour, and hours that have aged out are dropped while the totals stay", () => {
@@ -547,14 +593,49 @@ describe("recent swaps", () => {
     expect(s.file().rows).toHaveLength(300);
     expect(s.file().rows[0]!.amount).toBe("21");
     expect(s.stats.view().totals.swaps).toBe(322);
-    // After 48 hours a row is listed no longer, and the server's hourly tidying takes it off the disk. The totals keep its swap.
-    expect(s.at(s.clock.t + 2 * DAY + MINUTE).feed).toEqual([]);
+    // A row is listed for as long as a finished order's record is kept, and no longer: there after two days and a day short of the
+    // thirty, gone after them. The server's hourly tidying takes it off the disk. The totals keep its swap.
+    const listed = s.clock.t;
+    expect(s.at(listed + 2 * DAY + MINUTE).feed).toHaveLength(20);
+    expect(s.at(listed + FINISHED_RETENTION_MS - DAY).feed).toHaveLength(20);
+    expect(s.at(listed + FINISHED_RETENTION_MS + MINUTE).feed).toEqual([]);
     expect(s.file().rows).toHaveLength(300);
     s.stats.tidy();
     expect(s.file().rows).toEqual([]);
     const last = s.end(3, { usd: "5", amountIn: "7" });
     expect(s.file().rows.map((item) => item.amount)).toEqual(["7"]);
     expect(s.stats.view()).toMatchObject({ totals: { swaps: 323 }, feed: [{ amount: "7", tx: depositOf(last) }] });
+  });
+
+  it("from an order to its row: a swap made on the running server, paid, and delivered as the provider reports it, is in the answer at once with a link's worth of its deposit, and is counted for the chain it was sent from", async () => {
+    const h = await harness();
+    try {
+      expect((await h.get("/api/stats")).body).toMatchObject({ totals: { swaps: 0, chains: 0 }, chainsUsed: [], feed: [] });
+      const made = asOrder(await h.order());
+      // Paid. Half a minute on, the provider reports the swap done, naming the deposit's transaction on the sending chain and the delivery's on the other.
+      h.stub.control(made.depositAddress!, "deposit");
+      h.clock.t += 30_000;
+      await h.poller.recheck(made.id);
+      const record = h.store.get(made.id)!;
+      expect(record.state.status).toBe("delivered");
+      const deposit = record.state.details!.originTxs[0]!.hash;
+      const delivery = record.state.details!.destinationTxs[0]!.hash;
+      expect([deposit, delivery].every((hash) => /^0x[0-9a-f]{64}$/.test(hash)) && deposit !== delivery).toBe(true);
+
+      const reply = await h.get("/api/stats");
+      const stats = reply.body as StatsResponse;
+      expect(stats.feed).toEqual([{ coin: { symbol: made.from.symbol, chain: made.from.chain, decimals: made.from.decimals }, amount: made.amountIn, at: begunText(record), tx: deposit }]);
+      expect(begunText(record)).toBe("2026-10-08T12:00:00Z");
+      expect(stats.totals).toMatchObject({ swaps: 1, chains: 1 });
+      expect(stats.chainsUsed).toEqual([{ chain: made.from.chain, swaps: 1, share: 100 }]);
+      expect(reply.text).not.toContain(delivery.slice(2));
+      // And on the page: the row's link to the deposit on its own chain's explorer, and the chain counted among those used.
+      const markup = renderToStaticMarkup(createElement(StatsContent, { stats, chains: LISTED }));
+      expect(markup).toContain(`<a class="stats-swap-tx mono" href="https://basescan.org/tx/${deposit}" target="_blank" rel="noopener noreferrer"`);
+      expect(words(markup)).toContain("1 of 5 chains used");
+    } finally {
+      await h.close();
+    }
   });
 
   it("the hash is the deposit's: the first the provider names on the sending chain, or else the one this server confirmed; never one that was only announced, and never the delivery's", () => {

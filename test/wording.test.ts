@@ -580,7 +580,7 @@ describe("private wording is shown only where swaps are routed privately", () =>
 });
 
 describe("what the Stats page lists of a swap is said where a person would look for it, wherever the site has that page", () => {
-  const PRIVACY = "Every delivered swap is listed on the Stats page for 48 hours, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Nothing about where the swap was delivered is listed or kept for that page: not the coin received, not its amount, not the receiving address and not the delivery transaction.";
+  const PRIVACY = "Every delivered swap is listed on the Stats page for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Nothing about where the swap was delivered is listed or kept for that page: not the coin received, not its amount, not the receiving address and not the delivery transaction.";
   const DOCS = "The Stats page lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. The delivery is not listed there.";
   const withStats = (config: object, statsPage: boolean) => ({ ...config, statsPage });
 
@@ -591,7 +591,7 @@ describe("what the Stats page lists of a swap is said where a person would look 
       expect(drawnWith(withStats(config, true), privacy)).toContain('<a href="/stats">Stats page</a>');
       const off = wordsOf(drawnWith(withStats(config, false), privacy));
       expect(off).not.toMatch(/listed on the Stats page|Stats page/);
-      expect(off).toContain("Stats. The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for 48 hours, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Nothing about where a swap was delivered is kept in them, and no page of this site shows them.");
+      expect(off).toContain("Stats. The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Nothing about where a swap was delivered is kept in them, and no page of this site shows them.");
       // What used to be said of this page is said no longer, by either.
       for (const text of [on, off]) expect(text).not.toMatch(/no transaction hash|no exact amount|no exact time|rounded row|size band|quarter of an hour/);
     }

@@ -15,8 +15,9 @@
 //   - by the chain swaps were sent from: how many they were, and their dollar value;
 //   - by the coin that was sent: the dollar value;
 //   - the dollar value by hour (with a count) for the last 48 hours;
-//   - for 48 hours, and never more than 300 of them, one row for each delivered swap: the coin
-//     sent, the amount sent, the minute the swap began, and the hash of its deposit transaction.
+//   - for as long as a finished order's record is kept, and never more than 300 of them, one row
+//     for each delivered swap: the coin sent, the amount sent, the minute the swap began, and the
+//     hash of its deposit transaction.
 //
 // Never an order's ID and never an address. (A deposit's transaction is public on its own chain,
 // and whoever opens it there sees the address that sent it.)
@@ -31,14 +32,15 @@ import { isValidTxHash } from "../shared/addresses.ts";
 import type { StatsCoin, StatsFeedRow, StatsResponse, StatsShare } from "../shared/api.ts";
 import { chainName } from "../shared/chains.ts";
 import { MICRO, usdToMicro } from "../shared/rewards.ts";
-import { writeDurable, type OrderRecord } from "./store.ts";
+import { FINISHED_RETENTION_MS, writeDurable, type OrderRecord } from "./store.ts";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 
-/** How many hours are kept by the hour, and how long a row is kept. */
+/** How many hours are kept by the hour. */
 const HOURS_KEPT = 48;
-const ROW_AGE_MS = 48 * HOUR_MS;
+/** How long a row is kept: as long as the record of a finished order is, so that every delivered swap the site still holds can be listed. */
+const ROW_AGE_MS = FINISHED_RETENTION_MS;
 /** The most rows kept, and the most sent to a page. */
 const ROWS_KEPT = 300;
 const ROWS_SHOWN = 20;
@@ -48,9 +50,13 @@ const TOP = 5;
 /** One row, as it is kept. It is sent as it is kept: the same four things. */
 export type StoredRow = StatsFeedRow;
 
-/** The file, as it is written. Dollar values are whole millionths of a US dollar, as text. Hours are counted from 1970 in UTC. */
+/**
+ * The file, as it is written. Dollar values are whole millionths of a US dollar, as text. Hours are
+ * counted from 1970 in UTC. `v` is 3 once the delivered orders on disk have been gone through for
+ * their rows (see `createStats`); a file that says 2 has that still to come.
+ */
 export interface StatsFile {
-  v: 2;
+  v: 2 | 3;
   swaps: number;
   volumeMicro: string;
   /** Delivery times, in whole seconds: their sum, and how many were added up. */
@@ -159,9 +165,9 @@ interface Sums {
 const empty = (): Sums => ({ swaps: 0, volume: 0n, seconds: 0, timed: 0, chains: new Map(), coins: new Map(), hours: new Map(), rows: [] });
 const coinKey = (coin: StatsCoin) => JSON.stringify([coin.symbol, coin.chain]);
 
-function toFile(sums: Sums): StatsFile {
+function toFile(sums: Sums, v: StatsFile["v"]): StatsFile {
   return {
-    v: 2,
+    v,
     swaps: sums.swaps,
     volumeMicro: sums.volume.toString(),
     deliverySeconds: sums.seconds,
@@ -213,14 +219,14 @@ function fromOldFile(value: Record<string, unknown>): Sums | null {
   return sums;
 }
 
-/** The sums a file holds, or null for anything that is not such a file in every part. `old` says that it was a file of the earlier kind. */
-function fromFile(value: unknown): { sums: Sums; old: boolean } | null {
+/** The sums a file holds, and which kind of file it was, or null for anything that is not such a file in every part. */
+function fromFile(value: unknown): { sums: Sums; v: 1 | 2 | 3 } | null {
   if (!isObject(value)) return null;
   if (value.v === 1) {
     const sums = fromOldFile(value);
-    return sums === null ? null : { sums, old: true };
+    return sums === null ? null : { sums, v: 1 };
   }
-  const sums = value.v === 2 ? totalsFrom(value) : null;
+  const sums = value.v === 2 || value.v === 3 ? totalsFrom(value) : null;
   const { chains, coins, rows } = value;
   if (sums === null || !isObject(chains) || !Array.isArray(coins) || !Array.isArray(rows)) return null;
   for (const [chain, held] of Object.entries(chains)) {
@@ -237,10 +243,10 @@ function fromFile(value: unknown): { sums: Sums; old: boolean } | null {
     // Read part by part: whatever else a file's row might hold is not carried on.
     sums.rows.push({ coin: { symbol: row.coin.symbol, chain: row.coin.chain, decimals: row.coin.decimals }, amount: row.amount, at: row.at, tx: row.tx });
   }
-  return { sums, old: false };
+  return { sums, v: value.v === 3 ? 3 : 2 };
 }
 
-/** Drops what has aged out: hours older than are kept, rows older than 48 hours, and rows beyond the most that are kept (the oldest first). */
+/** Drops what has aged out: hours older than are kept, rows older than a finished order's record is kept, and rows beyond the most that are kept (the oldest first). */
 function prune(sums: Sums, now: number): void {
   const firstHour = Math.floor(now / HOUR_MS) - HOURS_KEPT + 1;
   for (const hour of sums.hours.keys()) if (hour < firstHour) sums.hours.delete(hour);
@@ -272,12 +278,14 @@ function add(sums: Sums, delivery: Delivery, now: number): void {
     sums.hours.set(hour, { swaps: held.swaps + 1, volume: held.volume + usd });
   }
   const row = rowFor(delivery);
-  if (row !== null) {
-    sums.rows.push(row);
-    // The oldest first, whenever each was told of: an order found at a start may be older than rows already here.
-    sums.rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
-  }
+  if (row !== null) list(sums, row);
   prune(sums, now);
+}
+
+/** Puts a row on the list. The oldest first, whenever each was told of: an order found at a start may be older than rows already there. */
+function list(sums: Sums, row: StoredRow): void {
+  sums.rows.push(row);
+  sums.rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
 
 const dollars = (micro: bigint): number => Number(micro / MICRO);
@@ -335,9 +343,13 @@ export interface Stats {
    * says whether this was the first time (the order store's `markCounted`); the totals are touched
    * only after it has. True when the order was added. With `write` false the file is not written:
    * for adding many at once, followed by one `save`.
+   *
+   * At a start every order on disk is put to this once more, and `save` is called after the last.
+   * An order that is already counted adds nothing then, with one exception, made once for a file
+   * from before rows were kept as long as their orders: see `createStats`.
    */
   recordDelivered(record: OrderRecord, claim: () => boolean, write?: boolean): boolean;
-  /** Writes the sums to disk. */
+  /** Writes the sums to disk. Called after every order on disk has been gone through at a start, it also ends that going-through. */
   save(): void;
   /** Adds made-up deliveries, for a practice server's sample content. No route reaches it. */
   seed(deliveries: readonly Delivery[]): void;
@@ -359,9 +371,40 @@ export function createStats(dataDir: string, options: { now?: () => number } = {
 
   let live = empty();
   let setAside = false;
-  const save = () => writeDurable(file, JSON.stringify(toFile(live)));
+  // The one repair. A file made before rows were kept as long as their orders is short of rows: an
+  // order counted by the first Stats page never had a row of this kind, nor a swap counted for the
+  // chain it was sent from, and a row once aged out after 48 hours. So for such a file, once, the
+  // delivered orders still on disk that are already counted are gone through as the server starts
+  // (it puts every order on disk to `recordDelivered`). Each one's row is worked out exactly as a
+  // new delivery's is. Where the file holds no such row, the row is listed, and the order's swap
+  // is counted for its chain if the chains' counts do not yet add up to every swap there is (when
+  // they do, it was counted for its chain as it was delivered, and only its row had gone). Nothing
+  // is added to the totals or to any dollar sum: those were added when the order was first
+  // counted. `mending` is true until that is done; the file then says so (`v: 3`), and it is never
+  // done again. `held` is the rows the file came with, each standing for one order.
+  let mending = false;
+  const held = new Map<string, number>();
+  const write = () => writeDurable(file, JSON.stringify(toFile(live, mending ? 2 : 3)));
+  const mend = (record: OrderRecord): void => {
+    const delivery = deliveryOf(record);
+    const row = delivery === null ? null : rowFor(delivery);
+    if (delivery === null || row === null) return;
+    const key = JSON.stringify(row);
+    const has = held.get(key) ?? 0;
+    if (has > 0) {
+      held.set(key, has - 1);
+      return;
+    }
+    list(live, row);
+    let counted = 0;
+    for (const chain of live.chains.values()) counted += chain.swaps;
+    if (counted < live.swaps) {
+      const from = live.chains.get(delivery.coin.chain) ?? { swaps: 0, volume: 0n };
+      live.chains.set(delivery.coin.chain, { swaps: from.swaps + 1, volume: from.volume });
+    }
+  };
   if (fs.existsSync(file)) {
-    let read: { sums: Sums; old: boolean } | null;
+    let read: { sums: Sums; v: 1 | 2 | 3 } | null;
     try {
       read = fromFile(JSON.parse(fs.readFileSync(file, "utf8")));
     } catch {
@@ -373,8 +416,10 @@ export function createStats(dataDir: string, options: { now?: () => number } = {
       setAside = true;
     } else {
       live = read.sums;
-      // A file of the earlier kind is written again at once, so that what it held of the receiving side of swaps is on the disk no longer.
-      if (read.old) save();
+      mending = read.v !== 3;
+      for (const row of live.rows) held.set(JSON.stringify(row), (held.get(JSON.stringify(row)) ?? 0) + 1);
+      // A file of the earliest kind is written again at once, so that what it held of the receiving side of swaps is on the disk no longer.
+      if (read.v === 1) write();
     }
   }
 
@@ -382,29 +427,37 @@ export function createStats(dataDir: string, options: { now?: () => number } = {
     get setAside() {
       return setAside;
     },
-    recordDelivered(record, claim, write = true) {
-      if (record.statsCounted === true) return false;
+    recordDelivered(record, claim, andWrite = true) {
+      if (record.statsCounted === true) {
+        if (mending) mend(record);
+        return false;
+      }
       const delivery = deliveryOf(record);
       if (delivery === null) return false;
       // The order is marked first, and durably. If the process stops between the mark and the sums, the
       // order is missing from the totals; it can never be in them twice.
       if (!claim()) return false;
       add(live, delivery, now());
-      if (write) save();
+      if (andWrite) write();
       return true;
     },
-    save,
+    save() {
+      mending = false;
+      held.clear();
+      prune(live, now());
+      write();
+    },
     seed(deliveries) {
       for (const delivery of deliveries) add(live, delivery, now());
-      save();
+      write();
     },
     view() {
       return render(live, now());
     },
     tidy() {
-      const held = live.rows.length;
+      const before = live.rows.length;
       prune(live, now());
-      if (live.rows.length !== held) save();
+      if (live.rows.length !== before) write();
     },
   };
 }
