@@ -20,6 +20,7 @@ import { Link } from "../components/Link.tsx";
 import { DEFAULT_PAIR, EXAMPLE_AMOUNT } from "../config.ts";
 import { docHref } from "../lib/docs-logic.ts";
 import { chainsOnList, isPrivateMode } from "../lib/site-logic.ts";
+import { statsPageOn } from "../lib/stats-logic.ts";
 import { appFeeWords, minutesText } from "../lib/swap-logic.ts";
 import { useApp } from "../stores/app.ts";
 import { findToken, useTokens } from "../stores/tokens.ts";
@@ -421,6 +422,8 @@ function Questions() {
  * (web/src/App.tsx, and server/static.ts for the server's own answer), and this is never drawn.
  */
 function PrivateRouting() {
+  // Where the site has its Stats page, the deposit of every delivered swap is listed there, and the list of who can see a swap says so.
+  const statsOn = useApp((state) => statsPageOn(state.config));
   return (
     <DocsLayout href={docHref(PRIVATE_DOC_SLUG)} title="Private routing" lead="Swaps on this site are routed with NEAR Intents' confidential routing. With it, the link between what you send and what you receive is not in public records. This page says what that covers, and what it does not.">
       <DocSection title="What it is" id="what">
@@ -455,6 +458,11 @@ function PrivateRouting() {
           <li>
             <strong>Anyone who has the order's link.</strong> The order's page shows both ends. Share the link only with someone you would show both to.
           </li>
+          {statsOn ? (
+            <li>
+              <strong>Anyone, for the deposit alone.</strong> The <Link href="/stats">Stats page</Link> lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. The delivery is not listed there.
+            </li>
+          ) : null}
         </ul>
       </DocSection>
       <DocSection title="What it is not" id="not">

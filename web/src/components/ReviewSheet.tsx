@@ -9,6 +9,7 @@ import { api, ApiError } from "../api.ts";
 import { IMPACT_BLOCK_BPS, IMPACT_WARN_BPS } from "../config.ts";
 import { aboutMinutes, appFeeWords, minutesText, modeTold, orderDiffers, PRIVATE_UNAVAILABLE, rateText, refundFor, reviewAction, reviewSentence, routedPrivately, routingChoice, routingNote, walletAddressFor, type ReviewPhase, type Reviewed } from "../lib/swap-logic.ts";
 import { clockTime } from "../lib/order-logic.ts";
+import { statsPageOn } from "../lib/stats-logic.ts";
 import { navigate } from "../router.ts";
 import { useApp } from "../stores/app.ts";
 import { useOrders } from "../stores/orders.ts";
@@ -62,6 +63,7 @@ export function ReviewSheet() {
   const wallet = useWallet();
   const termsVersion = useApp((state) => state.config?.termsVersion ?? "");
   const privacyMode = useApp((state) => state.config?.privacyMode ?? null);
+  const statsOn = useApp((state) => statsPageOn(state.config));
   const remember = useOrders((state) => state.remember);
 
   const [phase, setPhase] = useState<ReviewPhase>("review");
@@ -447,6 +449,8 @@ export function ReviewSheet() {
         <p className="review-plain muted">
           Confirming makes the order, with a final quote taken at that moment. If that quote is more than 1% worse than the numbers above, no order is made and you are shown the new numbers first. Nothing leaves your wallet until you pay, and an order cannot be changed once it is made.
         </p>
+        {/* Said before the order is made, wherever the site has its Stats page: what of this swap will be listed there. */}
+        {statsOn ? <p className="review-plain muted">This swap's deposit transaction will be listed on the Stats page. Where it is delivered will not be.</p> : null}
 
         <label className="check">
           <input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} disabled={phase === "creating" || phase === "mismatch" || phase === "unavailable"} />

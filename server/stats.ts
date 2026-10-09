@@ -1,124 +1,123 @@
-// The site's own figures, for the Stats page: running totals, and a short list of recent swaps
-// too rounded to point at any one of them.
+// The site's own figures, for the Stats page: running totals, and a list of the latest swaps by
+// what was sent.
 //
-// Everything here comes from orders this server made and saw delivered, each counted once. What is
-// kept (one small file, DATA_DIR/stats/stats.json) is sums and rounded rows only:
+// One rule holds all of it: THIS FILE KNOWS NOTHING OF THE RECEIVING SIDE OF ANY SWAP. Everything
+// here comes from orders this server made and saw delivered, each counted once, and of such an
+// order only its sending side is ever read (see `deliveryOf`): the coin that was sent and its
+// chain, the amount sent and its dollar value, the transaction that paid the deposit, when the
+// swap was delivered and how long that took. The coin received, its chain, the amount received,
+// the receiving address, the refund address and the delivery's transaction are not read, so they
+// can be neither kept nor sent. That is what keeps the two sides of a swap apart on this page.
 //
-//   - totals: how many swaps, their dollar value, how long delivery took (a sum and a count), the
-//     dollar value and the number of swaps by chain, and the dollar value by pair of coins;
+// What is kept (one small file, DATA_DIR/stats/stats.json):
+//
+//   - totals: how many swaps, their dollar value, how long delivery took (a sum and a count);
+//   - by the chain swaps were sent from: how many they were, and their dollar value;
+//   - by the coin that was sent: the dollar value;
 //   - the dollar value by hour (with a count) for the last 48 hours;
-//   - for 48 hours, one row for each swap: the two coins and their chains, a band for its size, and
-//     the quarter of an hour from which it may be shown.
+//   - for 48 hours, and never more than 300 of them, one row for each delivered swap: the coin
+//     sent, the amount sent, the second it was delivered, and the hash of its deposit transaction.
 //
-// Never an address, a transaction hash, an amount, a time, an order's ID or anything made from one.
-// A row is rounded as it is made, before it is kept (see `rowFor`): the exact figures of a delivery
-// are in memory for the length of one function call and are written nowhere.
+// Never an order's ID and never an address. (A deposit's transaction is public on its own chain,
+// and whoever opens it there sees the address that sent it.)
 //
 // That an order has been counted is not written here either. It is a mark on the order's own
 // record, set by the order store before the totals are touched, so an order is counted at most
 // once, across restarts too, and the mark goes when the order's record goes.
-//
-// What is shown moves on the quarter of an hour, and only then: the figures a visitor is sent are
-// those of everything delivered before the quarter began. So the moment a figure changes says no
-// more of when a swap was delivered than its row does.
 
 import fs from "node:fs";
 import path from "node:path";
-import { STATS_BANDS, type StatsBand, type StatsCoin, type StatsFeedRow, type StatsResponse, type StatsShare, type StatsWhen } from "../shared/api.ts";
+import { isValidTxHash } from "../shared/addresses.ts";
+import type { StatsCoin, StatsFeedRow, StatsResponse, StatsShare } from "../shared/api.ts";
 import { chainName } from "../shared/chains.ts";
 import { MICRO, usdToMicro } from "../shared/rewards.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
 
-export const QUARTER_MS = 15 * 60_000;
 const HOUR_MS = 3_600_000;
-const DAY_MS = 24 * HOUR_MS;
-/** A quarter of an hour, counted in quarters of a day. */
-const QUARTERS_A_DAY = DAY_MS / QUARTER_MS;
 
-/** How many hours are kept by the hour, and how long a row is kept (in quarters of an hour: 48 hours). */
+/** How many hours are kept by the hour, and how long a row is kept. */
 const HOURS_KEPT = 48;
-const ROW_QUARTERS_KEPT = (48 * HOUR_MS) / QUARTER_MS;
+const ROW_AGE_MS = 48 * HOUR_MS;
 /** The most rows kept, and the most sent to a page. */
 const ROWS_KEPT = 300;
 const ROWS_SHOWN = 20;
-/** How many pairs and chains the page lists. */
+/** How many coins and chains the page lists. */
 const TOP = 5;
 
-/** One row as it is kept. `quarter` is the quarter of an hour, counted from 1970, from whose start the row may be shown. */
-export interface StoredRow {
-  from: StatsCoin;
-  to: StatsCoin;
-  band: StatsBand;
-  quarter: number;
-}
+/** One row, as it is kept. It is sent as it is kept: the same four things. */
+export type StoredRow = StatsFeedRow;
 
 /** The file, as it is written. Dollar values are whole millionths of a US dollar, as text. Hours are counted from 1970 in UTC. */
 export interface StatsFile {
-  v: 1;
+  v: 2;
   swaps: number;
   volumeMicro: string;
   /** Delivery times, in whole seconds: their sum, and how many were added up. */
   deliverySeconds: number;
   deliveriesTimed: number;
-  /** Every chain a delivered swap started or ended on, with the dollar value of those swaps. */
-  chains: Record<string, string>;
-  /** The same chains, with how many swaps those were. A swap from a chain to the same chain is one. */
-  chainSwaps: Record<string, number>;
-  pairs: { from: StatsCoin; to: StatsCoin; volumeMicro: string }[];
+  /** Every chain a delivered swap was sent from, with how many those swaps were and their dollar value. */
+  chains: Record<string, { swaps: number; volumeMicro: string }>;
+  /** Every coin a delivered swap sent, with the dollar value of those swaps. */
+  coins: { symbol: string; chain: string; volumeMicro: string }[];
   hours: Record<string, { swaps: number; volumeMicro: string }>;
+  /** The oldest first. */
   rows: StoredRow[];
 }
 
 /**
- * One delivery, as it is read from an order. It lives in memory for as long as it takes to add it
- * up, and is never written down as it is.
+ * The sending side of one delivered order, as it is read from the order. There is no place in it
+ * for anything of the receiving side.
  */
 export interface Delivery {
-  from: StatsCoin;
-  to: StatsCoin;
-  /** The provider's dollar value of what was paid, in millionths. Null when it gave none: the swap then counts with no volume. */
+  /** The coin that was sent, with how many decimal places its amounts have. */
+  coin: StatsFeedRow["coin"];
+  /** The amount sent, in the coin's smallest unit. */
+  amount: string;
+  /** The provider's dollar value of what was sent, in millionths. Null when it gave none: the swap then counts with no volume. */
   usdMicro: bigint | null;
+  /** The hash of the transaction that paid the deposit, on the chain it was sent from. Null when it is not known. */
+  tx: string | null;
   /** How long delivery took, in whole seconds, or null when that cannot be told. */
   seconds: number | null;
   /** When it was delivered. */
   at: number;
 }
 
-/** The band a dollar value falls in. Each band includes its lower bound. */
-export function bandOf(usdMicro: bigint): StatsBand {
-  if (usdMicro < 100n * MICRO) return "under-100";
-  if (usdMicro < 1_000n * MICRO) return "100-1k";
-  if (usdMicro < 10_000n * MICRO) return "1k-10k";
-  return "over-10k";
-}
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isMicro = (value: unknown): value is string => typeof value === "string" && /^\d{1,40}$/.test(value);
+const isAmount = (value: unknown): value is string => typeof value === "string" && /^\d{1,80}$/.test(value);
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isChain = (value: unknown): value is string => typeof value === "string" && /^[a-z0-9_-]{1,16}$/.test(value);
+const isCoin = (value: unknown): value is StatsCoin => isObject(value) && typeof value.symbol === "string" && value.symbol.length >= 1 && value.symbol.length <= 16 && isChain(value.chain);
+const isDecimals = (value: unknown): value is number => isCount(value) && value <= 30;
+/** A moment to the second, as a row holds it: "2026-10-08T12:03:17Z". */
+const isMoment = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) && Number.isFinite(Date.parse(value));
+const isRow = (value: unknown): value is StoredRow =>
+  isObject(value) && isObject(value.coin) && isCoin(value.coin) && isDecimals(value.coin.decimals) && isAmount(value.amount) && isMoment(value.at) && (value.tx === null || isValidTxHash(value.coin.chain, value.tx));
+
+/** A moment to the second, in UTC. */
+const momentOf = (ms: number): string => `${new Date(ms).toISOString().slice(0, 19)}Z`;
 
 /**
- * The quarter of an hour from which a delivery's row may be shown: fifteen minutes after the
- * delivery, rounded up to the next quarter. So a row is first shown between 15 and 30 minutes after
- * its swap was delivered.
- */
-export function showQuarter(deliveredAt: number): number {
-  return Math.ceil((deliveredAt + QUARTER_MS) / QUARTER_MS);
-}
-
-/**
- * A coin as it is kept: its symbol and its chain's code, each cut to a length no address or
- * transaction hash fits in. (Both come from the provider's coin list and are short already.)
+ * A coin as it is kept: its symbol and its chain's code, each cut to a length no address fits in.
+ * (Both come from the provider's coin list and are short already.)
  */
 function coinOf(ref: { symbol?: unknown; chain?: unknown }): StatsCoin {
   const symbol = typeof ref.symbol === "string" ? ref.symbol.replace(/\s+/g, "").slice(0, 16) : "";
-  const chain = typeof ref.chain === "string" && /^[a-z0-9_-]{1,16}$/.test(ref.chain) ? ref.chain : "other";
-  return { symbol: symbol === "" ? "?" : symbol, chain };
+  return { symbol: symbol === "" ? "?" : symbol, chain: isChain(ref.chain) ? ref.chain : "other" };
 }
 
 /** The longest delivery that is taken for one: anything longer is an order that was set aside and came back, and says nothing of how long a swap takes. */
 const LONGEST_DELIVERY_S = 24 * 3600;
 
 /**
- * What a delivered order adds, or null for an order that was not delivered. The dollar value is the
- * provider's value of what was paid, as the order's record holds it. The time taken runs
- * from the last step this server saw before the end (the order being made, its deposit being
- * confirmed, the swap starting) to the delivery.
+ * What a delivered order adds, or null for an order that was not delivered. It is read from the
+ * order's sending side alone: the coin and the amount the order was made to send, the provider's
+ * dollar value of that, and the transaction that paid its deposit. The deposit's hash is the first
+ * the provider names on the chain the order was sent from or, where it names none, the one this
+ * server itself confirmed pays the order. A hash that was only announced is not taken: it could
+ * be anyone's. The time taken runs from the last step this server saw before the end (the order
+ * being made, its deposit being confirmed, the swap starting) to the delivery.
  */
 function deliveryOf(record: OrderRecord): Delivery | null {
   if (record.state.status !== "delivered") return null;
@@ -126,17 +125,19 @@ function deliveryOf(record: OrderRecord): Delivery | null {
   if (!Number.isFinite(at)) return null;
   const began = Math.max(Number.isFinite(record.state.anchor) ? record.state.anchor : 0, Date.parse(record.createdAt) || 0);
   const seconds = began > 0 && at >= began && at - began <= LONGEST_DELIVERY_S * 1000 ? Math.round((at - began) / 1000) : null;
-  return { from: coinOf(record.from), to: coinOf(record.to), usdMicro: usdToMicro(record.amountInUsd), seconds, at };
+  const sent = record.from;
+  const coin = { ...coinOf(sent), decimals: isDecimals(sent.decimals) ? sent.decimals : 0 };
+  const paid = record.state.details?.originTxs[0]?.hash ?? (record.state.depositVerified === true ? record.state.depositTxHash : null);
+  return { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), tx: isValidTxHash(coin.chain, paid) ? paid : null, seconds, at };
 }
 
 /**
- * The row a delivery adds to the list, already rounded: the two coins, the band its size falls in,
- * and the quarter of an hour it may be shown from. Nothing else of the delivery goes into it.
- * A delivery with no dollar value has no band, and adds no row.
+ * The row a delivery adds to the list: the coin sent, the amount sent, the second it was delivered
+ * and the deposit's hash. A delivery whose amount cannot be read adds no row.
  */
 function rowFor(delivery: Delivery): StoredRow | null {
-  if (delivery.usdMicro === null) return null;
-  return { from: delivery.from, to: delivery.to, band: bandOf(delivery.usdMicro), quarter: showQuarter(delivery.at) };
+  if (!isAmount(delivery.amount)) return null;
+  return { coin: { symbol: delivery.coin.symbol, chain: delivery.coin.chain, decimals: delivery.coin.decimals }, amount: delivery.amount, at: momentOf(delivery.at), tx: delivery.tx };
 }
 
 /** The same sums, as they are held while the server runs. */
@@ -146,114 +147,131 @@ interface Sums {
   seconds: number;
   timed: number;
   chains: Map<string, { swaps: number; volume: bigint }>;
-  pairs: Map<string, { from: StatsCoin; to: StatsCoin; volume: bigint }>;
+  coins: Map<string, { coin: StatsCoin; volume: bigint }>;
   hours: Map<number, { swaps: number; volume: bigint }>;
   rows: StoredRow[];
 }
 
-const empty = (): Sums => ({ swaps: 0, volume: 0n, seconds: 0, timed: 0, chains: new Map(), pairs: new Map(), hours: new Map(), rows: [] });
-const pairKey = (from: StatsCoin, to: StatsCoin) => JSON.stringify([from.symbol, from.chain, to.symbol, to.chain]);
-/** Rows are kept in an order that says nothing of the order they were delivered in: by quarter, then by what they say. */
-const rowOrder = (a: StoredRow, b: StoredRow) => a.quarter - b.quarter || (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0);
+const empty = (): Sums => ({ swaps: 0, volume: 0n, seconds: 0, timed: 0, chains: new Map(), coins: new Map(), hours: new Map(), rows: [] });
+const coinKey = (coin: StatsCoin) => JSON.stringify([coin.symbol, coin.chain]);
 
 function toFile(sums: Sums): StatsFile {
   return {
-    v: 1,
+    v: 2,
     swaps: sums.swaps,
     volumeMicro: sums.volume.toString(),
     deliverySeconds: sums.seconds,
     deliveriesTimed: sums.timed,
-    chains: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, held.volume.toString()])),
-    chainSwaps: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, held.swaps])),
-    pairs: [...sums.pairs.values()].map((pair) => ({ from: pair.from, to: pair.to, volumeMicro: pair.volume.toString() })),
+    chains: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, { swaps: held.swaps, volumeMicro: held.volume.toString() }])),
+    coins: [...sums.coins.values()].map((held) => ({ symbol: held.coin.symbol, chain: held.coin.chain, volumeMicro: held.volume.toString() })),
     hours: Object.fromEntries([...sums.hours].map(([hour, held]) => [String(hour), { swaps: held.swaps, volumeMicro: held.volume.toString() }])),
     rows: sums.rows,
   };
 }
 
-const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-const isMicro = (value: unknown): value is string => typeof value === "string" && /^\d{1,40}$/.test(value);
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const isCoin = (value: unknown): value is StatsCoin => isObject(value) && typeof value.symbol === "string" && value.symbol.length >= 1 && value.symbol.length <= 16 && typeof value.chain === "string" && /^[a-z0-9_-]{1,16}$/.test(value.chain);
-const isRow = (value: unknown): value is StoredRow => isObject(value) && isCoin(value.from) && isCoin(value.to) && (STATS_BANDS as readonly unknown[]).includes(value.band) && isCount(value.quarter);
-
-/**
- * The sums a file holds, or null for anything that is not such a file in every part. A file written
- * before swaps were counted by chain has no counts: its chains start from none. What such a file
- * kept by the day is not read, and so is gone the next time the file is written.
- */
-function fromFile(value: unknown): Sums | null {
-  if (!isObject(value) || value.v !== 1) return null;
-  const { swaps, volumeMicro, deliverySeconds, deliveriesTimed, chains, chainSwaps = {}, pairs, hours, rows } = value;
-  if (!isCount(swaps) || !isMicro(volumeMicro) || !isCount(deliverySeconds) || !isCount(deliveriesTimed)) return null;
-  if (!isObject(chains) || !isObject(chainSwaps) || !isObject(hours) || !Array.isArray(pairs) || !Array.isArray(rows)) return null;
+/** The totals and the hours of a file, of either kind: neither says anything of one side of a swap or the other. */
+function totalsFrom(value: Record<string, unknown>): Sums | null {
+  const { swaps, volumeMicro, deliverySeconds, deliveriesTimed, hours } = value;
+  if (!isCount(swaps) || !isMicro(volumeMicro) || !isCount(deliverySeconds) || !isCount(deliveriesTimed) || !isObject(hours)) return null;
   const sums = empty();
   sums.swaps = swaps;
   sums.volume = BigInt(volumeMicro);
   sums.seconds = deliverySeconds;
   sums.timed = deliveriesTimed;
-  for (const [chain, volume] of Object.entries(chains)) {
-    const count = Object.hasOwn(chainSwaps, chain) ? chainSwaps[chain] : 0;
-    if (!/^[a-z0-9_-]{1,16}$/.test(chain) || !isMicro(volume) || !isCount(count)) return null;
-    sums.chains.set(chain, { swaps: count, volume: BigInt(volume) });
-  }
-  for (const pair of pairs as unknown[]) {
-    if (!isObject(pair) || !isCoin(pair.from) || !isCoin(pair.to) || !isMicro(pair.volumeMicro)) return null;
-    sums.pairs.set(pairKey(pair.from, pair.to), { from: { symbol: pair.from.symbol, chain: pair.from.chain }, to: { symbol: pair.to.symbol, chain: pair.to.chain }, volume: BigInt(pair.volumeMicro) });
-  }
   for (const [hour, held] of Object.entries(hours)) {
     if (!/^\d{1,9}$/.test(hour) || !isObject(held) || !isCount(held.swaps) || !isMicro(held.volumeMicro)) return null;
     sums.hours.set(Number(hour), { swaps: held.swaps, volume: BigInt(held.volumeMicro) });
   }
-  for (const row of rows as unknown[]) {
-    if (!isRow(row)) return null;
-    // Read part by part: whatever else a file's row might hold is not carried on.
-    sums.rows.push({ from: { symbol: row.from.symbol, chain: row.from.chain }, to: { symbol: row.to.symbol, chain: row.to.chain }, band: row.band, quarter: row.quarter });
+  return sums;
+}
+
+/**
+ * The sums of a file written before this page kept to the sending side: one that held pairs of
+ * coins, chains counted for both ends of a swap, and rows that named the coin received. Its
+ * totals and its hours stand. What was sent is rebuilt from the sending coin of each of its pairs:
+ * the dollar value by coin sent and by the chain it was sent from. How many swaps those were it
+ * cannot say, so each chain starts from none. Everything else in it is left unread: what its
+ * pairs received, the old chain sums and every row. The file is written again at once (see
+ * `createStats`), and from then on none of that is on the disk.
+ */
+function fromOldFile(value: Record<string, unknown>): Sums | null {
+  const sums = totalsFrom(value);
+  if (sums === null || !Array.isArray(value.pairs)) return null;
+  for (const pair of value.pairs as unknown[]) {
+    if (!isObject(pair) || !isCoin(pair.from) || !isMicro(pair.volumeMicro)) return null;
+    const coin = { symbol: pair.from.symbol, chain: pair.from.chain };
+    const volume = BigInt(pair.volumeMicro);
+    const sent = sums.coins.get(coinKey(coin)) ?? { coin, volume: 0n };
+    sums.coins.set(coinKey(coin), { coin, volume: sent.volume + volume });
+    const from = sums.chains.get(coin.chain) ?? { swaps: 0, volume: 0n };
+    sums.chains.set(coin.chain, { swaps: from.swaps, volume: from.volume + volume });
   }
   return sums;
 }
 
-const copyOf = (sums: Sums): Sums => fromFile(toFile(sums)) ?? empty();
+/** The sums a file holds, or null for anything that is not such a file in every part. `old` says that it was a file of the earlier kind. */
+function fromFile(value: unknown): { sums: Sums; old: boolean } | null {
+  if (!isObject(value)) return null;
+  if (value.v === 1) {
+    const sums = fromOldFile(value);
+    return sums === null ? null : { sums, old: true };
+  }
+  const sums = value.v === 2 ? totalsFrom(value) : null;
+  const { chains, coins, rows } = value;
+  if (sums === null || !isObject(chains) || !Array.isArray(coins) || !Array.isArray(rows)) return null;
+  for (const [chain, held] of Object.entries(chains)) {
+    if (!isChain(chain) || !isObject(held) || !isCount(held.swaps) || !isMicro(held.volumeMicro)) return null;
+    sums.chains.set(chain, { swaps: held.swaps, volume: BigInt(held.volumeMicro) });
+  }
+  for (const held of coins as unknown[]) {
+    if (!isObject(held) || !isCoin(held) || !isMicro(held.volumeMicro)) return null;
+    const coin = { symbol: held.symbol, chain: held.chain };
+    sums.coins.set(coinKey(coin), { coin, volume: BigInt(held.volumeMicro) });
+  }
+  for (const row of rows as unknown[]) {
+    if (!isRow(row)) return null;
+    // Read part by part: whatever else a file's row might hold is not carried on.
+    sums.rows.push({ coin: { symbol: row.coin.symbol, chain: row.coin.chain, decimals: row.coin.decimals }, amount: row.amount, at: row.at, tx: row.tx });
+  }
+  return { sums, old: false };
+}
 
 /** Drops what has aged out: hours older than are kept, rows older than 48 hours, and rows beyond the most that are kept (the oldest first). */
 function prune(sums: Sums, now: number): void {
   const firstHour = Math.floor(now / HOUR_MS) - HOURS_KEPT + 1;
   for (const hour of sums.hours.keys()) if (hour < firstHour) sums.hours.delete(hour);
-  const firstQuarter = Math.floor(now / QUARTER_MS) - ROW_QUARTERS_KEPT;
-  sums.rows = sums.rows.filter((row) => row.quarter >= firstQuarter);
+  const oldest = momentOf(now - ROW_AGE_MS);
+  sums.rows = sums.rows.filter((row) => row.at >= oldest);
   if (sums.rows.length > ROWS_KEPT) sums.rows = sums.rows.slice(sums.rows.length - ROWS_KEPT);
 }
 
 /** Adds one delivery to the sums. What falls outside the hours or rows that are kept adds to the totals alone. */
 function add(sums: Sums, delivery: Delivery, now: number): void {
   const usd = delivery.usdMicro ?? 0n;
+  const coin = { symbol: delivery.coin.symbol, chain: delivery.coin.chain };
   sums.swaps += 1;
   sums.volume += usd;
   if (delivery.seconds !== null) {
     sums.seconds += delivery.seconds;
     sums.timed += 1;
   }
-  // Once for the chain it left and once for the chain it arrived on: once only when they are the same chain.
-  for (const chain of new Set([delivery.from.chain, delivery.to.chain])) {
-    const held = sums.chains.get(chain) ?? { swaps: 0, volume: 0n };
-    sums.chains.set(chain, { swaps: held.swaps + 1, volume: held.volume + usd });
-  }
+  // Counted for the chain it was sent from, and for no other.
+  const from = sums.chains.get(coin.chain) ?? { swaps: 0, volume: 0n };
+  sums.chains.set(coin.chain, { swaps: from.swaps + 1, volume: from.volume + usd });
   if (delivery.usdMicro !== null) {
-    const key = pairKey(delivery.from, delivery.to);
-    const held = sums.pairs.get(key);
-    if (held === undefined) sums.pairs.set(key, { from: delivery.from, to: delivery.to, volume: usd });
-    else held.volume += usd;
+    const sent = sums.coins.get(coinKey(coin)) ?? { coin, volume: 0n };
+    sums.coins.set(coinKey(coin), { coin, volume: sent.volume + usd });
   }
   const hour = Math.floor(delivery.at / HOUR_MS);
   if (hour > Math.floor(now / HOUR_MS) - HOURS_KEPT) {
     const held = sums.hours.get(hour) ?? { swaps: 0, volume: 0n };
     sums.hours.set(hour, { swaps: held.swaps + 1, volume: held.volume + usd });
   }
-  // The row is made here, rounded, and it is the row that is kept. The delivery itself is not.
   const row = rowFor(delivery);
-  if (row !== null && row.quarter >= Math.floor(now / QUARTER_MS) - ROW_QUARTERS_KEPT) {
+  if (row !== null) {
     sums.rows.push(row);
-    sums.rows.sort(rowOrder);
+    // The oldest first, whenever each was told of: an order found at a start may be older than rows already here.
+    sums.rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   }
   prune(sums, now);
 }
@@ -285,56 +303,22 @@ function lastDay(sums: Sums, now: number): { swaps: number; volume: bigint } {
   return { swaps, volume };
 }
 
-/**
- * When a row's swap was delivered, in the three words the page has for it, or null for a row that
- * may not be shown: one whose quarter has not come, or one from before yesterday. A row's swap was
- * delivered in the quarter of an hour two before its own, so "in the last hour" is said only for
- * the row's first half hour on show, while it is certainly true.
- */
-export function whenOf(rowQuarter: number, quarter: number): StatsWhen | null {
-  if (rowQuarter > quarter) return null;
-  if (quarter - rowQuarter <= 1) return "last-hour";
-  const today = Math.floor(quarter / QUARTERS_A_DAY);
-  const delivered = Math.floor((rowQuarter - 2) / QUARTERS_A_DAY);
-  if (delivered === today) return "earlier-today";
-  return delivered === today - 1 ? "yesterday" : null;
-}
-
-function shuffled<T>(items: readonly T[], random: () => number): T[] {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.min(i, Math.floor(random() * (i + 1)));
-    [out[i], out[j]] = [out[j]!, out[i]!];
-  }
-  return out;
-}
-
-/** What the page is sent, from the sums as they stood when a quarter of an hour began. */
-function render(sums: Sums, quarter: number, feedMin: number, random: () => number): StatsResponse {
-  const now = quarter * QUARTER_MS;
+/** What the page is sent, from the sums as they stand. */
+function render(sums: Sums, now: number): StatsResponse {
   const recent = lastDay(sums, now);
   const byVolume = <T extends { volumeUsd: number; name: string }>(list: T[]): T[] => list.filter((item) => item.volumeUsd > 0).sort((a, b) => b.volumeUsd - a.volumeUsd || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).slice(0, TOP);
-  const pairs = byVolume([...sums.pairs.entries()].map(([name, pair]) => ({ name, from: pair.from, to: pair.to, volumeUsd: dollars(pair.volume) }))).map(({ from, to, volumeUsd }) => ({ from, to, volumeUsd }));
+  const coins = byVolume([...sums.coins.entries()].map(([name, held]) => ({ name, coin: held.coin, volumeUsd: dollars(held.volume) }))).map(({ coin, volumeUsd }) => ({ coin, volumeUsd }));
   const chains = byVolume([...sums.chains].map(([chain, held]) => ({ chain, name: chainName(chain), volumeUsd: dollars(held.volume) })));
-  // Every chain that has been used, in the order of their codes. Its share is worked out from the same sum the list above shows in dollars.
+  // Every chain a swap was sent from, in the order of their codes. Its share is worked out from the same sum the list above shows in dollars.
   const chainsUsed = [...sums.chains].map(([chain, held]) => ({ chain, swaps: held.swaps, share: shareOf(held.volume, sums.volume) })).sort((a, b) => (a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0));
-
-  let feed: StatsFeedRow[] | null = null;
-  // The list is there only while enough swaps were delivered in the last 24 hours for a row to be one among several.
-  if (recent.swaps >= feedMin) {
-    const groups: Record<StatsWhen, StatsFeedRow[]> = { "last-hour": [], "earlier-today": [], yesterday: [] };
-    for (const row of sums.rows) {
-      const when = whenOf(row.quarter, quarter);
-      // Only these four things are sent. The quarter a row is kept under is not among them.
-      if (when !== null) groups[when].push({ from: row.from, to: row.to, band: row.band, when });
-    }
-    feed = [...shuffled(groups["last-hour"], random), ...shuffled(groups["earlier-today"], random), ...shuffled(groups.yesterday, random)].slice(0, ROWS_SHOWN);
-  }
+  // The newest first, and none older than a row is kept for. A row is sent part by part: these four things and no others.
+  const oldest = momentOf(now - ROW_AGE_MS);
+  const feed = sums.rows.filter((row) => row.at >= oldest).slice(-ROWS_SHOWN).reverse().map((row) => ({ coin: { symbol: row.coin.symbol, chain: row.coin.chain, decimals: row.coin.decimals }, amount: row.amount, at: row.at, tx: row.tx }));
 
   return {
     // How many chains have been used is the length of the list of them, so that the two are one number.
     totals: { swaps: sums.swaps, volumeUsd: dollars(sums.volume), volume24hUsd: dollars(recent.volume), chains: chainsUsed.length, deliverySeconds: sums.timed === 0 ? null : Math.round(sums.seconds / sums.timed) },
-    pairs,
+    coins,
     chains,
     chainsUsed,
     feed,
@@ -353,15 +337,16 @@ export interface Stats {
   save(): void;
   /** Adds made-up deliveries, for a practice server's sample content. No route reaches it. */
   seed(deliveries: readonly Delivery[]): void;
-  /** What the Stats page is sent: the same answer for a whole quarter of an hour. */
+  /** What the Stats page is sent: the figures as they stand at this moment. */
   view(): StatsResponse;
+  /** Takes rows that have aged out off the disk too, whether or not a swap has been delivered since. The server does this every hour. */
+  tidy(): void;
   /** True when a file was found at start that could not be read as the sums. It was set aside, and the count began again from nothing. */
   readonly setAside: boolean;
 }
 
-export function createStats(dataDir: string, options: { feedMin: number; now?: () => number; random?: () => number }): Stats {
+export function createStats(dataDir: string, options: { now?: () => number } = {}): Stats {
   const now = options.now ?? Date.now;
-  const random = options.random ?? Math.random;
   const dir = path.join(dataDir, "stats");
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, "stats.json");
@@ -370,8 +355,9 @@ export function createStats(dataDir: string, options: { feedMin: number; now?: (
 
   let live = empty();
   let setAside = false;
+  const save = () => writeDurable(file, JSON.stringify(toFile(live)));
   if (fs.existsSync(file)) {
-    let read: Sums | null;
+    let read: { sums: Sums; old: boolean } | null;
     try {
       read = fromFile(JSON.parse(fs.readFileSync(file, "utf8")));
     } catch {
@@ -382,30 +368,11 @@ export function createStats(dataDir: string, options: { feedMin: number; now?: (
       fs.renameSync(file, `${file}.unreadable`);
       setAside = true;
     } else {
-      live = read;
+      live = read.sums;
+      // A file of the earlier kind is written again at once, so that what it held of the receiving side of swaps is on the disk no longer.
+      if (read.old) save();
     }
   }
-
-  // What is shown: the sums as they stood when the present quarter of an hour began, and the answer made from them.
-  let shown: { quarter: number; sums: Sums; body: StatsResponse | null } | null = null;
-  const turn = (): { quarter: number; sums: Sums; body: StatsResponse | null } => {
-    const quarter = Math.floor(now() / QUARTER_MS);
-    if (shown === null || quarter > shown.quarter) {
-      prune(live, now());
-      shown = { quarter, sums: copyOf(live), body: null };
-    }
-    return shown;
-  };
-  const take = (delivery: Delivery): void => {
-    const current = turn();
-    add(live, delivery, now());
-    // A delivery from before the quarter began, told of only now (an order found at start), belongs to what is shown already.
-    if (delivery.at < current.quarter * QUARTER_MS) {
-      add(current.sums, delivery, now());
-      current.body = null;
-    }
-  };
-  const save = () => writeDurable(file, JSON.stringify(toFile(live)));
 
   return {
     get setAside() {
@@ -418,19 +385,22 @@ export function createStats(dataDir: string, options: { feedMin: number; now?: (
       // The order is marked first, and durably. If the process stops between the mark and the sums, the
       // order is missing from the totals; it can never be in them twice.
       if (!claim()) return false;
-      take(delivery);
+      add(live, delivery, now());
       if (write) save();
       return true;
     },
     save,
     seed(deliveries) {
-      for (const delivery of deliveries) take(delivery);
+      for (const delivery of deliveries) add(live, delivery, now());
       save();
     },
     view() {
-      const current = turn();
-      current.body ??= render(current.sums, current.quarter, options.feedMin, random);
-      return current.body;
+      return render(live, now());
+    },
+    tidy() {
+      const held = live.rows.length;
+      prune(live, now());
+      if (live.rows.length !== held) save();
     },
   };
 }

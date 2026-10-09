@@ -1,7 +1,8 @@
 // What the Stats page says, kept apart from how it is drawn.
 
-import type { StatsBand, StatsCoin, StatsResponse, StatsShare, StatsWhen } from "../../../shared/api.ts";
+import type { StatsCoin, StatsResponse, StatsShare } from "../../../shared/api.ts";
 import { chainName } from "../../../shared/chains.ts";
+import { clockTime } from "./order-logic.ts";
 
 /**
  * True where the site has its Stats page. The server's settings decide. Until they have arrived the
@@ -14,9 +15,21 @@ export function statsPageOn(config: { statsPage?: unknown } | null | undefined):
   return config.statsPage === true;
 }
 
-/** A swap's size and time, as "Recent swaps" says them: a band and a stretch of the day, never a figure. */
-export const BAND_WORDS: Readonly<Record<StatsBand, string>> = { "under-100": "under $100", "100-1k": "$100 to $1k", "1k-10k": "$1k to $10k", "over-10k": "over $10k" };
-export const WHEN_WORDS: Readonly<Record<StatsWhen, string>> = { "last-hour": "in the last hour", "earlier-today": "earlier today", yesterday: "yesterday" };
+/**
+ * When a swap was delivered, as "Recent swaps" writes it, on this device's clock: the date in
+ * numbers, so it reads the same everywhere, then the time of day as an order's page writes one.
+ * "2026-10-08, 14:05".
+ */
+export function deliveredText(iso: string): string {
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return "";
+  const date = new Date(at);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}, ${clockTime(at)}`;
+}
+
+/** A transaction's hash, shortened to its first six and its last four characters: "0x3f9a…c21e". */
+export const shortTx = (hash: string): string => `${hash.slice(0, 6)}…${hash.slice(-4)}`;
 
 /** A whole number with its thousands marked: "12,345". */
 export const wholeText = (value: number): string => Math.max(0, Math.round(value)).toLocaleString("en-US");
@@ -35,7 +48,7 @@ export function durationText(seconds: number): string {
 /** "ETH on Base". */
 export const coinText = (coin: StatsCoin): string => `${coin.symbol} on ${chainName(coin.chain)}`;
 
-/** One chain of the "Chains used" grid. `used` is null for a chain no delivered swap has started or ended on. */
+/** One chain of the "Chains used" grid. `used` is null for a chain no delivered swap has been sent from. */
 export interface GridChain {
   key: string;
   name: string;
@@ -56,7 +69,12 @@ export function chainGrid(listed: readonly { key: string; name: string }[], used
   return [...listed, ...others].map((chain) => ({ key: chain.key, name: chain.name, used: figures.get(chain.key) ?? null }));
 }
 
-/** A used chain's figures, in one line: "Base: 12 swaps, 31% of volume". */
+/**
+ * A used chain's figures, in one line: "Base: 12 swaps, 31% of volume". A chain known to have been
+ * sent from, with no count of how many swaps that was (its figures come from before they were
+ * counted), is given its share alone: it is not said to have had none.
+ */
 export function chainLine(name: string, swaps: number, share: StatsShare): string {
-  return `${name}: ${wholeText(swaps)} ${swaps === 1 ? "swap" : "swaps"}, ${share === "<1" ? "under 1%" : `${share}%`} of volume`;
+  const count = swaps === 0 ? "" : `${wholeText(swaps)} ${swaps === 1 ? "swap" : "swaps"}, `;
+  return `${name}: ${count}${share === "<1" ? "under 1%" : `${share}%`} of volume`;
 }

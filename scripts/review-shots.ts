@@ -553,9 +553,8 @@ const SCENARIOS: Scenario[] = [
       await page.getByRole("heading", { name: "Recent swaps" }).waitFor();
       // The figures have counted up and the used chains have lit up before anything is measured or photographed.
       await page.waitForTimeout(1200);
-      // A size and a stretch of the day to each swap, and nothing that could name one.
-      const text = await page.locator("main#main").innerText();
-      if (/0x[0-9a-fA-F]{6}|\d{1,2}:\d{2}/.test(text)) throw new Error("the Stats page shows an address or a time of day");
+      // What was sent, when, and its deposit to each swap. No row says what a swap was swapped to.
+      if ((await page.locator(".stats-swap").filter({ hasText: / to / }).count()) !== 0) throw new Error("a row of the Stats page says what a swap received");
       if ((await page.locator(".stats-swap").count()) < 10) throw new Error("the Stats page lists fewer than ten recent swaps on a practice server");
     },
   },

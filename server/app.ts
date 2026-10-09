@@ -966,9 +966,9 @@ export function createApp(deps: AppDeps): RequestListener {
         return { status: 200, body: rewards.view(address, now(), held) };
       },
     },
-    // The site's own totals, and its list of recent swaps: sums and rounded rows, as server/stats.ts
-    // keeps them, and nothing of any one order. Where the Stats page is switched off this is no route
-    // at all, and its address is answered like any other that is none.
+    // The site's own totals, and its list of the latest swaps by what each sent, as server/stats.ts
+    // keeps them: nothing of the receiving side of any swap. Where the Stats page is switched off this
+    // is no route at all, and its address is answered like any other that is none.
     ...(config.statsPage ? [statsRoute] : []),
     {
       // Exists only with the practice provider: moves a practice order along.

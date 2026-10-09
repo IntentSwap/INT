@@ -70,7 +70,7 @@ const app = createApp({
   sessions: createSessionIssuer(),
   rewards: createRewards(dataDir),
   signIn: createSignIn(),
-  stats: createStats(dataDir, { feedMin: config.statsFeedMin }),
+  stats: createStats(dataDir),
   site: null,
   now: Date.now,
   liveOrders: false,

@@ -96,6 +96,8 @@ type Held = Partial<Pick<ReturnType<typeof useSwap.getState>, "quote" | "problem
 /** How the server routes swaps for a drawing, and what the card holds. Set before each drawing; a test changes what it needs. */
 let mode: Confidentiality | null = null;
 let held: Held = {};
+/** Whether the site of a drawing has its Stats page. It has none unless a test says so. */
+let statsPage = false;
 
 /**
  * A part of the site as it is first drawn. Drawn here, outside a browser, a component reads each
@@ -103,7 +105,7 @@ let held: Held = {};
  */
 function draw(element: ReactElement): string {
   const wanted: [{ getInitialState(): object }, Record<string, unknown>][] = [
-    [useApp, { config: mode === null ? null : { privacyMode: mode, paused: false, termsVersion: "2026-10-09" } }],
+    [useApp, { config: mode === null ? null : { privacyMode: mode, paused: false, termsVersion: "2026-10-09", statsPage } }],
     [useTokens, { status: "ready", tokens: [ETH, USDT], byId: new Map([ETH, USDT].map((token) => [token.id, token])) }],
     [useSwap, { fromId: ETH.id, toId: USDT.id, amountText: "0.5", pay: "manual", recipient: SOL_ADDRESS, refundTo: EVM_ADDRESS, quote: null, fetchedAt: Date.now(), loading: false, dirty: false, problem: null, withoutPrivate: false, ...held }],
   ];
@@ -128,6 +130,7 @@ beforeEach(() => {
   vi.stubGlobal("window", { location: { origin: "https://example.org", search: "" } });
   mode = null;
   held = {};
+  statsPage = false;
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -310,6 +313,21 @@ describe("the review sheet", () => {
       expect(html).not.toMatch(/routing-tag|data-row/);
       expect(read(html), String(mode)).not.toMatch(NEW_WORDS);
       expect(points(html)).toMatch(/^Points · BNB Chain /);
+    }
+  });
+
+  it("where the site has its Stats page, the last look says what of this swap will be listed there, however it is routed; where it has none, nothing is said of it", () => {
+    const LISTED = "This swap's deposit transaction will be listed on the Stats page. Where it is delivered will not be.";
+    for (const [routed, quote] of [["basic", PRIVATE_QUOTE], ["public", PUBLIC_QUOTE]] as const) {
+      serverRoutes(routed);
+      held = { quote };
+      statsPage = true;
+      const html = sheet();
+      // One quiet line, after what confirming does and before the Terms.
+      expect(html).toContain(`<p class="review-plain muted">${LISTED.replace("'", "&#x27;")}</p>`);
+      expect(read(html), routed).toContain(`an order cannot be changed once it is made. ${LISTED} I have read and accept the Terms of Use`);
+      statsPage = false;
+      expect(read(sheet()), routed).not.toMatch(/Stats page|will be listed|is delivered will not/);
     }
   });
 });

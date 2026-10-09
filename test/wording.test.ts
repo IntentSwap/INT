@@ -579,6 +579,43 @@ describe("private wording is shown only where swaps are routed privately", () =>
   });
 });
 
+describe("what the Stats page lists of a swap is said where a person would look for it, wherever the site has that page", () => {
+  const PRIVACY = "Every delivered swap is listed on the Stats page for 48 hours, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Nothing about where the swap was delivered is listed or kept for that page: not the coin received, not its amount, not the receiving address and not the delivery transaction.";
+  const DOCS = "The Stats page lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. The delivery is not listed there.";
+  const withStats = (config: object, statsPage: boolean) => ({ ...config, statsPage });
+
+  it("the Privacy Policy says that every delivered swap's deposit is listed, that the deposit shows who sent it, and that nothing of the delivery is listed or kept; where the site has no Stats page it says what is kept and that it is shown nowhere", () => {
+    for (const config of [{ ...SETTINGS, privacyMode: "public" }, ROUTED_PRIVATELY]) {
+      const on = wordsOf(drawnWith(withStats(config, true), privacy));
+      expect(on).toContain(`Stats. ${PRIVACY} Beside those rows the server keeps running totals of what delivered swaps sent`);
+      expect(drawnWith(withStats(config, true), privacy)).toContain('<a href="/stats">Stats page</a>');
+      const off = wordsOf(drawnWith(withStats(config, false), privacy));
+      expect(off).not.toMatch(/listed on the Stats page|Stats page/);
+      expect(off).toContain("Stats. The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for 48 hours, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Nothing about where a swap was delivered is kept in them, and no page of this site shows them.");
+      // What used to be said of this page is said no longer, by either.
+      for (const text of [on, off]) expect(text).not.toMatch(/no transaction hash|no exact amount|no exact time|rounded row|size band|quarter of an hour/);
+    }
+  });
+
+  it("the page on private routing counts the Stats page among who can still see a swap: the deposit of every delivered swap, and not the delivery", () => {
+    const section = (markup: string) => wordsOf(/<h2 id="who"[\s\S]*?(?=<h2 id="not")/.exec(markup)?.[0] ?? "");
+    const on = section(drawnWith(withStats(ROUTED_PRIVATELY, true), PRIVATE_PAGE[1]));
+    expect(on).toContain("Who can still see a swap");
+    expect(on).toContain(`Anyone, for the deposit alone. ${DOCS}`);
+    // The last of the list, after the provider, IntentSwap and whoever has the order's link.
+    expect(on.indexOf("Anyone who has the order's link.")).toBeLessThan(on.indexOf("Anyone, for the deposit alone."));
+    const off = section(drawnWith(withStats(ROUTED_PRIVATELY, false), PRIVATE_PAGE[1]));
+    expect(off).toContain("Anyone who has the order's link.");
+    expect(off).not.toMatch(/Stats page|deposit alone|is not listed there/);
+  });
+
+  it("none of it says more than is so", () => {
+    const more = /\b(?:anonymous\w*|untrac\w*|invisib\w*|guaranteed?)\b|can(?:not|'t| not) be (?:traced|tracked|matched|linked|followed|identified|seen)|(?:no one|nobody) can (?:see|know|tell)/i;
+    for (const sentence of [PRIVACY, DOCS, "This swap's deposit transaction will be listed on the Stats page. Where it is delivered will not be.", "Each row links to the deposit on its own chain. Where it was delivered is never shown."]) expect(sentence).not.toMatch(more);
+    for (const sentence of ["A swap listed here cannot be traced.", "The delivery is invisible.", "Nobody can see where it went."]) expect(more.test(sentence), sentence).toBe(true);
+  });
+});
+
 describe("what the site says a swap costs", () => {
   const LINE = "IntentSwap takes no fee. The only fee is the provider's 0.20%.";
 

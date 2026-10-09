@@ -17,7 +17,7 @@ import { explorerTxUrl } from "../shared/chains.ts";
 import { pointsMicro, RESERVE_ASSET, sharePool, weekBounds, weekOf } from "../shared/rewards.ts";
 import type { Config } from "./config.ts";
 import { orderHash, type PointsEntry, type Rewards, type WeekRecord } from "./rewards.ts";
-import { QUARTER_MS, type Delivery, type Stats } from "./stats.ts";
+import type { Delivery, Stats } from "./stats.ts";
 import { writeDurable, type OrderRecord, type OrderStore } from "./store.ts";
 
 const made = (label: string, bytes: number) => createHash("sha256").update(`intentswap sample ${label}`).digest("hex").slice(0, bytes * 2);
@@ -43,6 +43,7 @@ export function holdsSampleContent(dataDir: string): boolean {
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+const QUARTER_MS = HOUR / 4;
 /** What the other sample addresses swapped last week and the week before, in millionths of a US dollar ($2,000 and $1,250), times one, two or three. */
 const OTHERS_USD_MICRO = [2_000_000_000n, 1_250_000_000n] as const;
 
@@ -151,26 +152,40 @@ function sampleOrder(sample: Sample, owner: string, now: number): OrderRecord {
   };
 }
 
-/** The pairs of the made-up swaps behind the Stats page, the first of them the commonest. */
-const SAMPLE_PAIRS: readonly (readonly [string, string, string, string])[] = [
-  ["ETH", "base", "USDT", "sol"],
-  ["USDC", "arb", "ETH", "base"],
-  ["BTC", "btc", "USDC", "arb"],
-  ["ETH", "base", "USDT", "sol"],
-  ["BNB", "bsc", "USDC", "arb"],
-  ["USDC", "base", "USDT", "sol"],
-  ["ETH", "eth", "BTC", "btc"],
-  ["USDC", "arb", "ETH", "base"],
-  ["SOL", "sol", "USDC", "base"],
-  ["USDT", "sol", "BNB", "bsc"],
+/**
+ * The coins the made-up swaps behind the Stats page send, the first of them the commonest: each
+ * with its chain, how many decimal places its amounts have, and a round price in US dollars to
+ * make an amount from.
+ */
+const SAMPLE_SENT: readonly (readonly [string, string, number, bigint])[] = [
+  ["ETH", "base", 18, 2_500n],
+  ["USDC", "arb", 6, 1n],
+  ["BTC", "btc", 8, 60_000n],
+  ["ETH", "base", 18, 2_500n],
+  ["BNB", "bsc", 18, 600n],
+  ["USDC", "base", 6, 1n],
+  ["ETH", "eth", 18, 2_500n],
+  ["USDC", "arb", 6, 1n],
+  ["SOL", "sol", 9, 150n],
+  ["USDT", "sol", 6, 1n],
 ];
 /** How far back the made-up swaps go the first time: 90 days, in quarters of an hour. */
 const SAMPLE_QUARTERS = 90 * 96;
 
 /**
+ * A made-up transaction hash of the right shape for a chain, and plainly no real one: one figure,
+ * repeated from end to end.
+ */
+function sampleTx(chain: string, figure: number): string {
+  const digit = String(1 + (figure % 9));
+  return chain === "sol" ? digit.repeat(88) : chain === "btc" ? digit.repeat(64) : `0x${digit.repeat(64)}`;
+}
+
+/**
  * Made-up deliveries for the Stats page, for the quarters of an hour from one to another: one or
  * two to most quarters, of every size, worked out from the quarter's own number, so the same
- * quarter always gives the same swaps and some days are busier than others.
+ * quarter always gives the same swaps and some days are busier than others. Each is a sending side
+ * and nothing more, as a real one is.
  */
 export function sampleDeliveries(fromQuarter: number, toQuarter: number): Delivery[] {
   const out: Delivery[] = [];
@@ -180,11 +195,12 @@ export function sampleDeliveries(fromQuarter: number, toQuarter: number): Delive
     const count = (quarter % 3 === 0 ? 1 : 0) + (bytes[0]! % 8 < busy ? 1 : 0);
     for (let n = 0; n < count; n++) {
       const at = bytes.subarray(n * 8, n * 8 + 8);
-      const pair = SAMPLE_PAIRS[at[0]! % SAMPLE_PAIRS.length]!;
+      const [symbol, chain, decimals, price] = SAMPLE_SENT[at[0]! % SAMPLE_SENT.length]!;
       // Sizes: about half under $100, a third under $1,000, most of the rest under $10,000, and now and then one above.
       const [floor, span] = at[1]! < 120 ? [8, 90] : at[1]! < 205 ? [100, 900] : at[1]! < 249 ? [1_000, 7_000] : [10_000, 24_000];
       const usdMicro = BigInt(floor) * 1_000_000n + (BigInt(at.readUInt32BE(2)) * BigInt(span) * 1_000_000n) / 0x1_0000_0000n;
-      out.push({ from: { symbol: pair[0], chain: pair[1] }, to: { symbol: pair[2], chain: pair[3] }, usdMicro, seconds: 22 + (at[6]! % 55), at: quarter * QUARTER_MS + (at.readUInt16BE(6) % 900) * 1000 });
+      const amount = (usdMicro * 10n ** BigInt(decimals)) / (price * 1_000_000n);
+      out.push({ coin: { symbol, chain, decimals }, amount: amount.toString(), usdMicro, tx: sampleTx(chain, at[7]!), seconds: 22 + (at[6]! % 55), at: quarter * QUARTER_MS + (at.readUInt16BE(6) % 900) * 1000 });
     }
   }
   return out;

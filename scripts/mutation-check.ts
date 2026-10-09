@@ -479,8 +479,10 @@ const M: Mutation[] = [
   { file: "server/static.ts", find: "known && !orderPage ? pageAt(pathname) : index", replace: "known ? pageAt(pathname) : index", label: "an order's page names no canonical address" },
 
   // ---- the Stats page ----
-  { file: "server/stats.ts", find: "band: bandOf(delivery.usdMicro), quarter: showQuarter(delivery.at) };", replace: "band: bandOf(delivery.usdMicro), quarter: Math.floor(delivery.at / 1000) };", label: "a recent swap's row is kept with a quarter of an hour, never the time of its delivery" },
-  { file: "server/stats.ts", find: "  if (recent.swaps >= feedMin) {", replace: "  if (recent.swaps >= 0) {", label: "recent swaps are listed only while enough were delivered in the last 24 hours" },
+  { file: "server/stats.ts", find: "  const sent = record.from;", replace: "  const sent = record.to;", label: "a row of recent swaps is built from the sending side only: the coin is the one that was sent" },
+  { file: "server/stats.ts", find: "  const paid = record.state.details?.originTxs[0]?.hash ?? ", replace: "  const paid = record.state.details?.destinationTxs[0]?.hash ?? ", label: "a row of recent swaps is built from the sending side only: the hash is the deposit's, never the delivery's" },
+  { file: "server/stats.ts", find: "  if (record.state.status !== \"delivered\") return null;", replace: "", label: "only a delivered order is listed and counted" },
+  { file: "server/stats.ts", find: "(record.state.depositVerified === true ? record.state.depositTxHash : null);", replace: "record.state.depositTxHash;", label: "a hash that was only announced is not listed as a swap's deposit" },
   { file: "server/stats.ts", find: "      if (!claim()) return false;", replace: "      claim();", label: "an order is added to the site's totals once" },
   { file: "server/app.ts", find: "    ...(config.statsPage ? [statsRoute] : []),", replace: "    statsRoute,", label: "the Stats page's data route is gone where the page is switched off" },
 ];

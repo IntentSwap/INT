@@ -113,14 +113,6 @@ export interface StatusResponse {
   serverNow: string;
 }
 
-/** How large a swap was, as the Stats page says it: one of four bands of its dollar value, each including its lower bound. Never the amount. */
-export type StatsBand = "under-100" | "100-1k" | "1k-10k" | "over-10k";
-export const STATS_BANDS: readonly StatsBand[] = ["under-100", "100-1k", "1k-10k", "over-10k"];
-
-/** When a swap was delivered, as the Stats page says it. Never the time. */
-export type StatsWhen = "last-hour" | "earlier-today" | "yesterday";
-export const STATS_WHENS: readonly StatsWhen[] = ["last-hour", "earlier-today", "yesterday"];
-
 /** A coin as the Stats page names it: its symbol and its chain's code. */
 export interface StatsCoin {
   symbol: string;
@@ -130,38 +122,49 @@ export interface StatsCoin {
 /** A share of the total volume as the Stats page says it: whole per cent, rounded down, or "<1" for a share that is more than nothing and under one per cent. */
 export type StatsShare = number | "<1";
 
-/** One line of "Recent swaps". These four things and nothing else: no address, no transaction, no amount, no time, no order. */
+/**
+ * One line of "Recent swaps": the sending side of one delivered swap. These four things and nothing
+ * else. Nothing of the receiving side is here: not the coin received, not its chain, not the amount
+ * received, not the receiving address, not the delivery's transaction. And no order, and no address
+ * of any kind.
+ */
 export interface StatsFeedRow {
-  from: StatsCoin;
-  to: StatsCoin;
-  band: StatsBand;
-  when: StatsWhen;
+  /** The coin that was sent, with how many decimal places its amounts have. */
+  coin: StatsCoin & { decimals: number };
+  /** The amount sent, in the coin's smallest unit. */
+  amount: string;
+  /** When the swap was delivered, by the server's clock, to the second: "2026-10-08T12:03:17Z". */
+  at: string;
+  /** The hash of the transaction that paid the deposit, on the chain the coin was sent from. Null when it is not known. */
+  tx: string | null;
 }
 
-/** What the Stats page is sent. Every dollar figure is a whole number of US dollars, rounded down. */
+/**
+ * What the Stats page is sent. Every dollar figure is a whole number of US dollars, rounded down.
+ * Everything in it is counted from what swaps sent: it says nothing of what any swap received, or where.
+ */
 export interface StatsResponse {
   totals: {
     swaps: number;
     volumeUsd: number;
     /** The hour now running and the 23 before it. */
     volume24hUsd: number;
-    /** How many chains a delivered swap has started or ended on. */
+    /** How many chains a delivered swap has been sent from. */
     chains: number;
     /** The average, in seconds. Null while no delivery has been timed. */
     deliverySeconds: number | null;
   };
-  /** The five pairs with the most volume, largest first. */
-  pairs: { from: StatsCoin; to: StatsCoin; volumeUsd: number }[];
-  /** The five chains with the most volume, largest first. A swap counts for the chain it starts on and the chain it ends on. */
+  /** The five coins with the most volume sent, largest first. */
+  coins: { coin: StatsCoin; volumeUsd: number }[];
+  /** The five chains with the most volume sent from them, largest first. */
   chains: { chain: string; name: string; volumeUsd: number }[];
   /**
-   * Every chain a delivered swap has started or ended on, by its code: how many swaps, and its share
-   * of the total volume. A swap counts once for each of its two chains, and once only when they are
-   * the same chain. As many entries as `totals.chains` says.
+   * Every chain a delivered swap has been sent from, by its code: how many swaps were sent from it,
+   * and its share of the total volume. As many entries as `totals.chains` says.
    */
   chainsUsed: { chain: string; swaps: number; share: StatsShare }[];
-  /** Null while too few swaps were delivered in the last 24 hours for a list of them to be shown. */
-  feed: StatsFeedRow[] | null;
+  /** The latest delivered swaps, the newest first. */
+  feed: StatsFeedRow[];
 }
 
 /**

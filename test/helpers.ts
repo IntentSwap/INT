@@ -268,7 +268,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const rewards = createRewards(dataDir);
   const signIn = createSignIn();
   // The site's totals are told of each saved state as the server itself tells them (see server/boot.ts).
-  const stats = createStats(dataDir, { feedMin: config.statsFeedMin, now });
+  const stats = createStats(dataDir, { now });
   const store: OrderStore = createOrderStore(dataDir, {
     onState(record) {
       rewards.recordDelivered(record);
