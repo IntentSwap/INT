@@ -132,11 +132,10 @@ const ICON_SAMPLES: [string, string][] = [
 ];
 
 const RECENT: RecentOrder[] = [
-  // An amount with all eighteen decimals: its row names the coins alone (an amount to pay is never shortened).
-  { id: "Ex4mpleOrderIdForTheStates3", createdAt: at(-2), from: { symbol: "ETH", chain: "base", decimals: 18 }, to: { symbol: "USDT", chain: "sol", decimals: 6 }, amountIn: "123456789012345678", amountOut: "311204118" },
-  { id: "Ex4mpleOrderIdForTheStates2", createdAt: at(-4), from: { symbol: "USDC", chain: "base", decimals: 6 }, to: { symbol: "ETH", chain: "arb", decimals: 18 }, amountIn: "250000000", amountOut: "98000000000000000" },
-  { id: "Ex4mpleOrderIdForTheStates1", createdAt: at(-90), from: { symbol: "ETH", chain: "base", decimals: 18 }, to: { symbol: "USDT", chain: "sol", decimals: 6 }, amountIn: "500000000000000000", amountOut: "1261340512" },
-  { id: "Ex4mpleOrderIdForTheStates0", createdAt: at(-3000), from: { symbol: "BTC", chain: "btc", decimals: 8 }, to: { symbol: "USDC", chain: "base", decimals: 6 }, amountIn: "1250000", amountOut: "1342100000" },
+  { id: "Ex4mpleOrderIdForTheStates3", createdAt: at(-2), from: { symbol: "ETH", chain: "base", decimals: 18 }, to: { symbol: "USDT", chain: "sol", decimals: 6 } },
+  { id: "Ex4mpleOrderIdForTheStates2", createdAt: at(-4), from: { symbol: "USDC", chain: "base", decimals: 6 }, to: { symbol: "ETH", chain: "arb", decimals: 18 } },
+  { id: "Ex4mpleOrderIdForTheStates1", createdAt: at(-90), from: { symbol: "ETH", chain: "base", decimals: 18 }, to: { symbol: "USDT", chain: "sol", decimals: 6 } },
+  { id: "Ex4mpleOrderIdForTheStates0", createdAt: at(-3000), from: { symbol: "BTC", chain: "btc", decimals: 8 }, to: { symbol: "USDC", chain: "base", decimals: 6 } },
 ];
 
 const WALLET_ORDER = order({ pay: "wallet", deadline: at(28) });

@@ -787,9 +787,13 @@ describe("orders kept in this browser", () => {
     list = withOrder(list, order("b"));
     list = withOrder(list, order("a"));
     expect(list.map((o) => o.id)).toEqual(["a", "b"]);
-    expect(list[0]).toEqual({ id: "a", createdAt: "2026-10-08T12:00:00.000Z", from: { symbol: "ETH", chain: "base", decimals: 18 }, to: { symbol: "USDT", chain: "sol", decimals: 6 }, amountIn: "5", amountOut: "7" });
-    // No address of any kind is kept.
-    expect(JSON.stringify(list)).not.toMatch(/0x|recipient|refund|deposit/i);
+    expect(list[0]).toEqual({ id: "a", createdAt: "2026-10-08T12:00:00.000Z", from: { symbol: "ETH", chain: "base", decimals: 18 }, to: { symbol: "USDT", chain: "sol", decimals: 6 } });
+    // No address of any kind is kept, and no amount: nothing a person typed into the swap card stays in the browser.
+    expect(JSON.stringify(list)).not.toMatch(/0x|recipient|refund|deposit|amount/i);
+    // A list saved by an earlier version, which held amounts, is read without them.
+    const older = JSON.stringify([{ ...list[0], amountIn: "5", amountOut: "7" }]);
+    expect(readRecent(older)).toEqual([list[0]]);
+    expect(JSON.stringify(readRecent(older))).not.toContain("amount");
   });
   it("keeps at most 50", () => {
     let list: ReturnType<typeof withOrder> = [];

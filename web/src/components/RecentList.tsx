@@ -1,4 +1,3 @@
-import { headingAmount } from "../lib/order-logic.ts";
 import { chainName } from "../../../shared/chains.ts";
 import type { RecentOrder } from "../stores/orders.ts";
 import { SecondaryButton } from "./Button.tsx";
@@ -34,9 +33,7 @@ export function RecentList({ orders, onOpen, onClear }: { orders: RecentOrder[];
                 <CoinIcon symbol={order.to.symbol} chain={order.to.chain} />
                 <span className="recent-row-text">
                   <span className="recent-row-main">
-                    {/* The amount paid, exactly or not at all: a row never gives a shortened amount to pay (see headingAmount). */}
-                    {headingAmount(order.amountIn, order.from.decimals) !== null ? <span className="mono">{headingAmount(order.amountIn, order.from.decimals)}</span> : null}
-                    {headingAmount(order.amountIn, order.from.decimals) !== null ? " " : null}
+                    {/* The two coins and no amount: the list keeps none (see stores/orders.ts). The order's own page gives the figures. */}
                     {order.from.symbol} to {order.to.symbol}
                   </span>
                   <span className="recent-row-sub muted">

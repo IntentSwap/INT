@@ -203,9 +203,8 @@ export function PrivacyPage() {
 
       <Section title="3. What is kept in your browser">
         <ul>
-          <li>Your choice of theme.</li>
           <li>The list of coins, for up to 24 hours, so the site still opens if the list cannot be fetched.</li>
-          <li>A list of the orders you made in this browser, so you can find them again. It holds the order ID, when the order was made, the two coins and the amounts, and no address. It never leaves your browser, and you can clear it at any time.</li>
+          <li>A list of the orders you made in this browser, so you can find them again. It holds the order ID, when the order was made and the two coins: no amount and no address. It never leaves your browser, and you can clear it at any time.</li>
           <li>When you pay an order from a connected wallet: a note of that order's ID, the time, and the transaction's hash once there is one. The note is first written when your wallet is asked, so that reloading the page follows the transfer you sent instead of offering to send it again. It is kept for your last few orders only.</li>
           <li>The Rewards page's sign-in is held in that page's memory only. It is not written to your browser's storage, and it ends when the page is closed or reloaded.</li>
           <li>When you connect a wallet: the wallet-connection software keeps its own notes in your browser, among them your wallet's address and the link to your wallet, so that the connection lasts from one page to the next. Disconnecting removes the connection.</li>
