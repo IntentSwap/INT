@@ -101,11 +101,23 @@ if ((config.tokenAddress ?? null) !== null) pages.push("/token");
 else console.log("page-quality: left out: the token's page (this site has no token address set)");
 let order = "";
 // On a build machine the browser's own sandbox is often not available to an ordinary user. Only this site's own pages are opened.
-const browser = await chromium.launch({ channel: "chrome", headless: true, args: [`--remote-debugging-port=${DEBUG_PORT}`, ...(process.env.CI ? ["--no-sandbox"] : [])] });
+const browser = await chromium.launch({ channel: "chrome", headless: true, args: [`--remote-debugging-port=${DEBUG_PORT}`, ...(process.env.CI ? ["--no-sandbox"] : [])] }).catch((error: unknown) => {
+  // A machine with no Chrome cannot measure a page. That is said plainly, and is not counted as the pages falling short.
+  if (!/is not found|doesn't exist|not installed/i.test(String((error as Error).message))) throw error;
+  server?.kill();
+  console.log("page-quality: skipped. Google Chrome is not installed on this machine, so no page was measured. Install Chrome and run this again.");
+  process.exit(0);
+});
 try {
   if (config.practice === true) {
-    order = await pretendOrder(browser, site);
-    pages.push(`/order/${order}`);
+    // The pretend order needs the list of coins, which a practice site takes from the swap provider. Where that
+    // cannot be reached, the order's page is left out and said to be; every other page is measured all the same.
+    try {
+      order = await pretendOrder(browser, site);
+      pages.push(`/order/${order}`);
+    } catch (error) {
+      console.log(`page-quality: left out: an order's page (a pretend order could not be made here: ${String((error as Error).message).split("\n")[0]})`);
+    }
   } else console.log("page-quality: left out: an order's page (an order can only be made up on a site in practice mode)");
   for (const page of pages) {
     const result = await lighthouse(new URL(page, site).toString(), { port: DEBUG_PORT, output: "json", logLevel: "error", onlyCategories: ["performance", "accessibility"] });

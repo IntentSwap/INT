@@ -6,12 +6,14 @@
   "engines": {
     "node": ">=24 <25"
   },
+  "packageManager": "npm@11.6.2",
   "scripts": {
     "dev": "tsx scripts/dev.ts",
     "test": "vitest run",
     "lint": "eslint . && tsc --noEmit",
     "build": "vite build --config web/vite.config.ts && tsx scripts/check-build.ts",
     "check:pages": "tsx scripts/page-quality.ts",
+    "check:lock": "tsx scripts/check-lock.ts",
     "start": "tsx server/index.ts",
     "rewards:export": "tsx scripts/rewards-export.ts",
     "rewards:record": "tsx scripts/rewards-record.ts"

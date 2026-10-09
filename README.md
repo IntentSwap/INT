@@ -32,6 +32,7 @@ Rules the code keeps:
 | Command | What it does |
 |---|---|
 | `npm ci --ignore-scripts` | Install exactly what the lockfile says |
+| `npm run check:lock` | Before a push: try a clean install from the lockfile, without installing anything, under the npm this project is pinned to (`packageManager` in `package.json`) and under an older and the newest npm. A lockfile that one of them would refuse is caught here, not by the automatic check |
 | `npm run dev` | Server on port 8787 plus the site on port 5173 |
 | `npm test` | All automated tests |
 | `npm run lint` | Lint and type-check |
@@ -293,7 +294,7 @@ public records, both ends are public, and nobody promises that it is complete.
 One click at a time. This creates a **preview** with swaps paused.
 
 1. Railway → **New Project** → **Deploy from GitHub repo** → choose `intentswap`.
-2. Open the new service → **Settings** → **Build** → Custom Build Command: `npm ci --ignore-scripts && npm run build`
+2. Open the new service → **Settings** → **Build** → Custom Build Command: `npm install --global npm@11.6.2 && npm ci --ignore-scripts && npm run build` (the first part makes the host use the npm this project is pinned to, the same one as the developer's machine and the automatic check)
 3. Same page → **Deploy** → Custom Start Command: `npm start`
 4. Same page → Healthcheck Path: `/api/status`
 5. Service → **Volumes** → **New Volume** → Mount path: `/data`. Size: 1 GB or more (the region database takes about 130 MB, logs at most 700 MB, and each order a few kilobytes).

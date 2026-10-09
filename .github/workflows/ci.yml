@@ -17,6 +17,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Use the npm this project is pinned to (the "packageManager" line of package.json)
+        run: npm install --global npm@11.6.2
       - name: Install exactly what the lockfile says, running no package scripts
         run: npm ci --ignore-scripts
       - name: Lint and type-check
