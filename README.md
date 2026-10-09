@@ -290,7 +290,9 @@ from the swap's dollar value, on a private swap as on any other. When the provid
 says "Private routing is not available for this swap right now." and offers
 "Swap without private routing"; it never routes a swap in public by itself. A
 privately routed order is not found from its deposit address on the Track order
-page: it opens from its own link or ID only.
+page: it opens from its own link or ID only. While the Stats page is on, neither
+is any order once it has been delivered: its deposit is listed there, and the
+address must not lead to the page that shows both ends.
 
 What the site says follows the same setting, and one build holds both. With
 `basic` it is "Private swaps, across chains. Built on NEAR Intents.": the

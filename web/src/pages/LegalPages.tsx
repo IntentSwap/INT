@@ -123,7 +123,7 @@ export function TermsPage() {
           <li>Points are a record and nothing more. They have no money value. They are not a currency, an investment or a claim on anything, and they cannot be bought, sold or moved.</li>
           <li>A payout is not owed. Whether there is one in a given week, and how large it is, is at the operator's discretion; it can be changed, made smaller or stopped at any time, also for points already recorded.</li>
           <li>Points recorded by mistake, or gained by abusing the site, can be corrected or removed.</li>
-          <li>A rewards address is screened like every other address. Nothing is sent to an address on a sanctions list, or for anyone in a place where the site is not available.</li>
+          <li>A rewards address is screened like every other address. Nothing is sent to an address on a sanctions list, or for anyone in a place under sanctions.</li>
           <li>Seeing your own points means signing one plain message with your wallet, on the Rewards page only. It lasts {REWARDS.sessionMinutes} minutes. Paying for a swap never asks for a signature.</li>
         </ul>
       </Section>
@@ -210,6 +210,9 @@ export function PrivacyPage() {
             <strong>Track order.</strong> The order ID or deposit address you paste there is used to find the order, and is not written down.
           </li>
           <li>
+            <strong>Connecting a wallet.</strong> When you connect a wallet, its address is sent to this server so that what it holds on BNB Chain, Ethereum, Base and Arbitrum can be read and shown. The server asks the chain nodes and writes nothing of it down.
+          </li>
+          <li>
             <strong>Your network address.</strong> It is used in memory to apply rate limits{regionBlock ? <>, and to work out your country and region</> : null}. Only the shortened form is written down.
           </li>
         </ul>
@@ -220,6 +223,7 @@ export function PrivacyPage() {
           <li>The list of coins, for up to 24 hours, so the site still opens if the list cannot be fetched.</li>
           <li>A list of the orders you made in this browser, so you can find them again. It holds the order ID, when the order was made and the two coins: no amount and no address. It never leaves your browser, and you can clear it at any time.</li>
           <li>When you pay an order from a connected wallet: a note of that order's ID, the time, and the transaction's hash once there is one. The note is first written when your wallet is asked, so that reloading the page follows the transfer you sent instead of offering to send it again. It is kept for your last few orders only.</li>
+          <li>A note that the page loaded itself again after the site was updated, so that it does so once only. It is kept until the tab is closed.</li>
           <li>The Rewards page's sign-in is held in that page's memory only. It is not written to your browser's storage, and it ends when the page is closed or reloaded.</li>
           <li>When you connect a wallet: the wallet-connection software keeps its own notes in your browser, among them your wallet's address and the link to your wallet, so that the connection lasts from one page to the next. Disconnecting removes the connection.</li>
         </ul>
