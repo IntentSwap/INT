@@ -185,13 +185,7 @@ try {
   for (const theme of ["dark", "light"] as const) {
     for (const width of [360, 1280]) {
       const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: theme });
-      await context.addInitScript((value) => {
-        try {
-          localStorage.setItem("theme", value);
-        } catch {
-          // storage unavailable
-        }
-      }, theme);
+      await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
       const tab = await context.newPage();
       for (const page of pages) {
         await tab.goto(new URL(page, site).toString(), { waitUntil: "networkidle" });

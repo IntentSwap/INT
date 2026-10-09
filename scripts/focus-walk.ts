@@ -88,7 +88,7 @@ export async function focusWalk(browser: Browser, options: { baseUrl: string; ou
 
   for (const theme of ["dark", "light"] as const) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
-    await context.addInitScript(`try { localStorage.setItem("theme", "${theme}"); } catch {}`);
+    await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
     const page = await context.newPage();
     const say = (ok: boolean, what: string) => {
       if (!ok) complaints.push(`focus marks, ${theme}: ${what}`);

@@ -286,7 +286,7 @@ export async function walletWalk(browser: Browser, options: { baseUrl: string; p
     };
     const mobile = setup.width < 768;
     const context = await browser.newContext({ viewport: { width: setup.width, height: mobile ? 780 : 900 }, deviceScaleFactor: 2, colorScheme: setup.theme, hasTouch: mobile, isMobile: mobile });
-    await context.addInitScript(`try { localStorage.setItem("theme", "${setup.theme}"); } catch {}`);
+    await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${setup.theme}"; });`);
     await context.addInitScript(pretendWallet(WALLET, setup.startChain, setup.trusted, setup.knows));
     const chain: ChainState = { receipt: "none", count: NONCE, down: false, code: setup.story === "contract-wallet" };
     await context.route("**/api/rpc/*", pretendChain(chain));

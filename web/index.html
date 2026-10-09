@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="Swap any coin to any coin, across chains." />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="light dark" />
     <title>IntentSwap</title>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="IntentSwap" />
@@ -23,14 +23,8 @@
     <link rel="manifest" href="/site.webmanifest" />
     <script>
       (function () {
-        var theme = null;
-        try {
-          theme = localStorage.getItem("theme");
-        } catch (e) {}
-        if (theme !== "dark" && theme !== "light") {
-          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-        }
-        document.documentElement.dataset.theme = theme;
+        // Every visit starts in the light theme, for everyone. The dark one can be chosen, and lasts until the page is loaded again.
+        document.documentElement.dataset.theme = "light";
         // The words below are the home page's; any other page starts empty.
         if (location.pathname === "/") document.documentElement.dataset.first = "home";
       })();

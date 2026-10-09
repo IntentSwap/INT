@@ -102,7 +102,7 @@ export async function rewardsWalk(browser: Browser, options: { practiceUrl: stri
     };
     const mobile = width < 768;
     const context = await browser.newContext({ viewport: { width, height: mobile ? 780 : 900 }, deviceScaleFactor: 2, colorScheme: theme, hasTouch: mobile, isMobile: mobile });
-    await context.addInitScript(`try { localStorage.setItem("theme", "${theme}"); } catch {}`);
+    await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
     await context.addInitScript(pretendWallet(ACCOUNT.address));
     const signed: string[] = [];
     await context.exposeFunction("__signMessage", async (hex: string) => {

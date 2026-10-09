@@ -129,7 +129,7 @@ export async function orderWalk(browser: Browser, options: { practiceUrl: string
   };
 
   const context = await browser.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2, colorScheme: "dark", permissions: ["clipboard-read", "clipboard-write"] });
-  await context.addInitScript(`try { if (localStorage.getItem("theme") === null) localStorage.setItem("theme", "dark"); } catch {}`);
+  await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "dark"; });`);
   const page = await context.newPage();
   // While the connection is cut on purpose, the browser's own complaints about it are expected.
   // So is its note of the "not found" answer when an address that is no order is opened on purpose.

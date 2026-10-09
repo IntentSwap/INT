@@ -661,7 +661,7 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
       const where = `header ${width} ${theme}`;
       const mobile = width < 768;
       const context = await browser.newContext({ viewport: { width, height: mobile ? 780 : 800 }, deviceScaleFactor: 2, colorScheme: theme, hasTouch: mobile, isMobile: mobile });
-      await context.addInitScript(`try { localStorage.setItem("theme", "${theme}"); } catch {}`);
+      await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
       const page = await context.newPage();
       watch(page, () => null);
       const say = (ok: boolean, what: string) => {

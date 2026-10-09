@@ -89,7 +89,7 @@ export async function chipsWalk(browser: Browser, options: { baseUrl: string; ou
         if (!ok) complaints.push(`${label}: ${what}`);
       };
       const context = await browser.newContext({ viewport: { width, height: 900 }, deviceScaleFactor: 4, colorScheme: theme });
-      await context.addInitScript(`try { localStorage.setItem("theme", "${theme}"); } catch {}`);
+      await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
       const page = await context.newPage();
       page.on("pageerror", (error) => complaints.push(`${label}: page error: ${error.message}`));
       try {

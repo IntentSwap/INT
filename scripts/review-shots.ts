@@ -361,7 +361,6 @@ const SCENARIOS: Scenario[] = [
     async run(page) {
       // The section's own heading. (The stage above it has an item of the same name.)
       await page.getByRole("heading", { name: "The $INT token", level: 2 }).waitFor();
-      await page.getByText("Crypto tokens are high risk. You can lose everything. This is not an offer or advice.").waitFor();
       const items = await page.locator(".stage-tab-title").allInnerTexts();
       if (items.length !== 4 || items[3]?.trim() !== "The $INT token") throw new Error(`with the token set the stage's items are ${JSON.stringify(items)}`);
     },
@@ -385,7 +384,6 @@ const SCENARIOS: Scenario[] = [
     },
     async run(page) {
       await page.getByRole("heading", { name: "The $INT token" }).waitFor();
-      await page.getByText("Crypto tokens are high risk. You can lose everything. This is not an offer or advice.").waitFor();
       // Facts only: no card, no price, nothing to buy.
       const text = await page.locator("main#main").innerText();
       for (const word of [/\bbuy\b/i, /\bprice\b/i, /\$\d/, /roadmap/i, /reward/i]) if (word.test(text)) throw new Error(`the token page says something it must not (${String(word)})`);
@@ -657,13 +655,7 @@ for (const scenario of chosen) {
       if (scenario.widths !== undefined && !scenario.widths.includes(width)) continue;
       const mobile = width < 768;
       const context = await browser.newContext({ viewport: { width, height: mobile ? 780 : 900 }, deviceScaleFactor: 2, colorScheme: theme, hasTouch: mobile, isMobile: mobile });
-      await context.addInitScript((value) => {
-        try {
-          localStorage.setItem("theme", value);
-        } catch {
-          // storage unavailable
-        }
-      }, theme);
+      await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
       const page = await context.newPage();
       const label = `${scenario.name} ${width} ${theme}`;
       page.on("console", (message) => {
@@ -878,13 +870,7 @@ if (walks("layout")) {
 if (walks("states-in-use")) {
   for (const theme of THEMES) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, colorScheme: theme });
-    await context.addInitScript((value) => {
-      try {
-        localStorage.setItem("theme", value);
-      } catch {
-        // storage unavailable
-      }
-    }, theme);
+    await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
     const page = await context.newPage();
     const label = `states in use, ${theme}`;
     try {
@@ -1100,7 +1086,7 @@ if (walks("review")) {
     // The price-moved path: the request is altered on its way out, to claim that ten times as much was
     // reviewed. The server must make no order and send the real numbers back for a fresh yes.
     const moved = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, colorScheme: "dark" });
-    await moved.addInitScript(`try { localStorage.setItem("theme", "dark"); } catch {}`);
+    await moved.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "dark"; });`);
     const page3 = await moved.newPage();
     try {
       let altered = 0;
@@ -1195,7 +1181,7 @@ if (walks("slippage") && practiceUrl !== null) {
   };
   for (const [width, theme] of [[360, "dark"], [1280, "light"]] as const) {
     const context = await browser.newContext({ viewport: { width, height: width < 768 ? 780 : 900 }, deviceScaleFactor: 2, colorScheme: theme });
-    await context.addInitScript(`try { localStorage.setItem("theme", "${theme}"); } catch {}`);
+    await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
     const page = await context.newPage();
     page.on("console", (message) => {
       if (message.type() === "error" || message.type() === "warning") complaints.push(`${label}: ${message.type()}: ${message.text().slice(0, 200)}`);

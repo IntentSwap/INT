@@ -54,7 +54,7 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
     };
     const mobile = width < 768;
     const context = await browser.newContext({ viewport: { width, height: mobile ? 780 : 900 }, deviceScaleFactor: 2, colorScheme: theme, hasTouch: mobile, isMobile: mobile });
-    await context.addInitScript(`try { localStorage.setItem("theme", "${theme}"); } catch {}`);
+    await context.addInitScript(`document.addEventListener("readystatechange", () => { if (document.readyState === "interactive") document.documentElement.dataset.theme = "${theme}"; });`);
     const page = await context.newPage();
     const quotes: Record<string, unknown>[] = [];
     page.on("request", (request) => {
