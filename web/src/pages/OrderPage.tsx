@@ -416,7 +416,7 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
       <Summary order={order} privacyMode={privacyMode} />
 
       <p className="order-foot muted">
-        Order <span className="mono">{order.id}</span>. Keep this page's link: it is the only way back to this order. Support never asks for your seed phrase and never messages you first.
+        Order <span className="mono">{order.id}</span>. Keep this page's link: it is the only way back to this order.
       </p>
 
       {children}

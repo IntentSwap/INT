@@ -115,7 +115,7 @@ const FAQ: readonly Question[] = [
     answer: (contact) => (
       <p>
         {contact !== null ? <>Write to {contact.replace(/^https:\/\//, "")}. </> : null}
-        Have the order's link, the deposit transaction hash, the chain you sent from and the time. Support never asks for your seed phrase and never messages you first.
+        Have the order's link, the deposit transaction hash, the chain you sent from and the time.
       </p>
     ),
   },

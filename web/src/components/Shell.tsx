@@ -177,7 +177,6 @@ export function Footer() {
         <div className="footer-brand">
           <Wordmark />
           <p className="footer-note muted">Swaps run on NEAR Intents.</p>
-          {contact !== null ? <p className="footer-note muted">Support never asks for your seed phrase and never messages you first.</p> : null}
           {usable ? <SocialLinks where="footer" /> : null}
         </div>
         <nav className="footer-links" aria-label="Footer">
