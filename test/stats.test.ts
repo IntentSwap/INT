@@ -517,7 +517,7 @@ describe("chains used", () => {
     // Only a used chain's mark lights up, each in its turn.
     expect([...markup.matchAll(/data-used="" aria-pressed="false" style="--i:(\d+)"/g)].map((match) => match[1])).toEqual(["0", "1"]);
     // While the coin list is not there, there is no grid to set the figures against.
-    expect(renderToStaticMarkup(createElement(StatsContent, { stats, chains: [] }))).not.toContain("stats-chains");
+    expect(renderToStaticMarkup(createElement(StatsContent, { stats, chains: [] }))).not.toMatch(/class="stats-chains"|stats-used/);
   });
 
   it("a chosen chain's swaps and share of volume are said in the one line above the grid, and nothing of an unused chain", () => {
@@ -631,7 +631,7 @@ describe("recent swaps", () => {
       expect(reply.text).not.toContain(delivery.slice(2));
       // And on the page: the row's link to the deposit on its own chain's explorer, and the chain counted among those used.
       const markup = renderToStaticMarkup(createElement(StatsContent, { stats, chains: LISTED }));
-      expect(markup).toContain(`<a class="stats-swap-tx mono" href="https://basescan.org/tx/${deposit}" target="_blank" rel="noopener noreferrer"`);
+      expect(markup).toContain(`<a class="stats-swap-tx mono" href="https://basescan.org/tx/${deposit}" target="_blank" rel="noopener noreferrer">${shortTx(deposit)}<`);
       expect(words(markup)).toContain("1 of 5 chains used");
     } finally {
       await h.close();
@@ -672,7 +672,7 @@ describe("recent swaps", () => {
     for (const label of ["announced 1", "second 1", "announced 3"]) expect(text).not.toContain(another(label).slice(2));
   });
 
-  it("the page draws a row as what was sent, when, and a link to its deposit that opens in a new tab; with no explorer the hash is plain words, with no hash there is none; and with no rows there is no list", () => {
+  it("the page draws a row as what was sent, when, and a link to its deposit that opens in a new tab; with no explorer the hash is plain words, with no hash there is none; and with no rows the list says so in the same room", () => {
     const base = txOn("base", "page base");
     const monad = txOn("monad", "page monad");
     const stats: StatsResponse = {
@@ -699,7 +699,11 @@ describe("recent swaps", () => {
     // The deposit: a shortened hash that leads to the transaction on its own chain's explorer, in a new tab.
     expect(shortTx(base)).toBe(`${base.slice(0, 6)}…${base.slice(-4)}`);
     expect(shortTx(base)).toHaveLength(11);
-    expect(rows[0]).toContain(`<a class="stats-swap-tx mono" href="https://basescan.org/tx/${base}" target="_blank" rel="noopener noreferrer" aria-label="Deposit transaction on Base, opens in a new tab">${shortTx(base)}<svg`);
+    // The link is named by what it shows, and then, for a screen reader alone, by what it is: no name is put over the visible one.
+    const link = /<a class="stats-swap-tx mono" href="([^"]+)" target="_blank" rel="noopener noreferrer">(.*?)<\/a>/.exec(rows[0]!);
+    expect(link?.[1]).toBe(`https://basescan.org/tx/${base}`);
+    expect(link?.[2]).toMatch(new RegExp(`^${shortTx(base)}<span class="sr-only"> deposit transaction on Base \\(opens in a new tab\\)</span><svg [^>]*aria-hidden="true"`));
+    expect(words(link![2]!).trim()).toBe(`${shortTx(base)} deposit transaction on Base (opens in a new tab)`);
     // No explorer: the same words, and no link. No hash: neither.
     expect(words(rows[1]!)).toContain("2 MON on Monad");
     expect(rows[1]).toContain(`<span class="stats-swap-tx mono muted">${shortTx(monad)}</span>`);
@@ -712,11 +716,81 @@ describe("recent swaps", () => {
     expect(words(markup)).toContain("Top coins sent 01 ETH on Base $1,500");
     expect(words(markup)).not.toMatch(/Top pairs| to [A-Z]+ on |rounded|earlier today|in the last hour/);
 
-    // No rows: no list, and nothing in its place.
+    // No rows: the heading and its line stay where they are, and the list's own room says that there are none.
     const without = renderToStaticMarkup(createElement(StatsContent, { stats: { ...stats, feed: [] }, chains: LISTED }));
-    expect(words(without)).toContain("Top coins sent");
-    expect(words(without)).not.toMatch(/Recent swaps|Each row links/);
-    expect(without).not.toContain("stats-swap");
+    expect(words(without)).toContain("Recent swaps Each row links to the deposit on its own chain. Where it was delivered is never shown. No swaps yet. Top coins sent");
+    expect(without).not.toContain('class="stats-swap"');
+  });
+});
+
+describe("the page stands still while it loads", () => {
+  // A coin counted in whole units, so that a row's amount is read as its number.
+  const coin = { symbol: "ETH", chain: "base", decimals: 0 };
+  const row = (n: number) => ({ coin, amount: String(n), at: "2026-10-08T12:03:00Z", tx: null });
+  const some = (rows: number): StatsResponse => ({
+    totals: { swaps: rows, volumeUsd: 1500, volume24hUsd: 400, chains: rows === 0 ? 0 : 1, deliverySeconds: rows === 0 ? null : 72 },
+    coins: rows === 0 ? [] : [{ coin: { symbol: "ETH", chain: "base" }, volumeUsd: 1500 }],
+    chains: rows === 0 ? [] : [{ chain: "base", name: "Base", volumeUsd: 1500 }],
+    chainsUsed: rows === 0 ? [] : [{ chain: "base", swaps: rows, share: 100 }],
+    feed: Array.from({ length: rows }, (_, index) => row(rows - index)),
+  });
+  const draw = (stats: StatsResponse | null) => renderToStaticMarkup(createElement(StatsContent, { stats, chains: LISTED }));
+  /** The page's parts in the order they stand: the five figures, then each part by its heading. */
+  const parts = (markup: string) => [...markup.matchAll(/<dl class="stats-tiles"|<h2 id="([^"]+)"/g)].map((match) => match[1] ?? "tiles");
+  /** Each list's room, in order: how many rows it is kept for, and what stands in it. */
+  const rooms = (markup: string) =>
+    [...markup.matchAll(/<div class="stats-room[^"]*" style="--rows:(\d+)">(.*?)<\/div>(?=<\/section>)/g)].map((match) => ({
+      rows: Number(match[1]),
+      waiting: (match[2]!.match(/class="skeleton stats-waiting-row"/g) ?? []).length,
+      held: (match[2]!.match(/<li class="stats-(?:swap|rank)">(?!<span class="skeleton)/g) ?? []).length,
+      says: /<p class="stats-none muted">([^<]*)<\/p>/.exec(match[2]!)?.[1] ?? null,
+    }));
+  const ORDER = ["tiles", "stats-recent", "stats-coins", "stats-chains", "stats-used"];
+
+  it("every part is in its place, with its room, before the answer comes; the same parts stand in the same order once it has, whether it holds twenty swaps, one or none", () => {
+    const waiting = draw(null);
+    expect(parts(waiting)).toEqual(ORDER);
+    // Five figures on their way, each in the line its figure will stand in.
+    expect((waiting.match(/<dd class="stats-number mono"><span class="skeleton stats-waiting" aria-hidden="true"><\/span><\/dd>/g) ?? []).length).toBe(5);
+    // The list of swaps and the two ranked lists: room for five rows each, with five rows on their way.
+    expect(rooms(waiting)).toEqual([{ rows: 5, waiting: 5, held: 0, says: null }, { rows: 5, waiting: 5, held: 0, says: null }, { rows: 5, waiting: 5, held: 0, says: null }]);
+    // Every chain, none of them lit yet, and the count's line kept for the count.
+    expect((waiting.match(/<span class="stats-chains-item">/g) ?? []).length).toBe(LISTED.length);
+    expect(waiting).not.toContain("data-used");
+    expect(waiting).toContain('<p class="muted">\u00a0</p><p class="stats-chains-line muted" aria-live="polite">');
+
+    // Twenty swaps: the newest five in the room, and a button for the rest. One swap: one row in the same room. None: the room says so.
+    const full = draw(some(20));
+    expect(parts(full)).toEqual(ORDER);
+    expect(rooms(full)).toEqual([{ rows: 5, waiting: 0, held: 5, says: null }, { rows: 5, waiting: 0, held: 1, says: null }, { rows: 5, waiting: 0, held: 1, says: null }]);
+    expect(full).toContain('<button type="button" class="button-text" aria-expanded="false" aria-controls="stats-swaps">Show more</button>');
+    expect([...full.matchAll(/<span class="amount mono" title="(\d+) ETH">/g)].map((match) => match[1])).toEqual(["20", "19", "18", "17", "16"]);
+    const one = draw(some(1));
+    expect(parts(one)).toEqual(ORDER);
+    expect(rooms(one)).toEqual([{ rows: 5, waiting: 0, held: 1, says: null }, { rows: 5, waiting: 0, held: 1, says: null }, { rows: 5, waiting: 0, held: 1, says: null }]);
+    const none = draw(some(0));
+    expect(parts(none)).toEqual(ORDER);
+    expect(rooms(none)).toEqual([{ rows: 5, waiting: 0, held: 0, says: "No swaps yet." }, { rows: 5, waiting: 0, held: 0, says: "No swaps yet." }, { rows: 5, waiting: 0, held: 0, says: "No swaps yet." }]);
+    // Five swaps or fewer: nothing more to show, and no button. The heading's line is there for it all the same.
+    for (const markup of [waiting, one, none, draw(some(5))]) {
+      expect(markup).not.toContain("Show more");
+      expect(markup).toContain('<div class="stats-head"><h2 id="stats-recent" class="stats-heading">Recent swaps</h2></div>');
+    }
+  });
+
+  it("no part of the page is given a name that hides the words it shows", () => {
+    /** Every element with a name of its own whose visible words are not part of that name. */
+    const hidden = (markup: string) =>
+      [...markup.matchAll(/<(\w+)\b[^>]*\baria-label="([^"]*)"[^>]*>(.*?)<\/\1>/g)]
+        .map((match) => ({ name: match[2]!, shown: words(match[3]!.replace(/<(\w+)[^>]*(?:class="sr-only"|aria-hidden="true")[^>]*>.*?<\/\1>/g, " ")).trim() }))
+        .filter((item) => item.shown !== "" && !item.name.toLowerCase().includes(item.shown.toLowerCase()));
+    const stats: StatsResponse = { ...some(20), chainsUsed: [{ chain: "base", swaps: 20, share: 100 }], feed: Array.from({ length: 20 }, (_, index) => ({ ...row(index + 1), tx: txOn("base", `named ${index}`) })) };
+    for (const markup of [draw(null), draw(stats), draw(some(0))]) expect(hidden(markup)).toEqual([]);
+    // A used chain's button is named by the chain's own name, as it is shown.
+    expect(draw(stats)).toMatch(/<button type="button" class="stats-chains-item" data-used="" aria-pressed="false" style="--i:0">(?:(?!aria-label).)*<span>Base<\/span><\/button>/);
+    // The check can fail: a link named over its visible hash is found.
+    expect(hidden('<a href="/x" aria-label="Deposit transaction on Base, opens in a new tab">0x12ab…9f3c<svg aria-hidden="true"></svg></a>')).toEqual([{ name: "Deposit transaction on Base, opens in a new tab", shown: "0x12ab…9f3c" }]);
+    expect(hidden('<a href="/x" aria-label="0x12ab…9f3c, deposit transaction on Base">0x12ab…9f3c</a>')).toEqual([]);
   });
 });
 

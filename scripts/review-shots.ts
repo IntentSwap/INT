@@ -542,7 +542,7 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // The Stats page with a practice server's made-up swaps: the five figures, the grid of chains, the two ranked lists and the list of recent swaps.
+    // The Stats page with a practice server's made-up swaps: the five figures, the list of recent swaps, the two ranked lists and the grid of chains.
     name: "page-stats",
     path: "/stats",
     noCard: true,
@@ -555,7 +555,11 @@ const SCENARIOS: Scenario[] = [
       await page.waitForTimeout(1200);
       // What was sent, when, and its deposit to each swap. No row says what a swap was swapped to.
       if ((await page.locator(".stats-swap").filter({ hasText: / to / }).count()) !== 0) throw new Error("a row of the Stats page says what a swap received");
-      if ((await page.locator(".stats-swap").count()) < 10) throw new Error("the Stats page lists fewer than ten recent swaps on a practice server");
+      // Five stand in the list's own room, and the rest come when they are asked for.
+      if ((await page.locator("#stats-swaps > .stats-swap").count()) !== 5) throw new Error("the Stats page does not show five recent swaps on a practice server");
+      await page.getByRole("button", { name: "Show more" }).click();
+      if ((await page.locator("#stats-swaps > .stats-swap").count()) < 10) throw new Error("the Stats page lists fewer than ten recent swaps on a practice server when more are asked for");
+      await page.getByRole("button", { name: "Show fewer" }).click();
     },
   },
   {

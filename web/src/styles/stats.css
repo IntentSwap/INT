@@ -3,6 +3,8 @@
 .stats {
   /* A coin's chain badge is ringed in the colour of what it sits on: here, the page itself. */
   --coin-ring: var(--bg);
+  /* How tall one row of "Recent swaps" is: two lines of words on a phone, one line from 768 px. */
+  --swap-row: calc(var(--space-12) * 2 + var(--line-14) + var(--line-12) + var(--border-width));
   display: grid;
   gap: var(--space-48);
   width: 100%;
@@ -34,9 +36,9 @@
   border-left: 0;
 }
 
-/* Fixed-width figures, on one line: a number counting up moves nothing beside it. */
+/* Fixed-width figures, on one line of one height, whether it holds a figure on its way, one counting up or the last: nothing beside or under it moves. */
 .stats-number {
-  min-height: var(--line-20);
+  height: var(--line-20);
   font-size: var(--text-20);
   line-height: var(--line-20);
   font-weight: var(--weight-500);
@@ -67,6 +69,43 @@
 .stats-note {
   max-width: var(--prose-width);
   text-wrap: pretty;
+}
+
+/* A heading with a button at the end of its line. The line is as tall as the button whether the button is there or not. */
+.stats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  min-height: var(--height-36);
+}
+
+/* ---- Room kept from the first paint ----
+   A list has the room of its rows before they arrive, with fewer of them, and with none: so nothing
+   under it moves when the answer comes. The page says how many rows (--rows); a row's height is
+   --row, and a list's own hairline is counted in. Rows are of one fixed height, on one line of words. */
+.stats-room {
+  --rows: 5;
+  --row: var(--height-52);
+  min-height: calc(var(--rows) * var(--row) + var(--border-width));
+}
+
+.stats-room-swaps {
+  --row: var(--swap-row);
+}
+
+/* A row on its way: one quiet bar where its words will be. */
+.stats-waiting-row {
+  grid-column: 1 / -1;
+  flex: none;
+  width: 50%;
+  height: var(--line-14);
+}
+
+/* A list with nothing in it yet says so in its first row's place. */
+.stats-none {
+  padding: var(--space-12) 0;
+  border-top: var(--border-width) solid var(--border);
 }
 
 .stats-figure {
@@ -152,6 +191,7 @@
 .stats-ranks,
 .stats-swaps {
   display: grid;
+  align-content: start;
   border-top: var(--border-width) solid var(--border);
 }
 
@@ -160,7 +200,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-12);
-  min-height: var(--height-52);
+  height: var(--height-52);
   padding: var(--space-12) 0;
   border-bottom: var(--border-width) solid var(--border);
 }
@@ -172,14 +212,20 @@
   line-height: var(--line-12);
 }
 
-/* The name takes the room there is and wraps; the figure after it never does. */
+/* The name takes the room there is, on one line: one too long for it is cut short, so that a row is never taller than its room. The figure after it is never cut. */
 .stats-rank-name {
   flex: 1;
   display: flex;
   align-items: center;
   gap: var(--space-12);
   min-width: 0;
-  text-wrap: pretty;
+}
+
+.stats-rank-name > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The line under a row, over the hairline: as long as the row's share of the largest. */
@@ -215,7 +261,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0 var(--space-12);
-  min-height: var(--height-52);
+  height: var(--swap-row);
   padding: var(--space-12) 0;
   border-bottom: var(--border-width) solid var(--border);
 }
@@ -224,11 +270,13 @@
   grid-row: span 2;
 }
 
-/* What was sent: the amount in the weight of a figure, its chain after it in the quiet colour. */
+/* What was sent: the amount in the weight of a figure, its chain after it in the quiet colour. On one line, cut short if it is too long for it. */
 .stats-swap-sent {
   grid-column: 2 / -1;
+  overflow: hidden;
   font-weight: var(--weight-500);
-  text-wrap: pretty;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stats-swap-sent > .muted {
@@ -269,6 +317,7 @@ a.stats-swap-tx {
 
 @media (min-width: 768px) {
   .stats {
+    --swap-row: var(--height-52);
     gap: var(--space-64);
     padding-top: var(--space-64);
   }
@@ -290,7 +339,7 @@ a.stats-swap-tx {
   }
 
   .stats-number {
-    min-height: var(--line-28);
+    height: var(--line-28);
     font-size: var(--text-28);
     line-height: var(--line-28);
     letter-spacing: var(--tracking-display);
@@ -365,7 +414,7 @@ a.stats-swap-tx {
   }
 
   .stats-number {
-    min-height: var(--line-24);
+    height: var(--line-24);
     font-size: var(--text-24);
     line-height: var(--line-24);
   }
@@ -377,7 +426,7 @@ a.stats-swap-tx {
 
 @media (min-width: 1280px) {
   .stats-number {
-    min-height: var(--line-28);
+    height: var(--line-28);
     font-size: var(--text-28);
     line-height: var(--line-28);
   }
