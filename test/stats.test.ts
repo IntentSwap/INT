@@ -574,6 +574,30 @@ describe("recent swaps", () => {
     expect(s.stats.view().totals.swaps).toBe(2);
   });
 
+  it("the coins received are totals by coin: every swap that delivered a coin adds to that coin's one figure, shown from the first delivered swap and never beside a row", () => {
+    const s = site();
+    // Nothing delivered yet: no list at all.
+    expect(s.stats.view().received).toBeNull();
+    s.end(1, { usd: "100", from: ETH, to: USDT });
+    expect(s.stats.view().received).toEqual([{ coin: { symbol: "USDT", chain: "sol" }, volumeUsd: 100 }]);
+    // A second swap that delivered the same coin, from another coin and chain, adds to the same figure; one that delivered another coin has its own.
+    s.end(2, { usd: "50", from: USDC, to: USDT });
+    s.end(3, { usd: "30", from: ETH, to: BTC });
+    expect(s.stats.view().received).toEqual([
+      { coin: { symbol: "USDT", chain: "sol" }, volumeUsd: 150 },
+      { coin: { symbol: "BTC", chain: "btc" }, volumeUsd: 30 },
+    ]);
+    // Kept as two figures and nothing else of what was received; and whole after a restart.
+    expect(s.file().received).toEqual([
+      { symbol: "USDT", chain: "sol", volumeMicro: "150000000" },
+      { symbol: "BTC", chain: "btc", volumeMicro: "30000000" },
+    ]);
+    expect(site({ dir: s.dir, t: s.clock.t }).stats.view().received).toEqual(s.stats.view().received);
+    // No row says which swap delivered which: a row is still the coin sent, its amount, its time and its deposit.
+    for (const row of s.stats.view().feed) expect(Object.keys(row).sort()).toEqual(["amount", "at", "coin", "tx"]);
+    expect(JSON.stringify(s.stats.view().feed)).not.toMatch(/USDT|"sol"|BTC|"btc"/);
+  });
+
   it("a row is there at once and from the first swap, the newest first: the coin and the amount sent, the minute the swap began and its deposit's hash, and nothing else; the moment of delivery is in no row", () => {
     const s = site();
     expect(s.stats.view().feed).toEqual([]);
