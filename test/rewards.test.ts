@@ -18,7 +18,7 @@ import type { OrderRecord } from "../server/store.ts";
 import { ESTIMATE_NOTE, shareText, usdMicroText, usdText } from "../web/src/lib/rewards-logic.ts";
 import RewardsPage from "../web/src/pages/RewardsPage.tsx";
 import { useRewards } from "../web/src/stores/rewards.ts";
-import { ADDR, asOrder, ASSET, createFakeRpc, FIXTURE_TOKENS, harness, putMined, transferLog, type FakeRpc, type Harness, type HarnessOptions } from "./helpers.ts";
+import { ADDR, asOrder, ASSET, createFakeRpc, eventually, FIXTURE_TOKENS, harness, putMined, transferLog, type FakeRpc, type Harness, type HarnessOptions } from "./helpers.ts";
 
 // The wallet the Rewards page would open to have its one message signed. Here it is a stand-in
 // that writes down what it was asked to sign, and signs it or refuses as a test tells it to.
@@ -1681,7 +1681,9 @@ describe("points over the wire", () => {
   });
 
   it("does not try a pool read that failed again within the minute, and answers a request that arrives during a read from that read", async () => {
-    const h = await start({ env: { RESERVE_ADDRESS: ADDR.evm3 } });
+    // The region check is put to every request as it comes in. Here it refuses nobody and counts them, so that the test knows when a request has arrived.
+    let arrived = 0;
+    const h = await start({ env: { RESERVE_ADDRESS: ADDR.evm3 }, geo: { check: () => ((arrived += 1), { country: null, blocked: false, reason: null }), ready: () => true } });
     const reads = () => h.rpc.calls.filter((call) => call.chain === "bsc" && JSON.stringify(call.call.params).toLowerCase().includes(ADDR.evm3.toLowerCase().slice(2))).length;
     const ask = async () => ((await h.get("/api/rewards")).body as RewardsPublic).pool;
     h.rpc.down = true;
@@ -1697,8 +1699,10 @@ describe("points over the wire", () => {
     h.clock.t += 2_000;
     let release: () => void = () => undefined;
     h.rpc.beforeBatch = () => new Promise<void>((resolve) => (release = resolve));
+    const before = arrived;
     const together = [ask(), ask()];
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The read is let go only once both have arrived, however long the machine takes over that: one holds the read open, and the other came in during it.
+    await eventually(() => arrived === before + 2);
     h.rpc.beforeBatch = null;
     release();
     expect(await Promise.all(together)).toEqual([expect.objectContaining({ amount: (10n ** 18n).toString() }), expect.objectContaining({ amount: (10n ** 18n).toString() })]);

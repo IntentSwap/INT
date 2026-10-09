@@ -19,6 +19,15 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dist, { recursive: true, force: true }));
 
 const add = (name: string, content: string | Buffer) => fs.writeFileSync(path.join(dist, "assets", name), content);
+/**
+ * Bytes that do not compress, so that a file of them is as large on the wire as on disk. They are
+ * worked out from a fixed start and are the same on every run: bytes drawn afresh each time could,
+ * once in a great while, spell something the check looks for.
+ */
+const noise = (bytes: number) => {
+  let last = 1;
+  return Buffer.from(Array.from({ length: bytes }, () => 33 + ((last = (last * 48271) % 2147483647) % 90)));
+};
 const problems = (env: Record<string, string> = {}) => checkBuild(dist, env).problems;
 
 describe("build check", () => {
@@ -170,21 +179,18 @@ describe("build check", () => {
   });
 
   it("fails when a size budget is broken", () => {
-    // Random bytes do not compress, so each file is as large on the wire as on disk.
-    const random = (bytes: number) => Buffer.from(Array.from({ length: bytes }, () => 33 + Math.floor(Math.random() * 90)));
-    add("app-1.js", random(BUDGETS.script * 2));
+    add("app-1.js", noise(BUDGETS.script * 2));
     expect(problems().some((p) => p.startsWith("initial JavaScript (gzip) is"))).toBe(true);
     add("app-1.js", 'console.log("hello")');
-    add("app-1.css", random(BUDGETS.css * 2));
+    add("app-1.css", noise(BUDGETS.css * 2));
     expect(problems().some((p) => p.startsWith("CSS (gzip) is"))).toBe(true);
     add("app-1.css", "body{margin:0}");
-    add("big.woff2", random(BUDGETS.fonts + 1));
+    add("big.woff2", noise(BUDGETS.fonts + 1));
     expect(problems()).toEqual(["fonts is 117.2 KB, over the 120 KB budget"].map((p) => p.replace("117.2", ((BUDGETS.fonts + 1) / 1024).toFixed(1))));
   });
 
   it("counts only the scripts the first page load fetches", () => {
-    const lazy = Buffer.from(Array.from({ length: BUDGETS.script * 2 }, () => 33 + Math.floor(Math.random() * 90)));
-    add("wallet-lazy.js", lazy);
+    add("wallet-lazy.js", noise(BUDGETS.script * 2));
     expect(problems()).toEqual([]);
   });
 

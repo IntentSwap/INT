@@ -31,13 +31,14 @@ const network: typeof fetch = async (input) => {
   throw new Error("unreachable in tests");
 };
 
-function start(env: Record<string, string>, statfs?: () => { blocks: number; bavail: number }): Booted {
+function start(env: Record<string, string>, statfs?: () => { blocks: number; bavail: number }, now?: () => number): Booted {
   const booted = boot({
     env: { DATA_DIR: dir, ...env },
     log: createLogger((line) => lines.push(line)),
     fetchImpl: network,
     siteDir: path.join(dir, "no-site"),
     ...(statfs ? { statfs } : {}),
+    ...(now ? { now } : {}),
   });
   running.push(booted);
   return booted;
@@ -58,11 +59,24 @@ afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * Starts a server and waits for it to listen. The server asks for the port it was told to use; the
+ * machine is asked for any port that is free instead, so that a number chosen here can never be one
+ * that something else on the machine already holds. The address asked for is passed on as it is.
+ */
 const listen = (booted: Booted) =>
   new Promise<AddressInfo>((resolve) => {
-    booted.start(() => resolve(booted.server.address() as AddressInfo));
+    const { server } = booted;
+    const really = server.listen.bind(server) as (port: number, host: string | undefined, listening: () => void) => unknown;
+    server.listen = ((asked: number, host: string | undefined, listening: () => void) => {
+      expect(asked).toBe(booted.config.port);
+      really(0, host, listening);
+      return server;
+    }) as typeof server.listen;
+    booted.start(() => resolve(server.address() as AddressInfo));
   });
-const port = () => String(20000 + Math.floor(Math.random() * 20000));
+/** The port a server is told to use. None ever holds it: see `listen`. */
+const port = () => "24680";
 
 describe("the practice clock", () => {
   it("only goes forward, and ignores anything that is not a finite, positive number of milliseconds", () => {
@@ -181,7 +195,11 @@ describe("start-up wiring", () => {
   });
 
   it("with the practice provider it has sample content to look at: orders in every end state, a token, a reserve, and points for whoever signs in", async () => {
-    const b = start({ NODE_ENV: "development", PROVIDER_STUB: "true", PORT: port() });
+    // The server's clock is the test's own, so that what a week holds does not depend on the day or the hour the test is run at.
+    // It starts ten minutes into a week: Monday 5 October 2026 began one.
+    const monday = Date.parse("2026-10-05T00:00:00.000Z");
+    let clock = monday + 10 * 60_000;
+    const b = start({ NODE_ENV: "development", PROVIDER_STUB: "true", PORT: port() }, undefined, () => clock);
     const { port: at } = await listen(b);
     const get = async (route: string, headers: Record<string, string> = {}) => (await fetch(`http://127.0.0.1:${at}${route}`, { headers })).json() as Promise<Record<string, unknown>>;
     const config = (await get("/api/config")) as { sampleOrders: string[]; tokenAddress: string; tokenPairAddress: string; reserveAddress: string; session: string };
@@ -197,10 +215,11 @@ describe("start-up wiring", () => {
     expect(rewards.pool).toMatchObject({ address: SAMPLE.reserveAddress, amount: "2480500000000000000000", decimals: 18, usdMicro: "11906400000" });
     expect(SAMPLE.pool).toBe(24_805n * 10n ** 17n);
     // And the week has sample points in it before anyone signs in: three made-up swaps of $3,400, $1,820.50 and $760,
-    // which are 59,805 points. Anyone is told that as about 59,000. (In a week's own first quarter of an hour
-    // they are not counted yet: the total is the one from when the quarter began.)
-    const weekIsYoung = Date.now() % (7 * 86_400_000) >= 4 * 86_400_000 && Date.now() % (7 * 86_400_000) < 4 * 86_400_000 + 900_000;
-    expect(rewards.weekPointsMicro).toBe(weekIsYoung ? "0" : "59000000000");
+    // which are 59,805 points. In a week's own first quarter of an hour they are not counted yet: the total is the one
+    // from when the quarter began. From the next quarter on, anyone is told that as about 59,000.
+    expect(rewards.weekPointsMicro).toBe("0");
+    clock = monday + 15 * 60_000;
+    expect(((await get("/api/rewards")) as { weekPointsMicro: string }).weekPointsMicro).toBe("59000000000");
     // Whoever signs in is given points over three weeks and two paid weeks.
     const account = privateKeyToAccount(`0x${"7".repeat(64)}`);
     const post = async (route: string, body: unknown) => (await fetch(`http://127.0.0.1:${at}${route}`, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${at}`, "x-session": config.session }, body: JSON.stringify(body) })).json() as Promise<Record<string, string>>;
@@ -215,7 +234,7 @@ describe("start-up wiring", () => {
     expect(((await get("/api/rewards")) as { weeks: unknown[] }).weeks).toHaveLength(2);
     // Started again on the same folder: the same six orders, not twelve.
     await new Promise<void>((resolve) => b.stop(resolve));
-    const again = start({ NODE_ENV: "development", PROVIDER_STUB: "true", PORT: port() });
+    const again = start({ NODE_ENV: "development", PROVIDER_STUB: "true", PORT: port() }, undefined, () => clock);
     const second = await listen(again);
     expect(((await (await fetch(`http://127.0.0.1:${second.port}/api/config`)).json()) as { sampleOrders: string[] }).sampleOrders).toEqual(config.sampleOrders);
     expect(fs.readdirSync(path.join(dir, "orders")).filter((name) => name.startsWith("SampleOrder"))).toHaveLength(6);

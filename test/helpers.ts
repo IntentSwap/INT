@@ -5,6 +5,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { vi } from "vitest";
 import { TERMS_VERSION, type OrderView, type QuoteView } from "../shared/api.ts";
 import type { WalletChain } from "../shared/chains.ts";
 import { createAlerts, type AlertKind } from "../server/alerts.ts";
@@ -141,8 +142,8 @@ export interface ProviderTap {
   tokensResult: UpstreamResult | null;
   /** What the provider client reports about its own health. */
   degraded: boolean;
-  /** Real milliseconds each quote takes, to let requests overlap. */
-  quoteDelayMs: number;
+  /** Runs before each quote is answered, and is given what was asked. Lets a test hold a quote open at the provider. */
+  beforeQuote: ((body: Record<string, unknown>) => Promise<void>) | null;
   /** When true, forwarding a deposit hash to the provider fails. */
   submitFails: boolean;
   /** Answers status requests in place of the practice provider. Returning null lets the practice provider answer. */
@@ -225,14 +226,14 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const alerts: Harness["alerts"] = [];
   const log = createLogger((line) => logs.push(line));
   const stub = createStubProvider({ upstream: null, tokens: FIXTURE_TOKENS, now });
-  const tap: ProviderTap = { quotes: [], tamperRequest: null, corruptResponse: null, nextQuote: null, tokensResult: null, degraded: false, quoteDelayMs: 0, submitFails: false, statusReply: null, submits: [], quoteClasses: [], statusClasses: [], submitClasses: [] };
+  const tap: ProviderTap = { quotes: [], tamperRequest: null, corruptResponse: null, nextQuote: null, tokensResult: null, degraded: false, beforeQuote: null, submitFails: false, statusReply: null, submits: [], quoteClasses: [], statusClasses: [], submitClasses: [] };
 
   const oneclick: OneClick = {
     tokens: async () => tap.tokensResult ?? stub.provider.tokens(),
     async quote(body, priority) {
       tap.quotes.push(body);
       tap.quoteClasses.push(priority ?? "user");
-      if (tap.quoteDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, tap.quoteDelayMs));
+      if (tap.beforeQuote) await tap.beforeQuote(body);
       if (tap.nextQuote !== null) {
         const result = tap.nextQuote;
         tap.nextQuote = null;
@@ -413,4 +414,35 @@ export function outcome(reply: Reply): string {
 export function asOrder(reply: Reply): OrderView {
   if ((reply.status !== 201 && reply.status !== 200) || reply.body?.error) throw new Error(`expected an order, got ${reply.status}: ${reply.text}`);
   return reply.body as OrderView;
+}
+
+/**
+ * Waits for something that happens in the background for as long as the machine takes over it,
+ * instead of for a time guessed to be long enough. A machine however slow is given ten seconds.
+ */
+export async function eventually(seen: () => boolean): Promise<void> {
+  await vi.waitUntil(seen, { timeout: 10_000, interval: 5 });
+}
+
+/**
+ * Sends requests so that they are under way together on any machine, fast or slow. A request for
+ * an order that reaches the provider is held open there until every other one has either been
+ * answered or is held there too. Only then are they let through.
+ */
+export async function sentTogether(h: Harness, sends: Array<() => Promise<Reply>>): Promise<Reply[]> {
+  let held = 0;
+  let answered = 0;
+  let letThrough: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (letThrough = resolve));
+  h.tap.beforeQuote = async (body) => {
+    // A preview on the way to an order is not held: only the quote that makes the order is.
+    if (body.dry !== false) return;
+    held += 1;
+    await gate;
+  };
+  const replies = sends.map((send) => send().finally(() => (answered += 1)));
+  await eventually(() => held + answered === sends.length);
+  h.tap.beforeQuote = null;
+  letThrough();
+  return Promise.all(replies);
 }

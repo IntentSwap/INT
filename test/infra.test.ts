@@ -3,7 +3,7 @@ import http, { type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { createAlerts } from "../server/alerts.ts";
 import { isSameOrigin, requestPath, securityHeaders } from "../server/http.ts";
 import { rateKey, resolveClientIp, truncateIp, wideKey } from "../server/ip.ts";
@@ -22,6 +22,7 @@ import { firstWords, inlineScriptHashes, loadStaticSite, privateRoutingEdits, wi
 import { BANNER_WORDS } from "../shared/banner.ts";
 import { POSITIONING } from "../shared/positioning.ts";
 import { EXPLORER_HOSTS, explorerTxUrl } from "../shared/chains.ts";
+import { eventually } from "./helpers.ts";
 
 const request = (headers: Record<string, string>, remoteAddress = "10.0.0.7") => ({ headers, socket: { remoteAddress } }) as unknown as IncomingMessage;
 
@@ -628,10 +629,21 @@ describe("explorer links", () => {
 
 describe("logs", () => {
   let dir = "";
+  let opened: MockInstance<typeof fs.createWriteStream>;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "intentswap-log-"));
+    opened = vi.spyOn(fs, "createWriteStream");
   });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => {
+    opened.mockRestore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  /**
+   * The access log writes its files in the background. This waits until every line handed to it so
+   * far is in its file, however long the machine takes over that: each file the log has opened is
+   * watched until nothing written to it is still waiting.
+   */
+  const written = () => eventually(() => opened.mock.results.every((file) => (file.value as fs.WriteStream).writableLength === 0));
 
   it("writes one JSON line per event", () => {
     const lines: string[] = [];
@@ -657,7 +669,7 @@ describe("logs", () => {
     fs.writeFileSync(path.join(dir, "unrelated.txt"), "keep");
     const access = createAccessLog(dir, () => now);
     access.write({ route: "status", method: "GET", status: 200, ms: 1, ip: "203.0.113.0", country: "DE" });
-    await new Promise((resolve) => setTimeout(resolve, 30)); // the day's file is opened in the background
+    await written(); // the day's file is opened in the background
     access.prune();
     const left = () => fs.readdirSync(dir).sort();
     expect(left()).toEqual(["access-2026-10-06.log", "access-2026-10-19.log", "access-2026-10-20.log", "unrelated.txt"]);
@@ -673,7 +685,7 @@ describe("logs", () => {
     const access = createAccessLog(dir, () => now, 2000);
     const entry = { route: "status", method: "GET", status: 429, ms: 1, ip: "203.0.113.0", country: "DE" };
     for (let i = 0; i < 500; i++) access.write(entry);
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await written();
     const file = path.join(dir, "access-2026-10-20.log");
     const text = fs.readFileSync(file, "utf8");
     expect(text.length).toBeLessThanOrEqual(2000 + 200);
@@ -681,12 +693,12 @@ describe("logs", () => {
     // The next day starts a fresh file with a fresh allowance.
     now += 86_400_000;
     for (let i = 0; i < 3; i++) access.write(entry);
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await written();
     expect(fs.readFileSync(path.join(dir, "access-2026-10-21.log"), "utf8").trim().split("\n")).toHaveLength(3);
     // A restart on the same day continues from the size already on disk.
     const restarted = createAccessLog(dir, () => now - 86_400_000, 2000);
     for (let i = 0; i < 50; i++) restarted.write(entry);
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await written();
     expect(fs.readFileSync(file, "utf8").length).toBeLessThanOrEqual(2000 + 400);
     expect(ACCESS_LOG_MAX_BYTES_PER_DAY * ACCESS_LOG_DAYS).toBeLessThan(1024 * 1024 * 1024);
   });
@@ -1521,11 +1533,21 @@ describe("practice provider", () => {
     expect(await stub.provider.quote(body)).toMatchObject({ data: { from: "upstream" } });
     expect(asked).toBe(4);
 
-    // An answer that never comes: not waited for beyond the short limit.
+    // An answer that never comes: waited for up to the short limit, and not beyond it. The limit is counted on a
+    // pretend timer, so that how long the machine takes over anything else is no part of what is measured.
     answer = "hang";
-    const started = Date.now();
-    expect(madeUp(await stub.provider.quote(body))).toBe(true);
-    expect(Date.now() - started).toBeLessThan(2000);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let given: unknown = null;
+      void stub.provider.quote(body).then((result) => (given = result));
+      await vi.advanceTimersByTimeAsync(19);
+      expect(given).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(given).not.toBeNull();
+      expect(madeUp(given)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(stub.calls.madeUpPreviews).toBe(3);
 
     // Told to keep to itself (the practice clock was moved), it never asks the real provider for a preview again.

@@ -5,8 +5,13 @@ import { ADDR, ASSET, FIXTURE_TOKENS } from "./helpers.ts";
 
 // The provider's signature check is wrapped so one test can observe which key it is given.
 // Every other test runs the real check.
+// The code under test is loaded afresh for this file, so that the wrapped check is the one it uses
+// even where the test files share one process and an earlier one has loaded that code already.
 type SignatureCheck = (response: unknown, key?: string) => boolean;
-const wrapped = vi.hoisted(() => ({ check: vi.fn<SignatureCheck>(), real: null as SignatureCheck | null }));
+const wrapped = vi.hoisted(() => {
+  vi.resetModules();
+  return { check: vi.fn<SignatureCheck>(), real: null as SignatureCheck | null };
+});
 vi.mock("@defuse-protocol/one-click-sdk-typescript", async (original) => {
   const actual = await original<{ verifyQuoteSignature: SignatureCheck }>();
   wrapped.real = actual.verifyQuoteSignature;

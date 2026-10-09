@@ -154,6 +154,8 @@ describe("how a balance is read", () => {
   });
 
   it("from the coin's own chain through this site's chain route, for the connected address, whatever network the wallet is on; the wallet is asked nothing", async () => {
+    // The clock stands still unless the test moves it, so that how lately a coin was read does not depend on how fast the machine is.
+    vi.useFakeTimers({ now: Date.now() });
     // A wallet in the page, as a browser wallet is: anything asked of it is written down.
     const wallet = { request: vi.fn() };
     vi.stubGlobal("window", { ethereum: wallet });
@@ -190,7 +192,6 @@ describe("how a balance is read", () => {
     for (const file of ["stores/wallet.ts", "components/SwapCard.tsx", "components/CoinPicker.tsx"]) expect(read(file), file).not.toMatch(/switchTo|switchChain|wallet_/);
 
     // Read a moment ago, a coin is not read again; a quarter of a minute on it is, and at once when asked afresh (after a delivery).
-    vi.useFakeTimers({ now: Date.now() });
     await state().loadBalances(LIST);
     expect(asked).toHaveLength(2);
     await state().loadBalances([ETH], 0);

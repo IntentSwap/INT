@@ -16,7 +16,7 @@ import { silentLogger } from "../server/log.ts";
 import { createSanctions, createStaticSanctions } from "../server/sanctions.ts";
 import { isPlaceholder, placeholderFor } from "../server/placeholders.ts";
 import { createOrderStore, type OrderRecord } from "../server/store.ts";
-import { ADDR, asOrder, ASSET, FIXTURE_TOKENS, harness, outcome, type Harness, type HarnessOptions } from "./helpers.ts";
+import { ADDR, asOrder, ASSET, FIXTURE_TOKENS, harness, outcome, sentTogether, type Harness, type HarnessOptions } from "./helpers.ts";
 
 let open: Harness[] = [];
 async function start(options: HarnessOptions = {}): Promise<Harness> {
@@ -2078,16 +2078,14 @@ describe("limits no one visitor can use up, and what a deposit hash proves", () 
     for (const limits of [{ orderCreateDaily: { max: 1, windowMs: 86_400_000 } }, { orderPerRecipient: { max: 1, windowMs: 3_600_000 } }] as const) {
       const h = await start({ limits });
       const reviewed = await reviewedFor(h);
-      h.tap.quoteDelayMs = 60;
-      const replies = await Promise.all(Array.from({ length: 5 }, () => h.order({ reviewed })));
+      const replies = await sentTogether(h, Array.from({ length: 5 }, () => () => h.order({ reviewed })));
       expect(replies.filter((r) => r.status === 201)).toHaveLength(1);
       expect(replies.filter((r) => r.status === 429)).toHaveLength(4);
       expect(h.stub.calls.liveQuotes).toBe(1);
     }
     const capped = await start({ maxOpenOrders: 1 });
     const reviewed = await reviewedFor(capped);
-    capped.tap.quoteDelayMs = 60;
-    const replies = await Promise.all(Array.from({ length: 5 }, (_, i) => capped.order({ reviewed }, { ip: `198.51.100.${i + 1}` })));
+    const replies = await sentTogether(capped, Array.from({ length: 5 }, (_, i) => () => capped.order({ reviewed }, { ip: `198.51.100.${i + 1}` })));
     expect(replies.filter((r) => r.status === 201)).toHaveLength(1);
     expect(replies.filter((r) => r.status === 503)).toHaveLength(4);
     expect(capped.store.openCount()).toBe(1);
@@ -2553,10 +2551,8 @@ describe("the provider's call classes, proven funds, and order quotas by network
       for (let i = 0; i < 9; i++) expect((await h.order({ recipient: to(i % 9) })).status).toBe(201);
       const preview = (await h.quote({ ...QUOTE, recipient: ADDR.evm2, sender: ADDR.evm })).body as QuoteView;
       const reviewed = { amountOut: preview.amountOut, minAmountOut: preview.minAmountOut, totalFeeBps: 40 };
-      // Six more arrive together, each held open at the provider. One place is left.
-      h.tap.quoteDelayMs = 60;
-      const together = await Promise.all(Array.from({ length: 6 }, () => h.order({ reviewed })));
-      h.tap.quoteDelayMs = 0;
+      // Six more arrive together: one that reaches the provider is held open there until the others have their answer. One place is left.
+      const together = await sentTogether(h, Array.from({ length: 6 }, () => () => h.order({ reviewed })));
       expect(together.filter((r) => r.status === 201)).toHaveLength(1);
       expect(together.filter((r) => r.status === 429)).toHaveLength(5);
       expect(h.store.openCount()).toBe(10);
