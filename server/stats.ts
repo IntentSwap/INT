@@ -1,13 +1,15 @@
 // The site's own figures, for the Stats page: running totals, and a list of the latest swaps by
 // what was sent.
 //
-// One rule holds all of it: THIS FILE KNOWS NOTHING OF THE RECEIVING SIDE OF ANY SWAP. Everything
-// here comes from orders this server made and saw delivered, each counted once, and of such an
-// order only its sending side is ever read (see `deliveryOf`): the coin that was sent and its
+// One rule holds all of it: OF THE RECEIVING SIDE OF A SWAP THIS FILE KEEPS ONE THING, A TOTAL BY
+// COIN. Everything here comes from orders this server made and saw delivered, each counted once.
+// Of such an order the sending side is read (see `deliveryOf`): the coin that was sent and its
 // chain, the amount sent and its dollar value, the transaction that paid the deposit, when the
-// swap was delivered and how long that took. The coin received, its chain, the amount received,
-// the receiving address, the refund address and the delivery's transaction are not read, so they
-// can be neither kept nor sent. That is what keeps the two sides of a swap apart on this page.
+// swap was delivered and how long that took. Of the receiving side only the coin and its chain
+// are read, and they are added to that coin's running total of dollars and to nothing else: no
+// row names them. The amount received, the receiving address, the refund address and the
+// delivery's transaction are not read, so they can be neither kept nor sent. That is what keeps
+// the two sides of a swap apart on this page.
 //
 // What is kept (one small file, DATA_DIR/stats/stats.json):
 //

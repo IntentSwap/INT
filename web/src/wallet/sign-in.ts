@@ -44,8 +44,12 @@ async function askConnection(config: Config, message: string, address: string): 
   return signature;
 }
 
-/** Asks the connected wallet to sign the server's sign-in message with the given address, and returns the signature. */
-export async function signPlainMessage(message: string, address: string): Promise<string> {
+/**
+ * Asks the connected wallet to sign the server's sign-in message with the given address, and returns
+ * the signature. `plain` is the same sign-in in plain sentences, made by the server for the same
+ * code: a wallet that throws the message out as invalid, unseen, is asked to sign that instead.
+ */
+export async function signPlainMessage(message: string, address: string, plain: string | null = null): Promise<string> {
   const config = await walletConfig();
   return signInWith({
     status: () => getAccount(config).status,
@@ -53,5 +57,6 @@ export async function signPlainMessage(message: string, address: string): Promis
     connect,
     direct: () => signMessage(config, { message, account: address as `0x${string}` }),
     ask: () => askConnection(config, message, address),
+    askPlain: plain === null ? null : () => askConnection(config, plain, address),
   });
 }

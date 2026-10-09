@@ -46,11 +46,21 @@ function trail(error: unknown): Raised[] {
   return out;
 }
 
-/** The name of what was raised, for the log: letters only, so that nothing a wallet wrote can ride along. */
+/**
+ * The name of what was raised, for the log, with the wallet's own code where it gave one:
+ * "InvalidInputRpcError(-32000)". Letters, and a whole number: nothing else a wallet wrote can ride along.
+ */
 export function raisedName(error: unknown): string {
   if (error instanceof SignInError) return error.raised;
-  const name = trail(error)[0]?.name.replace(/[^A-Za-z]/g, "").slice(0, 60) ?? "";
-  return name === "" ? "Unknown" : name;
+  const steps = trail(error);
+  const name = steps[0]?.name.replace(/[^A-Za-z]/g, "").slice(0, 60) ?? "";
+  const code = steps.map((step) => step.code).find((value): value is number => typeof value === "number" && Number.isSafeInteger(value));
+  return `${name === "" ? "Unknown" : name}${code === undefined ? "" : `(${code})`}`;
+}
+
+/** True when a wallet threw the request out as badly formed, before asking the person anything. */
+export function invalidInput(error: unknown): boolean {
+  return trail(error).some((step) => step.code === -32000 || step.code === -32602 || /^(InvalidInputRpcError|InvalidParamsRpcError)$/.test(step.name));
 }
 
 /** Which of the three it was. The codes are the ones wallets answer with (EIP-1193 and JSON-RPC). */
@@ -58,7 +68,7 @@ export function failureOf(error: unknown): SignInFailure {
   if (error instanceof SignInError) return error.kind;
   const steps = trail(error);
   // The person closed the wallet's window or pressed its "no".
-  if (steps.some((step) => step.code === 4001 || step.code === "ACTION_REJECTED" || step.name === "UserRejectedRequestError" || /user (rejected|denied|cancel)|rejected the request|request rejected|denied (message|request)/i.test(step.message))) return "refused";
+  if (steps.some((step) => step.code === 4001 || step.code === "ACTION_REJECTED" || step.name === "UserRejectedRequestError" || /user (rejected|denied|cancel)|(rejected|denied|cancell?ed|declined) by (the )?user|rejected the request|request (was )?rejected|was rejected|denied (message|request)|\bcancell?ed\b/i.test(step.message))) return "refused";
   // The wallet is locked, busy with a request it has not been answered, or gone.
   if (steps.some((step) => step.code === -32002 || step.code === 4100 || step.code === 4900 || step.code === 4901 || /^(ProviderDisconnectedError|ChainDisconnectedError|UnauthorizedProviderError|ResourceUnavailableRpcError)$/.test(step.name) || /\b(locked|unlock)\b|already pending|not been authorized/i.test(step.message))) return "locked";
   return "failed";
@@ -76,6 +86,8 @@ export interface SignInWallet {
   direct(): Promise<string>;
   /** The connection's own wallet asked for the same signature, whatever network it is on. */
   ask(): Promise<string>;
+  /** The connection's own wallet asked to sign the same sign-in in plain sentences. Null where the server sent none. */
+  askPlain?: (() => Promise<string>) | null;
 }
 
 /**
@@ -98,6 +110,16 @@ export async function signInWith(wallet: SignInWallet): Promise<string> {
     try {
       return await wallet.ask();
     } catch (second) {
+      if (failureOf(second) === "refused") throw new SignInError("refused", raisedName(second));
+      // The wallet threw the message out as badly formed, unseen: it reads messages of that layout and did not
+      // like a line of it. It is asked once more, to sign the same sign-in in plain sentences.
+      if (wallet.askPlain && (invalidInput(first) || invalidInput(second))) {
+        try {
+          return await wallet.askPlain();
+        } catch (third) {
+          throw new SignInError(failureOf(third), `${raisedName(first)}Then${raisedName(second)}Then${raisedName(third)}`);
+        }
+      }
       throw new SignInError(failureOf(second), `${raisedName(first)}Then${raisedName(second)}`);
     }
   }

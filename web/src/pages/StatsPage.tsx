@@ -1,8 +1,9 @@
 // The site in numbers: five totals, a list of the latest swaps, the coins and chains with the most
 // volume sent, and the chains that have been used among all the site swaps on. Everything is counted
-// on the server from swaps this site saw delivered, and from what they sent: nothing on this page
-// says what any swap received, or where. The list gives of a swap the coin and the amount that were
-// sent, the minute it began, and a link to its deposit on the chain it was sent from.
+// on the server from swaps this site saw delivered. Of what was received the page gives totals by
+// coin and nothing else: no row and no figure says what any one swap received, or where. The list
+// gives of a swap the coin and the amount that were sent, the minute it began, and a link to its
+// deposit on the chain it was sent from.
 //
 // The page stands still while it loads. Every part is drawn at once, in its place and with the room
 // it will need: the figures and the rows arrive into room that was kept for them, so nothing that is

@@ -16,6 +16,8 @@ export interface WalletState {
   address: string | null;
   /** Our chain key for the wallet's current network, or null when it is on a network we do not support. */
   chain: string | null;
+  /** The number of the network the wallet is on, whichever it is: one of this site's or not. Null when no wallet is connected. */
+  chainId: number | null;
   /** True when the address has no contract code on the wallet's chain (or only hands its logic to one). Null until checked. */
   plain: boolean | null;
   /** What the connected address holds of each coin that has been read, by coin ID, in raw units. Holding none is a balance of zero. */
@@ -56,6 +58,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   status: "disconnected",
   address: null,
   chain: null,
+  chainId: null,
   plain: null,
   ...noBalances(),
   error: null,
@@ -110,7 +113,7 @@ export const useWallet = create<WalletState>((set, get) => ({
       const wallet = await import("../wallet/index.ts");
       await wallet.disconnect();
     } finally {
-      set({ status: "disconnected", address: null, chain: null, plain: null, ...noBalances() });
+      set({ status: "disconnected", address: null, chain: null, chainId: null, plain: null, ...noBalances() });
     }
   },
 }));

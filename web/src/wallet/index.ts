@@ -147,10 +147,10 @@ async function create(): Promise<{ kit: AppKit; wagmi: Config }> {
       const before = useWallet.getState();
       const changed = before.address !== address || before.chain !== chain;
       // What an address holds does not turn on the network its wallet is on: only another address empties the balances.
-      useWallet.setState({ status: "connected", address, chain, error: null, ...(changed ? { plain: null } : {}), ...(before.address !== address ? noBalances() : {}) });
+      useWallet.setState({ status: "connected", address, chain, chainId: account.chainId ?? null, error: null, ...(changed ? { plain: null } : {}), ...(before.address !== address ? noBalances() : {}) });
       if (changed && chain !== null) void checkPlain(chain, address);
     } else if (account.status === "disconnected") {
-      useWallet.setState({ status: "disconnected", address: null, chain: null, plain: null, ...noBalances() });
+      useWallet.setState({ status: "disconnected", address: null, chain: null, chainId: null, plain: null, ...noBalances() });
     }
   };
   watchAccount(wagmi, { onChange: sync });

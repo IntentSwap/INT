@@ -17,7 +17,7 @@ import {
   type TokensResponse,
 } from "../shared/api.ts";
 import { DEPOSIT_CLOSE_MS, explorerTxUrl, isWalletChain, WALLET_CHAINS, type WalletChain } from "../shared/chains.ts";
-import { MICRO, RESERVE_ASSET, type PoolView, type RewardsPublic } from "../shared/rewards.ts";
+import { isChainId, MICRO, RESERVE_ASSET, type PoolView, type RewardsPublic } from "../shared/rewards.ts";
 import type { AccessLog } from "./log.ts";
 import type { Alerts } from "./alerts.ts";
 import type { Config } from "./config.ts";
@@ -920,10 +920,15 @@ export function createApp(deps: AppDeps): RequestListener {
         // the host, set SITE_URL.)
         const host = signInHost(config, ctx.req.headers.host, ctx.req.headers.origin);
         if (host === null) throw new HttpError(403, "origin", "Signing in is not available from this address.");
-        const challenge = signIn.challenge(address, host, now());
-        // The parts go with the message, so that the page can put the message together itself and
-        // see that it is the one for this site and this address before the wallet is opened.
-        return { status: 200, body: { message: challenge.message, nonce: challenge.nonce, issuedAt: new Date(challenge.issuedAt).toISOString(), expiresAt: new Date(challenge.expiresAt).toISOString() } };
+        // The network the wallet is on, which the message names so that a wallet that checks it finds its own. A page that
+        // sends none (one left open from before) gets the chain rewards are paid on, as ever. Anything that is not a
+        // network's number is refused: nothing but a whole number in range is ever written into a message.
+        const asked = isRecord(body) ? body.chainId : undefined;
+        if (asked !== undefined && !isChainId(asked)) throw new HttpError(400, "bad_request", "That is not a network a wallet can be on.");
+        const challenge = signIn.challenge(address, host, now(), asked);
+        // The parts go with the messages, so that the page can put each together itself and see that
+        // it is the one for this site and this address before the wallet is opened.
+        return { status: 200, body: { message: challenge.message, plain: challenge.plain, nonce: challenge.nonce, issuedAt: new Date(challenge.issuedAt).toISOString(), expiresAt: new Date(challenge.expiresAt).toISOString(), chainId: challenge.chainId } };
       },
     },
     {
@@ -942,13 +947,18 @@ export function createApp(deps: AppDeps): RequestListener {
         // The code is used up by this attempt, whatever comes of it.
         const held = signIn.redeem(body.nonce, now());
         if (held === null || typeof signature !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(signature)) throw refused;
-        let signer: string;
-        try {
-          signer = await recoverMessageAddress({ message: held.message, signature: signature as `0x${string}` });
-        } catch {
-          throw refused;
+        // The signature is of one of the two texts this server made for the code, the message or the same in
+        // plain sentences, by the address the code was made for. Nothing the browser sends is signed over.
+        let signedIn = false;
+        for (const text of [held.message, held.plain]) {
+          try {
+            const signer = await recoverMessageAddress({ message: text, signature: signature as `0x${string}` });
+            if (signer.toLowerCase() === held.address.toLowerCase()) signedIn = true;
+          } catch {
+            // A signature that cannot be read is no one's.
+          }
         }
-        if (signer.toLowerCase() !== held.address.toLowerCase()) throw refused;
+        if (!signedIn) throw refused;
         const session = signIn.issue(held.address, now());
         return { status: 200, body: { address: held.address, token: session.token, expiresAt: new Date(session.expiresAt).toISOString() } };
       },

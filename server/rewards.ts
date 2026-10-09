@@ -19,7 +19,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import fs from "node:fs";
 import path from "node:path";
 import { checkAddress, toChecksumAddress } from "../shared/addresses.ts";
-import { nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, roundedPoints, sharePool, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
+import { nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, roundedPoints, sharePool, plainSignInMessage, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
 import type { Sanctions } from "./sanctions.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
 
@@ -524,34 +524,42 @@ export const weekAfter = nextWeek;
 
 export interface SignIn {
   /** A one-time code for an address, and the message to sign. */
-  challenge(address: string, host: string, now: number): { message: string; nonce: string; issuedAt: number; expiresAt: number };
-  /** The address a code was issued for and the message that was to be signed. The code is used up by asking. */
-  redeem(nonce: unknown, now: number): { address: string; message: string } | null;
+  challenge(address: string, host: string, now: number, chainId?: number): { message: string; plain: string; nonce: string; issuedAt: number; expiresAt: number; chainId: number };
+  /** The address a code was issued for and the two texts either of which was to be signed: the message, and the same in plain sentences. The code is used up by asking. */
+  redeem(nonce: unknown, now: number): { address: string; message: string; plain: string } | null;
   /** A session for an address, once its signature has been checked. */
   issue(address: string, now: number): { token: string; expiresAt: number };
   /** The address a session is for, or null. */
   verify(token: unknown, now: number): string | null;
 }
 
+/** How far before the moment of asking a sign-in message says it was made. */
+const ISSUED_BEFORE_MS = 60_000;
+
 /** The most one-time codes kept at once. Beyond it the oldest are dropped: a flood of requests cannot fill the memory. */
 const MAX_NONCES = 20_000;
 
 export function createSignIn(secret: Buffer = randomBytes(32)): SignIn {
-  const nonces = new Map<string, { address: string; message: string; expiresAt: number }>();
+  const nonces = new Map<string, { address: string; message: string; plain: string; expiresAt: number }>();
   const sign = (payload: string) => createHmac("sha256", secret).update(`rewards.${payload}`).digest("base64url");
   return {
-    challenge(address, host, now) {
+    challenge(address, host, now, chainId = REWARDS.chainId) {
       const nonce = randomBytes(16).toString("hex");
       const expiresAt = now + REWARDS.nonceMinutes * 60_000;
-      const message = signInMessage({ host, address, nonce, issuedAt: new Date(now).toISOString(), expiresAt: new Date(expiresAt).toISOString() });
+      // A wallet that reads the message refuses one "issued" later than its own clock says it is: the
+      // time written is a little before now, so that a wallet whose clock runs behind still takes it.
+      const issuedAt = now - ISSUED_BEFORE_MS;
+      const parts = { host, address, nonce, issuedAt: new Date(issuedAt).toISOString(), expiresAt: new Date(expiresAt).toISOString(), chainId };
+      const message = signInMessage(parts);
+      const plain = plainSignInMessage(parts);
       for (const [key, held] of nonces) if (held.expiresAt <= now) nonces.delete(key);
       while (nonces.size >= MAX_NONCES) {
         const oldest = nonces.keys().next().value;
         if (oldest === undefined) break;
         nonces.delete(oldest);
       }
-      nonces.set(nonce, { address, message, expiresAt });
-      return { message, nonce, issuedAt: now, expiresAt };
+      nonces.set(nonce, { address, message, plain, expiresAt });
+      return { message, plain, nonce, issuedAt, expiresAt, chainId };
     },
     redeem(nonce, now) {
       if (typeof nonce !== "string" || !/^[0-9a-f]{32}$/.test(nonce)) return null;
@@ -559,7 +567,7 @@ export function createSignIn(secret: Buffer = randomBytes(32)): SignIn {
       // Used up whether or not what follows succeeds: a code is good for one attempt.
       nonces.delete(nonce);
       if (held === undefined || held.expiresAt <= now) return null;
-      return { address: held.address, message: held.message };
+      return { address: held.address, message: held.message, plain: held.plain };
     },
     issue(address, now) {
       const expiresAt = now + REWARDS.sessionMinutes * 60_000;

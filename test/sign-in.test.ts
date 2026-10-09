@@ -3,7 +3,7 @@
 // and a wallet that cannot be reached.
 
 import { describe, expect, it } from "vitest";
-import { failureOf, raisedName, SIGN_IN_WORDS, SignInError, signInWith, type SignInWallet } from "../web/src/lib/sign-in-logic.ts";
+import { failureOf, invalidInput, raisedName, SIGN_IN_WORDS, SignInError, signInWith, type SignInWallet } from "../web/src/lib/sign-in-logic.ts";
 
 /** What a made-up wallet was asked, in order. */
 interface Told {
@@ -89,19 +89,52 @@ describe("the Rewards sign-in, step by step", () => {
 
   it("tells a wallet that is locked or gone from one that could not be asked, and names what was raised without anything a wallet wrote", async () => {
     const locked = wallet({ direct: () => Promise.reject(raised("ResourceUnavailableRpcError", { code: -32002, message: "Request of type 'personal_sign' already pending" })), ask: () => Promise.reject(raised("ProviderRpcError", { code: -32002 })) });
-    await expect(signInWith(locked)).rejects.toMatchObject({ kind: "locked", raised: "ResourceUnavailableRpcErrorThenProviderRpcError" });
+    await expect(signInWith(locked)).rejects.toMatchObject({ kind: "locked", raised: "ResourceUnavailableRpcError(-32002)ThenProviderRpcError(-32002)" });
     const other = wallet({ direct: () => Promise.reject(raised("ConnectorAccountNotFoundError", { message: "Account 0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83 not found" })), ask: () => Promise.reject(new Error("The connection has no wallet to ask.")) });
     const failure = (await signInWith(other).catch((error: unknown) => error)) as SignInError;
     expect(failure).toBeInstanceOf(SignInError);
     expect(failure).toMatchObject({ kind: "failed", raised: "ConnectorAccountNotFoundErrorThenError" });
-    // What is logged is the names alone: no address, and nothing else of what the wallet or the library wrote.
+    // What is logged is the names, and the wallet's own code as a number: no address, and nothing else of what the wallet or the library wrote.
     expect(failure.raised).toMatch(/^[A-Za-z]+$/);
     expect(raisedName(raised("0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83 <b>"))).toBe("xbdFEDebeDDCeAFcDeCb");
+    expect(raisedName(raised("InvalidInputRpcError", { code: -32000, message: "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83" }))).toBe("InvalidInputRpcError(-32000)");
+    expect(raisedName(raised("ContractFunctionExecutionError", { cause: raised("Error", { code: -32603 }) }))).toBe("ContractFunctionExecutionError(-32603)");
+    // A code that is not a whole number is left out: only a number is ever written.
+    for (const odd of ["-32000", 1.5, { toString: () => "x" }, Number.NaN]) expect(raisedName(raised("Odd", { code: odd }))).toBe("Odd");
     expect(raisedName("not an error")).toBe("Unknown");
     expect(failureOf(raised("ProviderDisconnectedError", { code: 4900 }))).toBe("locked");
     expect(failureOf(raised("Error", { message: "Wallet is locked" }))).toBe("locked");
     expect(failureOf(raised("Error"))).toBe("failed");
     expect(failureOf(null)).toBe("failed");
+  });
+
+  it("a wallet that throws the message out as badly formed, unseen, is asked once more to sign the same sign-in in plain sentences", async () => {
+    // What one wallet was seen to do: both ways of asking for the message came back "invalid input", and no window opened.
+    const invalid = () => Promise.reject(raised("InvalidInputRpcError", { code: -32000, message: "Missing or invalid parameters." }));
+    const w = wallet({ direct: invalid, ask: invalid });
+    const calls: string[] = w.calls;
+    const withPlain = { ...w, askPlain: async () => (calls.push("askPlain"), "0xplain") };
+    expect(await signInWith(withPlain)).toBe("0xplain");
+    expect(calls).toEqual(["settled", "direct", "ask", "askPlain"]);
+    // Only for that answer: a wallet that failed any other way is not asked a third time.
+    const other = wallet({ direct: () => Promise.reject(raised("ConnectorChainMismatchError")), ask: () => Promise.reject(raised("Error", { code: -32603 })) });
+    const otherCalls: string[] = other.calls;
+    await expect(signInWith({ ...other, askPlain: async () => (otherCalls.push("askPlain"), "0xplain") })).rejects.toMatchObject({ kind: "failed" });
+    expect(otherCalls).toEqual(["settled", "direct", "ask"]);
+    // Where the server sent no plain form there is nothing more to ask; and a "no" to the plain asking is a "no".
+    await expect(signInWith(wallet({ direct: invalid, ask: invalid }))).rejects.toMatchObject({ kind: "failed", raised: "InvalidInputRpcError(-32000)ThenInvalidInputRpcError(-32000)" });
+    const refusing = wallet({ direct: invalid, ask: invalid });
+    await expect(signInWith({ ...refusing, askPlain: () => Promise.reject(raised("UserRejectedRequestError", { code: 4001 })) })).rejects.toMatchObject({ kind: "refused", raised: "InvalidInputRpcError(-32000)ThenInvalidInputRpcError(-32000)ThenUserRejectedRequestError(4001)" });
+    expect(invalidInput(raised("Error", { code: -32602 }))).toBe(true);
+    expect(invalidInput(raised("Error", { code: 4001 }))).toBe(false);
+  });
+
+  it("knows a refusal in the words wallets use for one, so that nobody who said no is asked again", async () => {
+    for (const words of ["Ledger device: Condition of use not satisfied (denied by the user?) (0x6985)", "Cancelled by user", "Signature request was rejected", "User canceled", "Request rejected", "The request was declined by the user"]) {
+      const w = wallet({ direct: () => Promise.reject(raised("Error", { code: -32603, message: words })) });
+      await expect(signInWith(w), words).rejects.toMatchObject({ kind: "refused" });
+      expect(w.calls, words).toEqual(["settled", "direct"]);
+    }
   });
 
   it("says one of three things, and none of them blames the person for what a wallet did", () => {

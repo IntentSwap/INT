@@ -591,7 +591,7 @@ describe("what the Stats page lists of a swap is said where a person would look 
       expect(drawnWith(withStats(config, true), privacy)).toContain('<a href="/stats">Stats page</a>');
       const off = wordsOf(drawnWith(withStats(config, false), privacy));
       expect(off).not.toMatch(/listed on the Stats page|Stats page/);
-      expect(off).toContain("Stats. The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Nothing about where a swap was delivered is kept in them, and no page of this site shows them.");
+      expect(off).toContain("Stats. The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Beside them it keeps the value in US dollars of each coin received, as a total by coin. Which swap was delivered where is not kept, and no page of this site shows any of this.");
       // What used to be said of this page is said no longer, by either.
       for (const text of [on, off]) expect(text).not.toMatch(/no transaction hash|no exact amount|no exact time|rounded row|size band|quarter of an hour/);
     }

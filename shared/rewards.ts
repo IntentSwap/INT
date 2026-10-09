@@ -249,6 +249,17 @@ export interface SignInParts {
   nonce: string;
   issuedAt: string;
   expiresAt: string;
+  /** The network the wallet is on as it signs in. Left out, it is the chain rewards are paid on. It says nothing of where rewards are paid. */
+  chainId?: number;
+}
+
+/**
+ * True for a network's number as a wallet gives it: a whole number of one or more, within the
+ * range such numbers are kept to (EIP-2294). A wallet that reads the sign-in message checks its
+ * "Chain ID" against the network it is on, so the message names that network, whichever it is.
+ */
+export function isChainId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 4_503_599_627_370_476;
 }
 
 /** What the sign-in message says it is for. One line, in plain words. */
@@ -272,11 +283,21 @@ export function signInMessage(input: SignInParts): string {
     "",
     `URI: ${local ? "http" : "https"}://${input.host}`,
     "Version: 1",
-    `Chain ID: ${REWARDS.chainId}`,
+    `Chain ID: ${input.chainId ?? REWARDS.chainId}`,
     `Nonce: ${input.nonce}`,
     `Issued At: ${input.issuedAt}`,
     `Expiration Time: ${input.expiresAt}`,
   ].join("\n");
+}
+
+/**
+ * The same sign-in in plain sentences, not laid out as a "Sign-In with Ethereum" message. Some
+ * wallets read that layout, check it against their own state and throw the message out unseen when
+ * they do not like a line of it. A wallet that does so is asked to sign this instead: the same site,
+ * address, code and times, in a form no wallet takes apart. The server makes both for one code.
+ */
+export function plainSignInMessage(input: SignInParts): string {
+  return [`Sign in to IntentSwap at ${input.host}.`, `Address: ${input.address}`, SIGN_IN_STATEMENT, `Code: ${input.nonce}`, `Made: ${input.issuedAt}`, `Good until: ${input.expiresAt}`].join("\n");
 }
 
 const NONCE_SHAPE = /^[0-9a-f]{32}$/;
@@ -288,9 +309,24 @@ const TIME_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
  * opens the wallet: a message that names another site or another address, or that carries a line
  * more than these, is never put in front of a wallet to be signed.
  */
-export function isSignInMessage(message: unknown, parts: { host: string; address: string; nonce: unknown; issuedAt: unknown; expiresAt: unknown }): boolean {
-  const { nonce, issuedAt, expiresAt } = parts;
-  if (typeof nonce !== "string" || !NONCE_SHAPE.test(nonce)) return false;
-  if (typeof issuedAt !== "string" || !TIME_SHAPE.test(issuedAt) || typeof expiresAt !== "string" || !TIME_SHAPE.test(expiresAt)) return false;
-  return message === signInMessage({ host: parts.host, address: parts.address, nonce, issuedAt, expiresAt });
+export function isSignInMessage(message: unknown, parts: { host: string; address: string; nonce: unknown; issuedAt: unknown; expiresAt: unknown; chainId?: unknown }): boolean {
+  const made = madeFrom(parts);
+  return made !== null && message === signInMessage(made);
+}
+
+/** The same test for the plain form: it is, character for character, the plain sign-in of this host, address, code and times. */
+export function isPlainSignInMessage(message: unknown, parts: { host: string; address: string; nonce: unknown; issuedAt: unknown; expiresAt: unknown }): boolean {
+  const made = madeFrom(parts);
+  return made !== null && message === plainSignInMessage(made);
+}
+
+/** The parts of a sign-in as a message may be made from them, or null when one is not of the shape the server makes. */
+function madeFrom(parts: { host: string; address: string; nonce: unknown; issuedAt: unknown; expiresAt: unknown; chainId?: unknown }): SignInParts | null {
+  const { nonce, issuedAt, expiresAt, chainId } = parts;
+  if (typeof nonce !== "string" || !NONCE_SHAPE.test(nonce)) return null;
+  if (typeof issuedAt !== "string" || !TIME_SHAPE.test(issuedAt) || typeof expiresAt !== "string" || !TIME_SHAPE.test(expiresAt)) return null;
+  // The expiry is after the making, as a wallet that reads the times expects.
+  if (!(Date.parse(expiresAt) > Date.parse(issuedAt))) return null;
+  if (chainId !== undefined && !isChainId(chainId)) return null;
+  return { host: parts.host, address: parts.address, nonce, issuedAt, expiresAt, ...(chainId === undefined ? {} : { chainId }) };
 }

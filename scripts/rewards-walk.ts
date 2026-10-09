@@ -42,6 +42,9 @@ interface WalletWindow {
 // Made up from fixed text: a key that holds nothing and is nobody's.
 const ACCOUNT = privateKeyToAccount(`0x${createHash("sha256").update("intentswap rewards walk wallet").digest("hex")}`);
 /** BNB Chain, where a rewards address lives. */
+// WALK_PICKY=1 makes the made-up wallet refuse the sign-in message's usual layout as badly formed, as one real wallet does when the
+// message names a network it is not on; the page must then sign in with the same sign-in in plain sentences.
+const PICKY = process.env.WALK_PICKY === "1";
 // The network the made-up wallet says it is on. Signing in turns on none, so WALK_CHAIN can name one this site does not use (137, say).
 const CHAIN = Number(process.env.WALK_CHAIN ?? 56);
 /** What a wallet may be asked on the Rewards page. Anything else is a failure, whatever it is. */
@@ -54,6 +57,7 @@ function pretendWallet(address: string): string {
     window.__wallet = state;
     const listeners = {};
     const refuse = () => Object.assign(new Error("User rejected the request."), { code: 4001 });
+    const decodeHex = (hex) => { let out = ""; for (let i = 2; i < String(hex).length; i += 2) out += String.fromCharCode(parseInt(String(hex).slice(i, i + 2), 16)); return out; };
     const provider = {
       on(name, fn) { (listeners[name] = listeners[name] || []).push(fn); return provider; },
       removeListener(name, fn) { listeners[name] = (listeners[name] || []).filter((f) => f !== fn); return provider; },
@@ -74,6 +78,8 @@ function pretendWallet(address: string): string {
             return null;
           case "personal_sign":
             if (state.mode === "reject") throw refuse();
+            // A wallet that reads sign-in messages of the usual layout and throws one out unseen (WALK_PICKY): "invalid input", no window.
+            if (${PICKY} && decodeHex(params[0]).includes("wants you to sign in with your Ethereum account")) throw Object.assign(new Error("Missing or invalid parameters."), { code: -32000 });
             return window.__signMessage(params[0]);
           default:
             throw Object.assign(new Error("Unsupported: " + method), { code: 4200 });
@@ -170,15 +176,23 @@ export async function rewardsWalk(browser: Browser, options: { practiceUrl: stri
       const log = await asks();
       const strangers = [...new Set(log.map((ask) => ask.method).filter((method) => !ALLOWED_ASKS.has(method)))];
       expectThat(strangers.length === 0, `the wallet was asked for something else: ${strangers.join(", ")}`);
-      expectThat(log.filter((ask) => ask.method === "personal_sign").length === 2, `the wallet was asked to sign ${log.filter((ask) => ask.method === "personal_sign").length} times for one refusal and one sign-in`);
+      // One asking for the refusal; for the sign-in one more, or three where the wallet throws the usual layout out twice before it is asked in plain sentences.
+      const askings = log.filter((ask) => ask.method === "personal_sign").length;
+      expectThat(askings === (PICKY ? 4 : 2), `the wallet was asked to sign ${askings} times for one refusal and one sign-in`);
       expectThat(signed.length === 1, `${signed.length} messages were signed for one sign-in`);
       const message = signed[0] ?? "";
       const lines = message.split("\n");
-      // Laid out as a "Sign-In with Ethereum" message, so that a wallet can tell which site is asking and warn when it is another.
-      expectThat(lines[0] === `${host} wants you to sign in with your Ethereum account:` && lines[1] === ACCOUNT.address, `the message signed begins "${lines.slice(0, 2).join(" / ")}"`);
-      expectThat(message.includes(`\nURI: ${new URL(practiceUrl).origin}\n`) && message.includes("\nVersion: 1\n") && message.includes("\nChain ID: 56\n"), "the message signed does not name this site's address, its version and BNB Chain as a sign-in message does");
+      if (PICKY) {
+        // The same sign-in in plain sentences: this site, this address, a code and two times, and nothing a wallet takes apart.
+        expectThat(lines[0] === `Sign in to IntentSwap at ${host}.` && lines[1] === `Address: ${ACCOUNT.address}`, `the plain message signed begins "${lines.slice(0, 2).join(" / ")}"`);
+        expectThat(/^Code: [0-9a-f]{32}$/m.test(message) && /^Good until: \d{4}-\d\d-\d\dT/m.test(message) && !/Chain ID|wants you to sign in/.test(message), "the plain message signed is not the plain sign-in");
+      } else {
+        // Laid out as a "Sign-In with Ethereum" message, so that a wallet can tell which site is asking and warn when it is another. It names the network the wallet is on.
+        expectThat(lines[0] === `${host} wants you to sign in with your Ethereum account:` && lines[1] === ACCOUNT.address, `the message signed begins "${lines.slice(0, 2).join(" / ")}"`);
+        expectThat(message.includes(`\nURI: ${new URL(practiceUrl).origin}\n`) && message.includes("\nVersion: 1\n") && message.includes(`\nChain ID: ${CHAIN}\n`), "the message signed does not name this site's address, its version and the wallet's network as a sign-in message does");
+        expectThat(/^Nonce: [0-9a-f]{32}$/m.test(message) && /^Expiration Time: \d{4}-\d\d-\d\dT/m.test(message), "the message signed carries no one-time code or no time at which it runs out");
+      }
       expectThat(message.includes("This is not a transaction. It moves nothing, approves nothing and costs no network fee."), "the message signed does not say that it is not a transaction");
-      expectThat(/^Nonce: [0-9a-f]{32}$/m.test(message) && /^Expiration Time: \d{4}-\d\d-\d\dT/m.test(message), "the message signed carries no one-time code or no time at which it runs out");
 
       // Signed in: this week and all time, the swaps behind them, the payouts.
       const points = (await page.locator(".rewards-points").innerText()).trim();

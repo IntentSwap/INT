@@ -140,6 +140,8 @@ export function isBalanceBatch(parsed: { requests: ProxyRequest[]; batch: boolea
     if (call.method === "eth_getBalance") return true;
     if (call.method !== "eth_call") return false;
     // The call a balance read is, and nothing more: a contract and `balanceOf` of one address, at the latest block.
+    // Nothing may ride behind the block: a third part can hand the node code of the caller's own to run.
+    if (call.params.length > 2) return false;
     const [first, block] = call.params as unknown[];
     if (!isRecord(first) || Object.keys(first).some((key) => key !== "to" && key !== "data")) return false;
     if (block !== undefined && block !== "latest") return false;

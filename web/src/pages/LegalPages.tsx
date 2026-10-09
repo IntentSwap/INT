@@ -199,7 +199,7 @@ export function PrivacyPage() {
               </>
             ) : (
               <>
-                <strong>Stats.</strong> The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Nothing about where a swap was delivered is kept in them, and no page of this site shows them.
+                <strong>Stats.</strong> The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Beside them it keeps the value in US dollars of each coin received, as a total by coin. Which swap was delivered where is not kept, and no page of this site shows any of this.
               </>
             )}
           </li>

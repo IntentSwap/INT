@@ -6,7 +6,7 @@ import { create } from "zustand";
 import { failureOf, raisedName, SIGN_IN_WORDS } from "../lib/sign-in-logic.ts";
 import { partFailedToLoad } from "../lib/stale.ts";
 import { toChecksumAddress } from "../../../shared/addresses.ts";
-import { isSignInMessage, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
+import { isChainId, isPlainSignInMessage, isSignInMessage, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
 import { api, ApiError } from "../api.ts";
 
 export type SignInStep = "idle" | "asking" | "signing" | "checking";
@@ -23,7 +23,7 @@ export interface RewardsState {
   error: string | null;
   loadSummary(): Promise<void>;
   /** Signs in with the connected wallet's address: one message, one signature. */
-  signIn(address: string): Promise<void>;
+  signIn(address: string, chainId?: number | null): Promise<void>;
   signOut(): void;
   /** Reads the signed-in address's points again. Ends the sign-in when it has run out. */
   refresh(): Promise<void>;
@@ -46,25 +46,31 @@ export const useRewards = create<RewardsState>((set, get) => ({
       set({ summaryFailed: true });
     }
   },
-  async signIn(address) {
+  async signIn(address, chainId = null) {
     if (get().step !== "idle") return;
     set({ step: "asking", error: null });
     try {
       // The server sends the message to sign, and with it the parts it is made of.
-      const code: { message: string; nonce: string; expiresAt: string; issuedAt?: unknown } = await api.rewardsCode(address);
+      // The network the wallet is on goes with the request: a wallet that reads the message checks its "Chain ID" against its own.
+      const network = isChainId(chainId) ? chainId : null;
+      const code: { message: string; plain?: unknown; nonce: string; expiresAt: string; issuedAt?: unknown; chainId?: unknown } = await api.rewardsCode(address, network);
       // Before the wallet is opened, the message is put together again here, for the site this page
       // is on and the address that is connected. If it is not, character for character, what the
       // server sent, the wallet is not asked to sign anything.
       const asking = /^0x[0-9a-fA-F]{40}$/.test(address) ? toChecksumAddress(address) : "";
-      if (!isSignInMessage(code.message, { host: window.location.host, address: asking, nonce: code.nonce, issuedAt: code.issuedAt, expiresAt: code.expiresAt })) {
+      const parts = { host: window.location.host, address: asking, nonce: code.nonce, issuedAt: code.issuedAt, expiresAt: code.expiresAt };
+      // The message names the network that was asked for, or, where none was, the one the server names itself.
+      if ((network !== null && code.chainId !== network) || !isSignInMessage(code.message, { ...parts, ...(code.chainId === undefined ? {} : { chainId: code.chainId }) })) {
         set({ step: "idle", error: "That sign-in did not work. Try again." });
         return;
       }
+      // The same sign-in in plain sentences, for a wallet that throws the message out unread. It is checked the same way; one that is not the server's own is not used.
+      const plain = typeof code.plain === "string" && isPlainSignInMessage(code.plain, parts) ? code.plain : null;
       set({ step: "signing" });
       // The only signature this site asks for. The module that asks is loaded here and nowhere else.
       // If that module cannot be fetched (a page left open across a new version of the site), nothing is
       // said of the sign-in, which was never tried: the page loads itself again, or asks to be reloaded.
-      let signPlainMessage: (message: string, address: string) => Promise<string>;
+      let signPlainMessage: (message: string, address: string, plain: string | null) => Promise<string>;
       try {
         ({ signPlainMessage } = await import("../wallet/sign-in.ts"));
       } catch {
@@ -74,7 +80,7 @@ export const useRewards = create<RewardsState>((set, get) => ({
       }
       let signature: string;
       try {
-        signature = await signPlainMessage(code.message, address);
+        signature = await signPlainMessage(code.message, address, plain);
       } catch (error) {
         // Three things are told apart: the person said no, the wallet could not be reached, or it could not be asked.
         // What was raised is named in the console by its name alone, never with an address, so that it can be found.

@@ -154,7 +154,7 @@ function Mine({ mine }: { mine: RewardsView | null }) {
         <>
           {/* Said before the wallet opens: what it will be asked, and that it is not a payment. */}
           <p className="rewards-ask">Signing in asks your wallet to sign one plain message, to show that this address is yours. It is not a transaction: it moves nothing, approves nothing and costs no network fee.</p>
-          <PrimaryButton onClick={() => void rewards.signIn(wallet.address ?? "")} disabled={busy} busy={busy}>
+          <PrimaryButton onClick={() => void rewards.signIn(wallet.address ?? "", wallet.chainId)} disabled={busy} busy={busy}>
             {rewards.step === "signing" ? "Confirm in your wallet" : rewards.step === "checking" ? "Checking" : rewards.step === "asking" ? "One moment" : `Sign in as ${shortAddress(wallet.address)}`}
           </PrimaryButton>
         </>

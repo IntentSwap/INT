@@ -106,7 +106,7 @@ export const api = {
   /** What anyone may see of the rewards: the week's dates and its total of points, the weeks already paid, the current pool. */
   rewards: () => send<RewardsPublic>("GET", "/api/rewards"),
   /** The first half of the Rewards page's sign-in: the message to sign for an address, with its one-time code. */
-  rewardsCode: (address: string) => post<{ message: string; nonce: string; issuedAt: string; expiresAt: string }>("/api/rewards/code", { address }, AbortSignal.timeout(15_000)),
+  rewardsCode: (address: string, chainId: number | null) => post<{ message: string; plain?: unknown; nonce: string; issuedAt: string; expiresAt: string; chainId?: unknown }>("/api/rewards/code", chainId === null ? { address } : { address, chainId }, AbortSignal.timeout(15_000)),
   /** The second half: the signature, for a sign-in that lasts half an hour. */
   rewardsSession: (nonce: string, signature: string) => post<{ address: string; token: string; expiresAt: string }>("/api/rewards/session", { nonce, signature }, AbortSignal.timeout(15_000)),
   /** One's own points, with a sign-in. */

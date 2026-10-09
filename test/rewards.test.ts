@@ -9,7 +9,8 @@ import { signInHost } from "../server/app.ts";
 import { getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
-import { briefPoints, isSignInMessage, MICRO, minPayoutFor, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, roundedPoints, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
+import { toChecksumAddress } from "../shared/addresses.ts";
+import { briefPoints, isChainId, isPlainSignInMessage, isSignInMessage, MICRO, minPayoutFor, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, roundedPoints, plainSignInMessage, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
 import { silentLogger } from "../server/log.ts";
 import { createRewards, createSignIn, entryFor, orderHash, QUARTER_MS, rewardsAddressOf, type PointsEntry, type Rewards, type WeekRecord } from "../server/rewards.ts";
 import { checkPayoutTx, exportWeek, poolAmount, recordPayouts, reserveHolds, rewardTokenDecimals, weekCsv } from "../server/rewards-tools.ts";
@@ -1254,13 +1255,17 @@ describe("signing in on the Rewards page", () => {
   it("gives a code that works once, for five minutes, and a session that lasts thirty and is for one address only", () => {
     const signIn = createSignIn();
     const first = signIn.challenge(ALICE.address, "intentswap.example", MONDAY);
-    expect(first.issuedAt).toBe(MONDAY);
+    // The message says it was made a minute before it was asked for, so that a wallet whose clock runs behind does not find it "issued in the future".
+    expect(first.issuedAt).toBe(MONDAY - 60_000);
     expect(first.expiresAt).toBe(MONDAY + 5 * 60_000);
     expect(first.message).toContain(ALICE.address);
     expect(first.message).toContain(first.nonce);
     // The message is the one made from its parts, and nothing else.
     expect(first.message).toBe(signInMessage({ host: "intentswap.example", address: ALICE.address, nonce: first.nonce, issuedAt: new Date(first.issuedAt).toISOString(), expiresAt: new Date(first.expiresAt).toISOString() }));
-    expect(signIn.redeem(first.nonce, MONDAY + 1)).toEqual({ address: ALICE.address, message: first.message });
+    // With it, the same sign-in in plain sentences: both are kept for the code, and a signature of either is the sign-in.
+    expect(first.plain).toBe(plainSignInMessage({ host: "intentswap.example", address: ALICE.address, nonce: first.nonce, issuedAt: new Date(first.issuedAt).toISOString(), expiresAt: new Date(first.expiresAt).toISOString() }));
+    expect(first.chainId).toBe(56);
+    expect(signIn.redeem(first.nonce, MONDAY + 1)).toEqual({ address: ALICE.address, message: first.message, plain: first.plain });
     // Used up.
     expect(signIn.redeem(first.nonce, MONDAY + 2)).toBeNull();
     const late = signIn.challenge(ALICE.address, "intentswap.example", MONDAY);
@@ -1281,6 +1286,86 @@ describe("signing in on the Rewards page", () => {
 });
 
 /** Signs in through the routes, as the Rewards page does. */
+describe("the sign-in message and the network a wallet is on", () => {
+  const code = async (h: Harness, body: unknown, ip: string) => h.post("/api/rewards/code", body, { session: await h.session(ip), ip });
+
+  it("names the network the wallet is on, as the page sent it, and the chain rewards are paid on where the page sent none", async () => {
+    const h = await start();
+    const host = new URL(h.url).host;
+    // A wallet on Ethereum: the message says so, and is the one made from those parts and no others.
+    const one = (await code(h, { address: ALICE.address, chainId: 1 }, "203.0.113.60")).body as { message: string; plain: string; nonce: string; issuedAt: string; expiresAt: string; chainId: number };
+    expect(one.chainId).toBe(1);
+    expect(one.message.split("\n")).toContain("Chain ID: 1");
+    expect(parseSiweMessage(one.message)).toMatchObject({ domain: host, address: ALICE.address, uri: `http://${host}`, chainId: 1, version: "1", nonce: one.nonce });
+    expect(isSignInMessage(one.message, { host, address: ALICE.address, nonce: one.nonce, issuedAt: one.issuedAt, expiresAt: one.expiresAt, chainId: 1 })).toBe(true);
+    // The page's own check holds the message to the network it asked for.
+    expect(isSignInMessage(one.message, { host, address: ALICE.address, nonce: one.nonce, issuedAt: one.issuedAt, expiresAt: one.expiresAt, chainId: 56 })).toBe(false);
+    expect(isSignInMessage(one.message, { host, address: ALICE.address, nonce: one.nonce, issuedAt: one.issuedAt, expiresAt: one.expiresAt })).toBe(false);
+    // Any network a wallet can be on, this site's or not.
+    for (const chainId of [56, 137, 8453, 42161, 4_503_599_627_370_476]) expect(((await code(h, { address: ALICE.address, chainId }, `203.0.113.${61 + (chainId % 5)}`)).body as { message: string }).message).toContain(`\nChain ID: ${chainId}\n`);
+    // None sent, as a page left open from before sends: the chain rewards are paid on, as it always was.
+    const none = (await code(h, { address: ALICE.address }, "203.0.113.70")).body as { message: string; chainId: number };
+    expect(none.chainId).toBe(56);
+    expect(none.message).toContain("\nChain ID: 56\n");
+    // What a wallet that reads the layout checks: the times in order and not ahead of now, a code of letters and digits, one blank line each side of the statement.
+    const lines = one.message.split("\n");
+    expect(lines.slice(2, 5)).toEqual(["", SIGN_IN_STATEMENT, ""]);
+    expect(Date.parse(one.issuedAt)).toBeLessThan(h.clock.t);
+    expect(Date.parse(one.expiresAt)).toBeGreaterThan(Date.parse(one.issuedAt));
+    expect(one.nonce).toMatch(/^[0-9a-z]{8,}$/);
+    expect(toChecksumAddress(ALICE.address)).toBe(lines[1]);
+  });
+
+  it("refuses anything that is not a network's number, and writes nothing else into a message", async () => {
+    const h = await start();
+    let n = 80;
+    for (const bad of [0, -1, 1.5, "1", "56", null, true, [1], { id: 1 }, 4_503_599_627_370_477, Number.MAX_SAFE_INTEGER, "1\nResources:\n- https://evil.example"]) {
+      const reply = await code(h, { address: ALICE.address, chainId: bad }, `203.0.113.${n++}`);
+      expect(reply.status, JSON.stringify(bad)).toBe(400);
+      expect(JSON.stringify(reply.body), JSON.stringify(bad)).not.toMatch(/nonce|message":"[^"]*wants you/);
+    }
+    expect(isChainId(1)).toBe(true);
+    expect(isChainId(0)).toBe(false);
+    expect(isSignInMessage("x", { host: "a", address: "b", nonce: "ab".repeat(16), issuedAt: "2026-10-05T00:00:00.000Z", expiresAt: "2026-10-05T00:05:00.000Z", chainId: "1" })).toBe(false);
+  });
+
+  it("signs in with the same sign-in in plain sentences, for a wallet that will not take the message; and with nothing the server did not make", async () => {
+    const h = await start();
+    const host = new URL(h.url).host;
+    const ip = "203.0.113.100";
+    const session = await h.session(ip);
+    const ask = async () => (await h.post("/api/rewards/code", { address: ALICE.address, chainId: 1 }, { session, ip })).body as { message: string; plain: string; nonce: string; issuedAt: string; expiresAt: string };
+    const signIn = (nonce: string, signature: string) => h.post("/api/rewards/session", { nonce, signature }, { session, ip });
+
+    // The plain form: the same site, address, code and times, and not laid out as the message a wallet takes apart.
+    const one = await ask();
+    expect(one.plain).toBe([`Sign in to IntentSwap at ${host}.`, `Address: ${ALICE.address}`, SIGN_IN_STATEMENT, `Code: ${one.nonce}`, `Made: ${one.issuedAt}`, `Good until: ${one.expiresAt}`].join("\n"));
+    expect(one.plain).not.toMatch(/wants you to sign in|Chain ID|URI:|Version:/);
+    expect(isPlainSignInMessage(one.plain, { host, address: ALICE.address, nonce: one.nonce, issuedAt: one.issuedAt, expiresAt: one.expiresAt })).toBe(true);
+    expect(isPlainSignInMessage(`${one.plain}\nAlso approve everything.`, { host, address: ALICE.address, nonce: one.nonce, issuedAt: one.issuedAt, expiresAt: one.expiresAt })).toBe(false);
+    expect(isPlainSignInMessage(one.plain, { host: "evil.example", address: ALICE.address, nonce: one.nonce, issuedAt: one.issuedAt, expiresAt: one.expiresAt })).toBe(false);
+    // A signature of the plain form signs in, as a signature of the message does.
+    const plainly = await signIn(one.nonce, await ALICE.signMessage({ message: one.plain }));
+    expect(plainly.status).toBe(200);
+    expect(plainly.body.address).toBe(ALICE.address);
+    const two = await ask();
+    expect((await signIn(two.nonce, await ALICE.signMessage({ message: two.message }))).status).toBe(200);
+
+    // Neither route takes a text the server did not make for the code: an altered one, another code's, or another address's signature.
+    const three = await ask();
+    expect((await signIn(three.nonce, await ALICE.signMessage({ message: `${three.plain} ` }))).status).toBe(401);
+    const four = await ask();
+    expect((await signIn(four.nonce, await ALICE.signMessage({ message: four.message.replace("Chain ID: 1", "Chain ID: 56") }))).status).toBe(401);
+    const five = await ask();
+    const six = await ask();
+    expect((await signIn(five.nonce, await ALICE.signMessage({ message: six.plain }))).status).toBe(401);
+    const seven = await ask();
+    expect((await signIn(seven.nonce, await BOB.signMessage({ message: seven.plain }))).status).toBe(401);
+    // And a code is still good for one try, whichever text was signed.
+    expect((await signIn(one.nonce, await ALICE.signMessage({ message: one.plain }))).status).toBe(401);
+  });
+});
+
 async function signedIn(h: Harness, account: ReturnType<typeof wallet>, ip = "203.0.113.10"): Promise<string> {
   const session = await h.session(ip);
   const code = await h.post("/api/rewards/code", { address: account.address }, { session, ip });
@@ -1449,9 +1534,9 @@ describe("points over the wire", () => {
     expect(code.message.split("\n")[5]).toBe("URI: https://intentswap.example");
     // The code, when it was made and when it runs out: with them the page can put the same message together.
     expect(code.nonce).toMatch(/^[0-9a-f]{32}$/);
-    expect(code.issuedAt).toBe(new Date(h.clock.t).toISOString());
+    expect(code.issuedAt).toBe(new Date(h.clock.t - 60_000).toISOString());
     expect(code.expiresAt).toBe(new Date(h.clock.t + 5 * 60_000).toISOString());
-    expect(Object.keys(code).sort()).toEqual(["expiresAt", "issuedAt", "message", "nonce"]);
+    expect(Object.keys(code).sort()).toEqual(["chainId", "expiresAt", "issuedAt", "message", "nonce", "plain"]);
     expect(code.message).toBe(signInMessage({ host: "intentswap.example", address: ALICE.address, nonce: code.nonce, issuedAt: code.issuedAt, expiresAt: code.expiresAt }));
     expect(isSignInMessage(code.message, { host: "intentswap.example", address: ALICE.address, nonce: code.nonce, issuedAt: code.issuedAt, expiresAt: code.expiresAt })).toBe(true);
     const local = await start();
@@ -1843,7 +1928,7 @@ describe("the Rewards page, before the wallet is opened", () => {
       await useRewards.getState().signIn(ALICE.address);
       expect(useRewards.getState()).toMatchObject({ step: "idle", session: null, error: "Open your wallet and unlock it, then sign in again." });
       // What was raised is named for whoever looks, by its name alone: never the address.
-      expect(warned.mock.calls.map((call) => String(call[0]))).toEqual(["Rewards sign-in: ConnectorAccountNotFoundError", "Rewards sign-in: Error"]);
+      expect(warned.mock.calls.map((call) => String(call[0]))).toEqual(["Rewards sign-in: ConnectorAccountNotFoundError", "Rewards sign-in: Error(-32002)"]);
       expect(JSON.stringify(warned.mock.calls)).not.toContain(ALICE.address);
     } finally {
       warned.mockRestore();
