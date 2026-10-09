@@ -186,6 +186,10 @@ export function isSupportContact(value: string): boolean {
 export const DEFAULT_SITE_URL = "https://intentswap.app";
 /** The project's account on X, behind the X icon unless X_URL says otherwise. */
 export const DEFAULT_X_URL = "https://x.com/intentswap_";
+/** The project's repository, behind the GitHub icon unless GITHUB_URL says otherwise. */
+export const DEFAULT_GITHUB_URL = "https://github.com/IntentSwap/INT";
+/** Where the DexScreener icon leads until DEXSCREENER_URL names the token's own page there. */
+export const DEFAULT_DEXSCREENER_URL = "https://dexscreener.com/";
 
 export function loadConfig(env: Env = process.env): Config {
   const mode = read(env, "NODE_ENV") ?? "production";
@@ -296,10 +300,11 @@ export function loadConfig(env: Env = process.env): Config {
   const xUrl = httpsUrl(env, "X_URL", false) ?? DEFAULT_X_URL;
   if (!/^https:\/\/(x|twitter)\.com\/[A-Za-z0-9_]{1,30}\/?$/.test(xUrl)) fail("X_URL", "must be an x.com profile link");
   // The two other links behind the header's icons. Each is held to its own site, over https, with nothing after the path.
-  const dexscreenerUrl = httpsUrl(env, "DEXSCREENER_URL", false);
-  if (dexscreenerUrl !== null && !/^https:\/\/dexscreener\.com\/[A-Za-z0-9_-]{1,40}(\/[A-Za-z0-9_-]{1,80}){0,2}\/?$/.test(dexscreenerUrl)) fail("DEXSCREENER_URL", "must be a dexscreener.com link, for example https://dexscreener.com/bsc/0x...");
-  const githubUrl = httpsUrl(env, "GITHUB_URL", false);
-  if (githubUrl !== null && !/^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]{0,38}(\/[A-Za-z0-9._-]{1,100})?\/?$/.test(githubUrl)) fail("GITHUB_URL", "must be a github.com link, for example https://github.com/name/project");
+  // Each has an address of its own to start from: the project's repository, and DexScreener's front page until the token has a page there.
+  const dexscreenerUrl = httpsUrl(env, "DEXSCREENER_URL", false) ?? DEFAULT_DEXSCREENER_URL;
+  if (!/^https:\/\/dexscreener\.com\/(?:[A-Za-z0-9_-]{1,40}(\/[A-Za-z0-9_-]{1,80}){0,2}\/?)?$/.test(dexscreenerUrl)) fail("DEXSCREENER_URL", "must be a dexscreener.com link, for example https://dexscreener.com/bsc/0x...");
+  const githubUrl = httpsUrl(env, "GITHUB_URL", false) ?? DEFAULT_GITHUB_URL;
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]{0,38}(\/[A-Za-z0-9._-]{1,100})?\/?$/.test(githubUrl)) fail("GITHUB_URL", "must be a github.com link, for example https://github.com/name/project");
 
   const supportContact = read(env, "SUPPORT_CONTACT");
   if (supportContact !== null && !isSupportContact(supportContact)) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toChecksumAddress } from "../shared/addresses.ts";
-import { ConfigError, DEFAULT_BLOCKED_COUNTRIES, DEFAULT_SITE_URL, DEFAULT_X_URL, describeConfig, DEV_FEE_RECIPIENT, isSupportContact, loadConfig } from "../server/config.ts";
+import { ConfigError, DEFAULT_BLOCKED_COUNTRIES, DEFAULT_DEXSCREENER_URL, DEFAULT_GITHUB_URL, DEFAULT_SITE_URL, DEFAULT_X_URL, describeConfig, DEV_FEE_RECIPIENT, isSupportContact, loadConfig } from "../server/config.ts";
 
 const FEE = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
 const KEY = "aaaaaaaaaaaa.bbbbbbbbbbbb.cccccccccccc";
@@ -181,11 +181,16 @@ describe("configuration", () => {
     expect(config).toMatchObject({ port: 3000, trustProxyHops: 1, feeBps: 60, swapsPaused: false, oneClickMaxPerMin: 600, tokenAddress: FEE, tokenPairAddress: null });
     // The three links behind the header's icons. Each is optional; none is set until the operator sets it.
     expect(config).toMatchObject({ xUrl: "https://x.com/intentswap", dexscreenerUrl: "https://dexscreener.com/bsc/0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", githubUrl: "https://github.com/intentswap/intentswap" });
-    // Two of them lead nowhere until they are set. The X icon leads to the project's own account from the start, in every place a server runs.
-    expect(loadConfig(production({}))).toMatchObject({ xUrl: DEFAULT_X_URL, dexscreenerUrl: null, githubUrl: null });
-    expect(DEFAULT_X_URL).toBe("https://x.com/intentswap_");
-    for (const env of [{ NODE_ENV: "development" }, { NODE_ENV: "test" }]) expect(loadConfig(env).xUrl).toBe(DEFAULT_X_URL);
-    expect(loadConfig(production({ X_URL: " " })).xUrl).toBe(DEFAULT_X_URL);
+    // Each has an address to start from, in every place a server runs: the project's account on X, its repository, and
+    // DexScreener's front page until the token has a page of its own there.
+    expect([DEFAULT_X_URL, DEFAULT_GITHUB_URL, DEFAULT_DEXSCREENER_URL]).toEqual(["https://x.com/intentswap_", "https://github.com/IntentSwap/INT", "https://dexscreener.com/"]);
+    const started = { xUrl: DEFAULT_X_URL, githubUrl: DEFAULT_GITHUB_URL, dexscreenerUrl: DEFAULT_DEXSCREENER_URL };
+    expect(loadConfig(production({}))).toMatchObject(started);
+    for (const env of [{ NODE_ENV: "development" }, { NODE_ENV: "test" }]) expect(loadConfig(env)).toMatchObject(started);
+    expect(loadConfig(production({ X_URL: " ", GITHUB_URL: "", DEXSCREENER_URL: "  " }))).toMatchObject(started);
+    // The token's own page, once it has one, is still held to DexScreener's site and to a plain path.
+    expect(loadConfig(production({ DEXSCREENER_URL: "https://dexscreener.com" })).dexscreenerUrl).toBe("https://dexscreener.com/");
+    for (const wrong of ["https://dexscreener.com.evil.example/", "https://dexscreener.com/?q=1", "https://dexscreener.com/a/b/c/d", "https://evil.example/dexscreener.com/"]) expect(problem(production({ DEXSCREENER_URL: wrong })), wrong).toMatch(/^DEXSCREENER_URL: /);
     expect(loadConfig(production({ GITHUB_URL: "https://github.com/intentswap" })).githubUrl).toBe("https://github.com/intentswap");
     // The pair is optional, and is kept in the same standard spelling as the token.
     expect(loadConfig(production({ TOKEN_ADDRESS: FEE, TOKEN_PAIR_ADDRESS: "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed" })).tokenPairAddress).toBe("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed");

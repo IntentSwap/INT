@@ -255,8 +255,8 @@ bad value stops the server with the variable's name in the log.
 | `TOKEN_PAIR_ADDRESS` | The token's trading pair (liquidity pool) on BNB Chain, shown beside it | After the token launches |
 | `RESERVE_ADDRESS` | The wallet weekly payouts are sent from, on BNB Chain. Shows the reserve on the Rewards page when set | When payouts begin |
 | `X_URL` | Where the X icon in the header and footer leads. Default `https://x.com/intentswap_`, the project's own account | Leave unset |
-| `GITHUB_URL` | Where the GitHub icon leads. The same while unset | For example `https://github.com/yourname/yourproject` |
-| `DEXSCREENER_URL` | Where the DexScreener icon leads. The same while unset | The token's page, for example `https://dexscreener.com/bsc/0x...`, after the token launches |
+| `GITHUB_URL` | Where the GitHub icon leads. Default `https://github.com/IntentSwap/INT`, the project's repository | Leave unset |
+| `DEXSCREENER_URL` | Where the DexScreener icon leads. Default `https://dexscreener.com/`, its front page, until the token has a page there | The token's own page, for example `https://dexscreener.com/bsc/0x...`, after the token launches |
 | `EXCLUDED_CHAINS` | More chains never to offer on the site, by the provider's chain code, comma-separated. Their coins are left out of the coin list, so they cannot be shown, quoted or ordered. Adds to the built-in list (`abs`); it cannot remove from it | Leave unset |
 | `SUPPORT_CONTACT` | One support contact, shown in the footer and on a failed order's page. Required before `SWAPS_PAUSED=false` in production: the server will not start with swaps on and nobody to write to | An email address or a link |
 | `SITE_URL` | The site's own address: the share image's full address and each page's canonical link are written with it. Default in production `https://intentswap.app`. Set it only for another address (a preview's own, say); a `SITE_URL` that is itself set is also the one name the Rewards sign-in will carry | Leave unset |

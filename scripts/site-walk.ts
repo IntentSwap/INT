@@ -707,19 +707,11 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
           const text = await page.evaluate(() => getComputedStyle(document.body).color);
           say((await icons.first().evaluate((link) => getComputedStyle(link).color)) === text, "under the pointer an icon does not take the text colour");
           await page.mouse.move(0, 0);
-          // Nothing is set on this server. The X icon leads to the project's own account all the same; the two others carry no
-          // address, and a press on one goes nowhere: no new tab, no jump to the top, no change of address, no complaint.
-          say(JSON.stringify(drawn.map((icon) => icon.href)) === JSON.stringify([null, null, "https://x.com/intentswap_"]), `with nothing set the icons lead to ${JSON.stringify(drawn.map((icon) => icon.href))}`);
-          await page.evaluate(() => window.scrollTo(0, 300));
-          await page.waitForTimeout(200);
-          const before = { url: page.url(), tabs: context.pages().length, y: await page.evaluate(() => window.scrollY) };
-          for (let index = 0; index < 2; index++) {
-            const box = await icons.nth(index).boundingBox();
-            if (box !== null) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-          }
-          await page.waitForTimeout(400);
-          const after = { url: page.url(), tabs: context.pages().length, y: await page.evaluate(() => window.scrollY) };
-          say(JSON.stringify(after) === JSON.stringify(before), `pressing an icon with no address did something: ${JSON.stringify(before)} became ${JSON.stringify(after)}`);
+          // Nothing is set on this server: each icon leads to the address it starts with (DexScreener's front page, the
+          // project's repository, its account on X), in a new tab, telling the other site nothing of where the visitor came from.
+          say(JSON.stringify(drawn.map((icon) => icon.href)) === JSON.stringify(["https://dexscreener.com/", "https://github.com/IntentSwap/INT", "https://x.com/intentswap_"]), `with nothing set the icons lead to ${JSON.stringify(drawn.map((icon) => icon.href))}`);
+          const how = await icons.evaluateAll((links) => links.map((link) => `${link.getAttribute("target")} ${link.getAttribute("rel")}`));
+          say(how.every((value) => value === "_blank noopener noreferrer"), `the icons open as ${JSON.stringify(how)}`);
           await page.evaluate(() => window.scrollTo(0, 0));
         } else {
           // On a phone they are a row at the foot of the menu.

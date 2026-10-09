@@ -171,9 +171,9 @@ describe("GET /api/config, /api/status, /api/tokens", () => {
       reserveAddress: null,
       sampleOrders: [],
       xUrl: "https://x.com/intentswap",
-      // The three links behind the header's icons: one that is set travels as it was set, one that is not as null.
+      // The three links behind the header's icons: one that is set travels as it was set, one that is not as the address it starts with.
       githubUrl: "https://github.com/intentswap/intentswap",
-      dexscreenerUrl: null,
+      dexscreenerUrl: "https://dexscreener.com/",
       supportContact: "help@example.org",
       // The site's own address: none here, where none is set and the server is not the live one.
       siteUrl: null,
