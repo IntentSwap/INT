@@ -8,6 +8,7 @@ import "./styles/base.css";
 import "./styles/controls.css";
 import "./styles/shell.css";
 import "./styles/card.css";
+import "./styles/picker.css";
 import "./styles/sheet.css";
 
 watchKeys();

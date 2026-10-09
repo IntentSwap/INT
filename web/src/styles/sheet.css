@@ -36,10 +36,6 @@
   animation: sheet-up var(--motion-sheet) var(--ease-out);
 }
 
-.sheet[data-tall] {
-  height: var(--sheet-max-height);
-}
-
 /* While a finger is dragging it, the sheet follows at once. */
 .sheet[data-dragging] {
   transition: none;
@@ -368,180 +364,34 @@
   text-wrap: pretty;
 }
 
-@media (hover: hover) {
-  .recent-row:hover .picker-row-symbol {
-    text-decoration: underline;
-    text-underline-offset: var(--space-4);
-  }
-}
-
-/* ---- Coin picker ---- */
-.picker {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.picker-search {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  min-height: var(--height-52);
-  margin: var(--space-8) var(--space-16) 0;
-  padding: 0 var(--space-16);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-12);
-  background: var(--raised);
-  color: var(--text-muted);
-}
-
-/* Being typed in, its hairline comes up a little. Nothing else. */
-.picker-search:focus-within {
-  border-color: var(--border-strong);
-}
-
-.picker-input {
-  flex: 1;
-  min-width: 0;
-  height: var(--height-44);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  /* 16 px: a phone does not zoom in on a field whose text is at least this size. */
-  font-size: var(--text-16);
-  line-height: var(--line-16);
-}
-
-.picker-input:focus-visible,
-:root[data-keys] .picker-input:focus-visible {
-  outline: none;
-}
-
-/* Reached by the keyboard, the quiet line goes round the whole search field, not the words inside it. */
-:root[data-keys] .picker-search:has(.picker-input:focus-visible) {
-  outline: var(--border-width) solid var(--focus-ring);
-  outline-offset: var(--focus-offset);
-}
-
-.picker-input::placeholder {
-  color: var(--text-faint);
-  opacity: 1;
-}
-
-.picker-chips {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-8);
-  padding: var(--space-12) var(--space-16);
-  border-bottom: var(--border-width) solid var(--border);
-}
-
-.picker-list {
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  padding: var(--space-8);
-  list-style: none;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.picker-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-12);
-  min-height: var(--height-52);
-  /* A long list: rows far from the screen are neither laid out nor painted until they come near it. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto var(--height-52);
-  padding: var(--space-8);
-  border-radius: var(--radius-12);
-  cursor: pointer;
-}
-
-.picker-row:active {
-  --coin-ring: var(--raised);
-  background: var(--raised);
-}
-
-/* The row Enter would choose (the one the arrow keys or the pointer are on): a soft tint, and never a border.
-   On a touch screen, where there is neither, nothing is highlighted until it is pressed. */
-@media (hover: hover) {
-  .picker-row[data-active] {
-    --coin-ring: var(--raised);
-    background: var(--raised);
-  }
-}
-
-.picker-row-text {
+/* A row's two lines: what was swapped, then where and when. Long text is cut short, never wrapped. */
+.recent-row-text {
   flex: 1;
   min-width: 0;
   display: grid;
 }
 
-.picker-row-main,
-.picker-row-name {
+.recent-row-main,
+.recent-row-sub {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.picker-row-symbol {
+.recent-row-main {
   font-weight: var(--weight-500);
 }
 
-.picker-row-name {
+.recent-row-sub {
   font-size: var(--text-12);
   line-height: var(--line-12);
 }
 
-/* What the connected wallet holds of a coin, at the end of its row. */
-.picker-row-balance {
-  flex: none;
-  font-size: var(--text-12);
-  line-height: var(--line-12);
-  white-space: nowrap;
-}
-
-.picker-row-mark {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  font-size: var(--text-12);
-  line-height: var(--line-12);
-}
-
-.picker-empty {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-8);
-  padding: var(--space-24) var(--space-16);
-}
-
-.picker-empty-title {
-  font-weight: var(--weight-500);
-}
-
-.skeleton-icon {
-  flex: none;
-  width: var(--coin-32);
-  height: var(--coin-32);
-  border-radius: var(--radius-16);
-}
-
-.skeleton-line {
-  width: var(--space-64);
-  height: var(--line-12);
-  margin: calc(var(--space-4) / 2) 0;
-}
-
-.skeleton-line-short {
-  width: var(--space-48);
+@media (hover: hover) {
+  .recent-row:hover .recent-row-main {
+    text-decoration: underline;
+    text-underline-offset: var(--space-4);
+  }
 }
 
 @media (min-width: 768px) {
@@ -561,10 +411,6 @@
 
   .sheet[data-closing] {
     animation-name: sheet-fade-out;
-  }
-
-  .sheet[data-tall] {
-    height: min(var(--sheet-max-height), var(--sheet-tall));
   }
 
   .sheet-handle {

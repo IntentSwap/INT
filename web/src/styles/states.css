@@ -64,9 +64,13 @@
   transform: none;
 }
 
-.states-list {
-  padding: 0;
+/* The picker's grid of chains is shown whole here: no fixed height, no scrolling, no fade at its foot. */
+.states-chains {
+  height: auto;
+  margin-top: 0;
+  padding-bottom: 0;
   overflow: visible;
+  mask-image: none;
 }
 
 .states-banner,

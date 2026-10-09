@@ -276,8 +276,11 @@ describe("what the wider pages state as fact", () => {
   });
 
   it("lists the chains in the picker's order, each with its number of coins, unknown chains last", () => {
-    expect(chainsOnList(list).map((chain) => `${chain.name} ${chain.coins}${chain.slow ? " slow" : ""}`)).toEqual(["BNB Chain 1", "Base 2", "Solana 1", "Bitcoin 1 slow", "ZZZ 1"]);
+    expect(chainsOnList(list).map((chain) => `${chain.name} ${chain.coins}${chain.slow ? " slow" : ""}`)).toEqual(["BNB Chain 1", "Solana 1", "Bitcoin 1 slow", "Base 2", "ZZZ 1"]);
     expect(chainsOnList([])).toEqual([]);
+    // The whole order: BNB Chain, Ethereum, Solana, Bitcoin, Base, Arbitrum, Optimism, Polygon, Avalanche, Tron, TON, and then every other chain by name.
+    const every = ["zec", "ton", "near", "avax", "eth", "tron", "pol", "op", "arb", "base", "btc", "sol", "bsc", "aptos", "doge", "xrp"].map((chain) => ({ chain }));
+    expect(chainsOnList(every).map((chain) => chain.name)).toEqual(["BNB Chain", "Ethereum", "Solana", "Bitcoin", "Base", "Arbitrum", "Optimism", "Polygon", "Avalanche", "Tron", "TON", "Aptos", "Dogecoin", "NEAR", "XRP Ledger", "Zcash"]);
   });
 
   it("lists what the site does, each a working feature, with the token among them only once its address is set", () => {

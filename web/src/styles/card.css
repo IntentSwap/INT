@@ -2,10 +2,15 @@
    the receiving address, the quote in one line, and one button. Light and close-set. The card is
    see-through, so the page's grid shows softly behind it, and every edge on it is a one-pixel
    hairline: nothing here has a heavier border than that. Radii: 16 the card, 12 its fields and its
-   button, 8 the small controls. */
+   button, 8 the small controls.
+
+   The card has two views. The swap is the one it opens with; choosing a coin brings the coin picker
+   in its place, inside the card (its own parts are in picker.css). The card keeps its top edge and
+   its width; only its height changes, to fit the view it shows. */
 
 .card {
   --card-pad: var(--space-12);
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -18,6 +23,11 @@
   backdrop-filter: blur(var(--blur-card));
   /* A lighter line along its top edge and a soft shadow under it: the card stands a little off the page. */
   box-shadow: var(--shadow-raised);
+  /* The card's own height is animated in this one rule and nowhere else (a test holds the exception
+     to it). It answers something the person has just done: opening the coin picker, or leaving it.
+     The page sets the two heights for the length of the change (see useCardViews); at every other
+     time the height is the card's own, and nothing here moves it. */
+  transition: height var(--motion-sheet) var(--ease-out);
 }
 
 /* Where nothing behind a surface can be blurred, the card is simply solid. */
@@ -25,6 +35,70 @@
   .card {
     background: var(--card-solid);
   }
+}
+
+/* ---- The card's two views: the swap, and the coin picker ---- */
+.card-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  transition: transform var(--motion-sheet) var(--ease-out), opacity var(--motion-sheet) var(--ease-out);
+}
+
+/* The view that is not the card's own for the moment lies over the other's place and takes no room,
+   so the card is as tall as the view it shows. It stands off to its side: the swap to the left, the
+   picker to the right. Getting there, and coming back, is the slide. */
+.card[data-view="picker"] > .card-swap,
+.card[data-view="swap"] > .card-picker {
+  position: absolute;
+  top: var(--card-pad);
+  right: var(--card-pad);
+  left: var(--card-pad);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.card[data-view="picker"] > .card-swap {
+  transform: translateX(calc(-100% - var(--card-pad)));
+}
+
+.card[data-view="swap"] > .card-picker {
+  transform: translateX(calc(100% + var(--card-pad)));
+}
+
+/* Once the slide is over the swap is not drawn at all, and so is neither pressed nor read out. */
+.card[data-view="picker"]:not([data-moving]) > .card-swap {
+  visibility: hidden;
+}
+
+/* Nothing of a view that is off to the side shows past the card's own edge. (Where "clip" is not
+   known, "hidden" does the same.) At rest, showing the swap, the card clips nothing. */
+.card[data-view="picker"],
+.card[data-moving] {
+  overflow: hidden;
+  overflow: clip;
+}
+
+/* The picker comes in from the right as it arrives. */
+.card-picker {
+  animation: card-view-in var(--motion-sheet) var(--ease-out);
+}
+
+@keyframes card-view-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(100% + var(--card-pad)));
+  }
+}
+
+/* The hairline between the picker's two halves, chains above and coins beneath: from one edge of the card to the other. */
+.picker-divider {
+  flex: none;
+  width: auto;
+  height: 0;
+  margin: var(--space-12) calc(var(--card-pad) * -1);
+  border: 0;
+  border-top: var(--border-width) solid var(--border);
 }
 
 /* ---- The tools above the fields: the slippage limit, and a fresh quote ---- */
@@ -871,6 +945,18 @@
   }
 
   .tool-turn {
+    animation: none;
+  }
+}
+
+/* Less movement: the swap and the coin picker change places at once. Nothing slides, and the card's height is not animated. */
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card-view {
+    transition: none;
+  }
+
+  .card-picker {
     animation: none;
   }
 }

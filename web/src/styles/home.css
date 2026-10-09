@@ -1041,8 +1041,9 @@
    over something that has to be read: while the swap card's main button is pinned to the bottom
    of the screen it waits until the card has been scrolled past; and on an order's page, where the
    whole first screen is the pay step, it does not float at all. In both places Help is in the
-   menu and in the footer. Any open sheet hides it. And everywhere, at every width, it steps out
-   of the way while it would lie over something to press or type into (see HelpButton). */
+   menu and in the footer. Any open sheet hides it, and so does the coin picker for as long as it
+   has the swap card: a list is being read and pressed there. And everywhere, at every width, it
+   steps out of the way while it would lie over something to press or type into (see HelpButton). */
 .help {
   position: fixed;
   right: max(var(--space-16), env(safe-area-inset-right));
@@ -1078,6 +1079,7 @@
 }
 
 :root[data-sheet] .help,
+:root:has(.card[data-view="picker"]) .help,
 .help[data-over] {
   visibility: hidden;
 }

@@ -32,16 +32,14 @@ export function RecentList({ orders, onOpen, onClear }: { orders: RecentOrder[];
                 }}
               >
                 <CoinIcon symbol={order.to.symbol} chain={order.to.chain} />
-                <span className="picker-row-text">
-                  <span className="picker-row-main">
-                    <span className="picker-row-symbol">
-                      {/* The amount paid, exactly or not at all: a row never gives a shortened amount to pay (see headingAmount). */}
-                      {headingAmount(order.amountIn, order.from.decimals) !== null ? <span className="mono">{headingAmount(order.amountIn, order.from.decimals)}</span> : null}
-                      {headingAmount(order.amountIn, order.from.decimals) !== null ? " " : null}
-                      {order.from.symbol} to {order.to.symbol}
-                    </span>
+                <span className="recent-row-text">
+                  <span className="recent-row-main">
+                    {/* The amount paid, exactly or not at all: a row never gives a shortened amount to pay (see headingAmount). */}
+                    {headingAmount(order.amountIn, order.from.decimals) !== null ? <span className="mono">{headingAmount(order.amountIn, order.from.decimals)}</span> : null}
+                    {headingAmount(order.amountIn, order.from.decimals) !== null ? " " : null}
+                    {order.from.symbol} to {order.to.symbol}
                   </span>
-                  <span className="picker-row-name muted">
+                  <span className="recent-row-sub muted">
                     {chainName(order.from.chain)} to {chainName(order.to.chain)} · {when(order.createdAt)}
                   </span>
                 </span>

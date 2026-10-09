@@ -4,7 +4,7 @@ import { checkAddress } from "../../../shared/addresses.ts";
 import { decimalToScaled, displayAmount, formatExact, parseAmount, spokenAmount, usdScaled, worseByMoreThan } from "../../../shared/amounts.ts";
 import { routingOf, SLIPPAGE, SLIPPAGE_BOUNDS_WORDS, type Confidentiality, type ErrorCode, type OrderView, type PayMethod, type QuoteView, type Routing, type TokenView } from "../../../shared/api.ts";
 import { chainName } from "../../../shared/chains.ts";
-import { CHAIN_ORDER, FEATURED_CHAINS, PINNED_SYMBOLS } from "../config.ts";
+import { CHAIN_ORDER, PINNED_SYMBOLS, STABLE_SYMBOLS } from "../config.ts";
 
 /** Font sizes the amount field steps through as the number grows. */
 export const AMOUNT_STEPS = [28, 24, 20, 16, 14, 12, 11] as const;
@@ -93,9 +93,9 @@ function chainRank(chain: string): number {
 }
 
 /**
- * Picker order: the pinned coins first (BNB, USDT, USDC, ETH, BTC, SOL, ZEC, NEAR),
- * then coins the person holds, then everything else by symbol. Within a symbol,
- * chains follow the agreed chain order.
+ * The order of coins from every chain listed together (the picker's matches on other chains): the
+ * pinned coins first (BNB, USDT, USDC, ETH, BTC, SOL, ZEC, NEAR), then coins the person holds,
+ * then everything else by symbol. Within a symbol, chains follow the agreed chain order.
  */
 export function sortTokens(tokens: TokenView[], balances: ReadonlyMap<string, bigint> = new Map()): TokenView[] {
   const pinned = (symbol: string) => {
@@ -117,8 +117,21 @@ export function sortTokens(tokens: TokenView[], balances: ReadonlyMap<string, bi
   });
 }
 
-/** The chain filter that stands for every chain without a chip of its own. */
-export const OTHER_CHAINS = "other";
+/**
+ * One chain's coins in the order the picker lists them: the chain's own coin, then the
+ * stablecoins (in their set order), then the rest by name. A balance moves nothing: the list a
+ * person opens is the list they press on.
+ */
+export function chainCoins(tokens: readonly TokenView[], chain: string): TokenView[] {
+  const stable = (symbol: string) => {
+    const i = (STABLE_SYMBOLS as readonly string[]).findIndex((known) => known.toLowerCase() === symbol.toLowerCase());
+    return i === -1 ? STABLE_SYMBOLS.length : i;
+  };
+  const group = (token: TokenView) => (token.contract === null ? 0 : stable(token.symbol) < STABLE_SYMBOLS.length ? 1 : 2);
+  return tokens
+    .filter((token) => token.chain === chain)
+    .sort((a, b) => group(a) - group(b) || (group(a) === 1 ? stable(a.symbol) - stable(b.symbol) : 0) || a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.symbol.localeCompare(b.symbol, "en", { sensitivity: "base" }));
+}
 
 export type SearchResult = { kind: "list"; tokens: TokenView[] } | { kind: "unsupported" };
 
@@ -132,8 +145,7 @@ function looksLikeContract(text: string): boolean {
  * rather than showing something that merely looks similar.
  */
 export function searchTokens(tokens: TokenView[], query: string, chain: string | null): SearchResult {
-  const featured = FEATURED_CHAINS as readonly string[];
-  const inChain = chain === null ? tokens : chain === OTHER_CHAINS ? tokens.filter((token) => !featured.includes(token.chain)) : tokens.filter((token) => token.chain === chain);
+  const inChain = chain === null ? tokens : tokens.filter((token) => token.chain === chain);
   const text = query.trim();
   if (text === "") return { kind: "list", tokens: inChain };
   const lower = text.toLowerCase();
@@ -155,6 +167,79 @@ export function searchTokens(tokens: TokenView[], query: string, chain: string |
   // A stable sort keeps the picker order within each rank.
   scored.sort((a, b) => a.score - b.score);
   return { kind: "list", tokens: scored.map((entry) => entry.token) };
+}
+
+/**
+ * What the picker's list shows for one chain and whatever is in its search field.
+ *  - "here": coins on the chosen chain. With nothing typed, all of them, in the chain's order.
+ *  - "elsewhere": nothing on this chain matches, but coins on other chains do. They are shown under a heading that says so.
+ *  - "none": nothing matches anywhere.
+ *  - "unsupported": a contract address that is not on the list. Nothing that merely looks similar is offered.
+ */
+export type PickerRows = { kind: "here"; tokens: TokenView[] } | { kind: "elsewhere"; tokens: TokenView[] } | { kind: "none" } | { kind: "unsupported" };
+
+export function pickerRows(tokens: readonly TokenView[], query: string, chain: string, balances: ReadonlyMap<string, bigint> = new Map()): PickerRows {
+  const onChain = chainCoins(tokens, chain);
+  if (query.trim() === "") return { kind: "here", tokens: onChain };
+  const everywhere = searchTokens(sortTokens([...tokens], balances), query, null);
+  if (everywhere.kind === "unsupported") return { kind: "unsupported" };
+  // Searched among this chain's coins alone, so the chain's own order holds within each rank of match.
+  const here = searchTokens(onChain, query, null);
+  if (here.kind === "list" && here.tokens.length > 0) return { kind: "here", tokens: here.tokens };
+  const elsewhere = everywhere.tokens.filter((token) => token.chain !== chain);
+  return elsewhere.length > 0 ? { kind: "elsewhere", tokens: elsewhere } : { kind: "none" };
+}
+
+/**
+ * The chain a pasted contract address belongs to, when it is a listed coin that is not on the chain
+ * being shown: the picker then moves to that chain. Null when the text is no listed contract, or the
+ * chain being shown already has it. Where several chains share an address, the first in the agreed order.
+ */
+export function contractChain(tokens: readonly TokenView[], query: string, shown: string | null): string | null {
+  const text = query.trim().toLowerCase();
+  if (text === "") return null;
+  const chains = tokens.filter((token) => token.contract !== null && token.contract.toLowerCase() === text).map((token) => token.chain);
+  if (chains.length === 0 || (shown !== null && chains.includes(shown))) return null;
+  return [...chains].sort((a, b) => chainRank(a) - chainRank(b) || chainName(a).localeCompare(chainName(b), "en"))[0] ?? null;
+}
+
+/** The chains whose name holds what was typed, those that start with it first. With nothing typed, all of them, in their order. */
+export function searchChains<Chain extends { key: string; name: string }>(chains: readonly Chain[], query: string): Chain[] {
+  const text = query.trim().toLowerCase();
+  if (text === "") return [...chains];
+  const rank = (chain: Chain) => {
+    const name = chain.name.toLowerCase();
+    if (name.startsWith(text) || chain.key === text) return 0;
+    if (name.split(/\s+/).some((word) => word.startsWith(text))) return 1;
+    return name.includes(text) ? 2 : -1;
+  };
+  // A stable sort keeps the chains' own order within each rank.
+  return chains.filter((chain) => rank(chain) >= 0).sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Where an arrow key, Home or End takes the keyboard in a row-by-row grid of `count` things,
+ * `columns` across (a plain list is a grid one across). It stops at the edges: a key that would
+ * leave the grid moves nothing. Down from above a short last row goes to that row's last place.
+ * Any other key gives the place it started from.
+ */
+export function gridMove(index: number, key: string, count: number, columns: number): number {
+  if (count <= 0) return 0;
+  const across = Math.max(1, columns);
+  const last = count - 1;
+  const from = Math.max(0, Math.min(last, index));
+  if (key === "Home") return 0;
+  if (key === "End") return last;
+  if (key === "ArrowDown" && from + across > last) return Math.floor(from / across) < Math.floor(last / across) ? last : from;
+  const to = key === "ArrowRight" ? from + 1 : key === "ArrowLeft" ? from - 1 : key === "ArrowDown" ? from + across : key === "ArrowUp" ? from - across : from;
+  return to < 0 || to > last ? from : to;
+}
+
+/** Which side's picker a page of the browser's history stands for, read from what was kept with it. Null for any other page. */
+export function pickerInHistory(state: unknown): "from" | "to" | null {
+  if (typeof state !== "object" || state === null) return null;
+  const side = (state as { picker?: unknown }).picker;
+  return side === "from" || side === "to" ? side : null;
 }
 
 /** Reads `?from=bsc:BNB&to=sol:USDT&amount=0.5`. Only coins on the list are accepted, and never an address. The amount is rewritten in its plain form. */

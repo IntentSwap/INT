@@ -1,0 +1,430 @@
+/* The coin picker: a view of the swap card (see card.css for how the two views change places).
+   Chains above, coins beneath, a hairline between them. It speaks the card's own language: one-pixel
+   hairlines, see-through tints, radius 12 for a field and 8 for a small control, and nothing heavier
+   than that anywhere. Each of its two halves has one fixed height and scrolls inside it, so the card
+   is the same size whatever is searched for. */
+
+/* ---- The head: a way back, and what is being chosen ---- */
+/* As tall as the row of tools it takes the place of, so the first field of either view starts at the same height. */
+.picker-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--height-32);
+  margin-bottom: var(--space-8);
+}
+
+.picker-back {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--height-32);
+  height: var(--height-32);
+  /* The arrow itself starts where the fields beneath it start. */
+  margin-left: calc(var(--space-4) * -1);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+/* 44 px to press. */
+.picker-back::after {
+  content: "";
+  position: absolute;
+  inset: calc((var(--height-44) - var(--height-32)) / -2);
+}
+
+.picker-back:active {
+  background: var(--hover-tint);
+  transform: scale(var(--press));
+}
+
+.picker-title {
+  min-width: 0;
+  border-radius: var(--radius-8);
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-600);
+}
+
+/* ---- A search field: one for chains, one for coins ---- */
+.picker-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--height-44);
+  padding: 0 var(--space-12);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-12);
+  background: var(--field-tint);
+  color: var(--text-muted);
+}
+
+/* Being typed in, its hairline comes up a little. Nothing else. */
+.picker-search:focus-within {
+  border-color: var(--border-strong);
+}
+
+.picker-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  /* 16 px: a phone does not zoom in on a field whose text is at least this size. */
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  text-overflow: ellipsis;
+}
+
+.picker-input:focus-visible,
+:root[data-keys] .picker-input:focus-visible {
+  outline: none;
+}
+
+/* Reached by the keyboard, the quiet line goes round the whole search field, not the words inside it. */
+:root[data-keys] .picker-search:has(.picker-input:focus-visible) {
+  outline: var(--border-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.picker-input::placeholder {
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+/* ---- The top half: every chain, three across (two on a narrow phone) ----
+   About four rows are on show. The rest is reached by scrolling inside the grid, and the grid's
+   foot fades out instead of being cut: that is what says there is more. */
+.picker-chains {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: var(--height-44);
+  align-content: start;
+  gap: var(--space-8);
+  height: calc(var(--height-44) * 4 + var(--space-8) * 4 + var(--space-24));
+  margin-top: var(--space-8);
+  /* Room for the last row to come up clear of the fade. */
+  padding-bottom: var(--space-24);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--space-32)), transparent);
+}
+
+/* Nothing to fade where there is no grid, only a line that says so. */
+.picker-chains-none {
+  display: block;
+  mask-image: none;
+}
+
+/* A chain: its mark and its name on a very faint wash of the chain's own colour, with a hairline
+   edge. Every tile is the same size; a long name is cut short. The colour comes from the tile itself
+   (--chain-colour, set from the list of chain colours): the wash is that colour, mixed in thinly. */
+.chain-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+  height: var(--height-44);
+  padding: 0 var(--space-8);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-8);
+  background: var(--field-tint);
+  background: color-mix(in srgb, var(--chain-colour) 8%, transparent);
+  color: var(--text);
+  text-align: left;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+/* The chain whose coins are listed: a brighter edge and a stronger wash, both in its own colour. Never the accent, and never a ring. */
+.chain-tile[aria-selected="true"] {
+  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--chain-colour) 60%, var(--text-muted));
+  background: var(--hover-tint);
+  background: color-mix(in srgb, var(--chain-colour) 22%, transparent);
+  font-weight: var(--weight-500);
+}
+
+.chain-tile:active {
+  transform: scale(var(--press));
+}
+
+.chain-tile-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The chain's own mark, in its own colours: the artwork of the strip of chains, at 24 px. */
+.chain-mark {
+  flex: none;
+  display: block;
+  width: var(--coin-24);
+  height: var(--coin-24);
+  border-radius: var(--radius-8);
+}
+
+/* No artwork for this chain: its first letters. */
+.chain-mark-letters {
+  display: grid;
+  place-items: center;
+  border: var(--border-width) solid var(--border-strong);
+  background: var(--tint-neutral);
+  color: var(--text-muted);
+  font-size: var(--coin-letters-small);
+  line-height: var(--line-12);
+  font-weight: var(--weight-600);
+}
+
+.skeleton-tile {
+  height: var(--height-44);
+  border-radius: var(--radius-8);
+}
+
+/* (The hairline between the two halves reaches into the card's own padding, from one edge of the card to the other: it is drawn in card.css.) */
+
+/* ---- The bottom half: the coins of the chosen chain ---- */
+.picker-coins {
+  flex: none;
+  height: calc(var(--height-52) * 5 + var(--space-24));
+  margin-top: var(--space-8);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.picker-list {
+  display: grid;
+}
+
+/* The small heading over coins that are not on the chosen chain. */
+.picker-heading {
+  padding: var(--space-4) var(--space-8) var(--space-8);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  font-weight: var(--weight-500);
+}
+
+/* A coin: its icon, its name, and under the name its symbol and its contract. The whole row is
+   the thing to press (the name is the button; its reach is stretched over the row). */
+.picker-row {
+  /* What the coin's chain badge is ringed in: the colour the card comes to on the plain page. */
+  --coin-ring: var(--card-solid);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--height-52);
+  /* A long list: rows far from the screen are neither laid out nor painted until they come near it. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--height-52);
+  padding: var(--space-4) var(--space-8);
+  border-radius: var(--radius-8);
+}
+
+.picker-row:active {
+  --coin-ring: var(--card-solid-hover);
+  background: var(--hover-tint);
+}
+
+/* The row Enter would choose (the one the arrow keys or the pointer are on): a soft tint, and never a border.
+   On a touch screen, where there is neither, nothing is highlighted until it is pressed. */
+@media (hover: hover) {
+  .picker-row[data-active] {
+    --coin-ring: var(--card-solid-hover);
+    background: var(--hover-tint);
+  }
+}
+
+.picker-row-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.picker-row-main {
+  display: block;
+  min-width: 0;
+}
+
+.picker-pick {
+  display: block;
+  width: 100%;
+  min-height: var(--height-24);
+  border-radius: var(--radius-8);
+  color: var(--text);
+  font-weight: var(--weight-500);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The button's reach: the whole row. */
+.picker-pick::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-8);
+}
+
+.picker-row-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-row-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.picker-row-symbol {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-row-contract {
+  flex: none;
+}
+
+/* The one thing on a row that does not choose the coin: the way to its page on the chain's explorer.
+   It lies over the row's own reach. 24 px to press, taken from the lines around it so the row keeps its height. */
+.picker-link {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--height-24);
+  height: var(--height-24);
+  margin: calc(var(--space-4) * -1) 0 calc(var(--space-4) * -1) calc(var(--space-4) * -1);
+  border-radius: var(--radius-8);
+  color: var(--text-muted);
+}
+
+/* On a touch screen the link is left out, and the contract stands alone. Anything to press there
+   needs 44 px, and 44 px of link in the middle of a row whose whole reach chooses the coin would be
+   pressed by accident. */
+@media (pointer: coarse) {
+  .picker-link {
+    display: none;
+  }
+}
+
+/* What stands at the end of a row: what the connected wallet holds of the coin, and a mark for the coin in use on either side. */
+.picker-row-end {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  white-space: nowrap;
+}
+
+.picker-row-mark {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* What is said where there is no list: nothing found, or a contract that is not listed. */
+.picker-note {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-8);
+  text-wrap: pretty;
+}
+
+.picker-note-title {
+  font-weight: var(--weight-500);
+}
+
+.skeleton-icon {
+  flex: none;
+  width: var(--coin-32);
+  height: var(--coin-32);
+  border-radius: var(--radius-16);
+}
+
+.skeleton-line {
+  width: var(--space-64);
+  height: var(--line-12);
+  margin: calc(var(--space-4) / 2) 0;
+}
+
+.skeleton-line-short {
+  width: var(--space-48);
+}
+
+/* ---- Under the pointer ---- */
+@media (hover: hover) {
+  .picker-back:hover {
+    background: var(--hover-tint);
+    color: var(--text);
+  }
+
+  .chain-tile:hover:not([aria-selected="true"]) {
+    border-color: var(--border-strong);
+    background: color-mix(in srgb, var(--chain-colour) 14%, transparent);
+  }
+
+  .picker-link:hover {
+    background: var(--hover-tint);
+    color: var(--text);
+  }
+}
+
+/* ---- Focus in the picker ----
+   No ring of any colour (the site's one rule is in base.css). While the keyboard is moving about, a
+   chain's tile draws its quiet line just inside its own edge, where the grid's scrolling cannot cut
+   it off; a coin's is drawn round its whole row, inside the row's edge for the same reason; and a
+   coin's link draws its own inside its edge too, clear of the contract beside it. */
+:root[data-keys] .chain-tile:focus-visible,
+:root[data-keys] .picker-link:focus-visible {
+  outline-offset: calc(var(--border-width) * -2);
+}
+
+.picker-pick:focus-visible,
+:root[data-keys] .picker-pick:focus-visible {
+  outline: none;
+}
+
+:root[data-keys] .picker-row:has(.picker-pick:focus-visible) {
+  outline: var(--border-width) solid var(--focus-ring);
+  outline-offset: calc(var(--border-width) * -2);
+}
+
+/* Where :has() is missing, the name wears the line itself. */
+@supports not selector(:has(*)) {
+  :root[data-keys] .picker-pick:focus-visible {
+    outline: var(--border-width) solid var(--focus-ring);
+    outline-offset: var(--focus-offset);
+  }
+}
+
+@media (min-width: 480px) {
+  .picker-chains {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .chain-tile {
+    padding: 0 var(--space-12) 0 var(--space-8);
+  }
+}

@@ -4,8 +4,8 @@
 //
 // The note is made by Tab and by the arrow keys (outside a text field, where they only move the
 // caret). It is taken away by any press of a mouse, a finger or a pen, by Escape, and whenever the
-// focus moves for any other reason than one of those keys: a sheet that opens and takes the focus,
-// or closes and hands it back, is not someone moving about with the keyboard.
+// focus moves for any other reason than one of those keys: a sheet or the coin picker that opens and
+// takes the focus, or closes and hands it back, is not someone moving about with the keyboard.
 
 const MOVES = new Set(["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 
@@ -13,8 +13,8 @@ const MOVES = new Set(["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]
 function typing(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target instanceof HTMLTextAreaElement || target.isContentEditable) return true;
-  // The coin picker's search is a field too, but there the up and down arrows move along the list.
-  return target instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "range"].includes(target.type) && target.getAttribute("role") !== "combobox";
+  // The coin picker's two searches are fields too, but there the arrows move along the list of coins, or down into the grid of chains.
+  return target instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "range"].includes(target.type) && target.getAttribute("role") !== "combobox" && !target.hasAttribute("data-arrows");
 }
 
 export function watchKeys(root: HTMLElement = document.documentElement): () => void {

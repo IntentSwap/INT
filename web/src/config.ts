@@ -15,14 +15,14 @@ export const DEFAULT_PAIR = {
 /** The amount of the opening pair's first coin used for the example quote on the Docs page. Only the amount is fixed: every number shown comes from the quote. */
 export const EXAMPLE_AMOUNT = "0.1";
 
-/** Coins shown first in the picker, in this order. */
+/** Coins shown first where coins of every chain are listed together (the picker's matches on other chains), in this order. */
 export const PINNED_SYMBOLS = ["BNB", "USDT", "USDC", "ETH", "BTC", "SOL", "ZEC", "NEAR"] as const;
 
-/** Chains in the order they are offered. Anything not listed follows alphabetically. */
-export const CHAIN_ORDER = ["bsc", "eth", "base", "arb", "sol", "btc", "zec", "near", "tron", "ton", "op", "pol", "avax"] as const;
+/** Chains in the order they are offered: the picker's grid of chains, the strip on the home page, the Docs' table. Anything not listed follows alphabetically. */
+export const CHAIN_ORDER = ["bsc", "eth", "sol", "btc", "base", "arb", "op", "pol", "avax", "tron", "ton"] as const;
 
-/** Chains with their own chip in the picker. The rest are behind "More chains". */
-export const FEATURED_CHAINS = ["bsc", "eth", "base", "arb", "sol", "btc"] as const;
+/** Coins held to a currency's price. On a chain's list in the picker they follow the chain's own coin, in this order. */
+export const STABLE_SYMBOLS = ["USDT", "USDC", "USDT0", "DAI", "USDe", "USD1", "USDG", "USDf", "USDCx", "USAD", "FRAX", "EURe", "GBPe"] as const;
 
 /** Kept back for network fees when "Max" is pressed on a native coin (whole units). */
 export const NATIVE_RESERVE: Readonly<Record<string, string>> = {

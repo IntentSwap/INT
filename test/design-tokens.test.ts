@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { CHAINS } from "../shared/chains.ts";
+import { CHAIN_COLOURS, chainColour } from "../web/src/lib/icons.ts";
 
 const stylesDir = path.resolve("web", "src");
 const tokensCss = fs.readFileSync(path.join(stylesDir, "styles", "tokens.css"), "utf8");
+const pickerCss = fs.readFileSync(path.join(stylesDir, "styles", "picker.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
 type Rgb = [number, number, number];
 interface Colour {
@@ -114,6 +117,33 @@ describe("contrast, computed from the token file", () => {
       for (const behind of [page, lit]) expect(contrast(vars[token]!, solid(layers(behind, "--card-tint", "--field-tint", "--hover-tint")))).toBeGreaterThanOrEqual(4.5);
     });
 
+    // The coin picker's list: a coin's name, its symbol and its shortened contract, on the card itself and on the row under the pointer or the arrow keys.
+    it.each(["--text", "--text-muted"] as const)("%s on a row of the coin picker is at least 4.5:1, at rest and highlighted, on the plain page and over the light", (token) => {
+      for (const behind of [page, lit]) for (const tints of [["--card-tint"], ["--card-tint", "--hover-tint"]]) expect(contrast(vars[token]!, solid(layers(behind, ...tints)))).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it("nothing on a row of the coin picker is in the faintest text colour, which a highlighted row would leave too quiet to read", () => {
+      // (The reason, measured: in the dark theme it falls under 4.5:1 on the highlighted row over the light.)
+      const rows = [...pickerCss.matchAll(/(?<=^|[{}])\s*([^{}@]+?)\s*\{([^{}]*)\}/g)].filter((match) => /\.picker-(row|pick|link|heading)/.test(match[1]!));
+      expect(rows.length).toBeGreaterThan(8);
+      for (const match of rows) expect(match[2], match[1]!.trim()).not.toMatch(/var\(--text-faint\)/);
+    });
+
+    // A chain's tile is washed with the chain's own colour: 8 per cent at rest, 14 under the pointer, 22 when chosen
+    // (picker.css). Its name is read against that wash over the card, whichever of the chain colours it is.
+    it("a chain's name is at least 4.5:1 on its tile, for every chain's colour and every strength of the wash", () => {
+      const washes = [...pickerCss.matchAll(/color-mix\(in srgb, var\(--chain-colour\) (\d+)%, transparent\)/g)].map((match) => Number(match[1]) / 100);
+      expect(washes.sort()).toEqual([0.08, 0.14, 0.22]);
+      for (const colour of new Set(Object.values(CHAIN_COLOURS))) {
+        for (const wash of washes) {
+          for (const behind of [page, lit]) {
+            const tile = over({ rgb: parseColour(colour).rgb, alpha: wash }, layers(behind, "--card-tint"));
+            expect(contrast(vars["--text"]!, solid(tile)), `${colour} at ${wash}`).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      }
+    });
+
     it("the small labels are readable on their own tints", () => {
       // The quote's line, which they sit on, keeps the field's tint under the pointer: a test below holds it to that.
       for (const behind of [page, lit]) {
@@ -131,6 +161,8 @@ describe("contrast, computed from the token file", () => {
     it("the solid colours are what the layers come to on the plain page", () => {
       const hex = (colour: Rgb) => `#${colour.map((channel) => Math.round(channel).toString(16).padStart(2, "0")).join("")}`;
       expect(vars["--card-solid"]).toBe(hex(layers(page, "--card-tint")));
+      // A coin in the picker's list sits on the card itself, and under the pointer on the card's tint with the pointer's over it.
+      expect(vars["--card-solid-hover"]).toBe(hex(layers(page, "--card-tint", "--hover-tint")));
       expect(vars["--field-solid"]).toBe(hex(layers(page, "--card-tint", "--field-tint")));
       expect(vars["--field-solid-hover"]).toBe(hex(layers(page, "--card-tint", "--field-tint", "--hover-tint")));
     });
@@ -255,9 +287,37 @@ describe("where the focus is, is shown quietly and only to the keyboard", () => 
     const row = sheets.flatMap(([, css]) => rules(css)).filter((item) => item.selector.includes(".picker-row[data-active]"));
     expect(row.length).toBeGreaterThan(0);
     for (const item of row) {
-      expect(item.body).toMatch(/background: var\(--raised\);/);
+      // The picker is part of the see-through card: the tint is the card's own, the one that comes up under the pointer.
+      expect(item.body).toMatch(/background: var\(--hover-tint\);/);
       expect(item.body).not.toMatch(/outline|border|box-shadow/);
     }
+  });
+
+  it("the chain that is chosen in the coin picker is told by its own colour: a brighter edge and a stronger wash, never the accent and never a ring", () => {
+    const all = sheets.flatMap(([, css]) => rules(css));
+    const chosen = all.filter((item) => item.selector.split(",").some((part) => part.includes(".chain-tile") && part.includes('[aria-selected="true"]') && !part.includes(":not(")));
+    expect(chosen).toHaveLength(1);
+    expect(chosen[0]!.body).toMatch(/border-color: color-mix\(in srgb, var\(--chain-colour\) \d+%, var\(--text-muted\)\);/);
+    expect(chosen[0]!.body).toMatch(/background: color-mix\(in srgb, var\(--chain-colour\) 22%, transparent\);/);
+    // Nothing about a chain's tile, in any state, is in the accent colour or is drawn as a ring or a heavier edge.
+    for (const item of all.filter((rule) => rule.selector.includes(".chain-tile"))) {
+      expect(item.body, item.selector).not.toMatch(/var\(--accent\)|box-shadow|(?<![\w-])border-width\s*:/);
+    }
+    // At rest: the wash at its faintest, and a hairline.
+    const rest = all.filter((item) => item.selector === ".chain-tile");
+    expect(rest.map((item) => item.body).join("\n")).toMatch(/border: var\(--border-width\) solid var\(--border\);/);
+    expect(rest.map((item) => item.body).join("\n")).toMatch(/background: color-mix\(in srgb, var\(--chain-colour\) 8%, transparent\);/);
+  });
+
+  it("a chain's colour is data, handed to its tile: every chain has one, and no stylesheet holds any of them", () => {
+    for (const key of CHAINS.keys()) expect(CHAIN_COLOURS[key], key).toMatch(/^#[0-9a-f]{6}$/);
+    // A chain the list does not know still gets a tone, so its tile is never without a wash.
+    expect(chainColour("some-new-chain")).toMatch(/^#[0-9a-f]{6}$/);
+    expect(chainColour("bsc")).toBe(CHAIN_COLOURS.bsc);
+    // The tile sets the colour itself, as a property the stylesheet reads.
+    const picker = fs.readFileSync(path.join(stylesDir, "components", "CoinPicker.tsx"), "utf8");
+    expect(picker).toMatch(/style=\{\{ "--chain-colour": chainColour\(chain\) \} as CSSProperties\}/);
+    for (const [name, css] of sheets) for (const colour of new Set(Object.values(CHAIN_COLOURS))) expect(css.toLowerCase().includes(colour), `${name} holds ${colour}`).toBe(false);
   });
 
   it("the page notes the keyboard only for Tab and the arrow keys, and forgets it at any press of a pointer and at Escape", () => {
@@ -317,10 +377,15 @@ describe("only transform and opacity are ever animated", () => {
   // layout or cost a slow phone its sixty frames a second. Colours change at once.
   const ALLOWED = new Set(["transform", "opacity"]);
   const files = cssFiles(stylesDir);
-  // The one exception: the quote on the swap card opens with
+  // The first exception: the quote on the swap card opens with
   // a smooth height animation. A height is animated in two rules of the card's stylesheet, both in
   // answer to something the person has just done, and nowhere else.
   const HEIGHT = { file: path.join("styles", "card.css"), property: "grid-template-rows", rules: [".quote", ".quote-more"] };
+  // The second, and the last: the swap card's own height, as its contents change places with the coin
+  // picker and back. One rule of the card's stylesheet, in answer to something the person has just
+  // done (opening the picker, or leaving it), and nowhere else. The card's top edge and its width stay
+  // where they are, so nothing above or beside the card moves.
+  const CARD_HEIGHT = { file: path.join("styles", "card.css"), property: "height", rules: [".card"] };
 
   it.each(files.map((file) => [path.relative(stylesDir, file), file] as const))("%s", (_name, file) => {
     const css = fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -331,6 +396,7 @@ describe("only transform and opacity are ever animated", () => {
       for (const part of value.split(",")) {
         const property = part.trim().split(/\s+/)[0]!;
         if (property === HEIGHT.property && file.endsWith(HEIGHT.file)) continue;
+        if (property === CARD_HEIGHT.property && file.endsWith(CARD_HEIGHT.file)) continue;
         if (!ALLOWED.has(property)) problems.push(`a transition of "${property}"`);
       }
     }
@@ -349,6 +415,32 @@ describe("only transform and opacity are ever animated", () => {
     expect(rules).toEqual(HEIGHT.rules);
     // And where the system asks for less movement, not even there.
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.quote,\s*\.quote-more,[^}]*\{\s*transition: none;/);
+  });
+
+  it("the card's own height is animated only where the swap and the coin picker change places", () => {
+    const css = fs.readFileSync(path.join(stylesDir, CARD_HEIGHT.file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const all = [...css.matchAll(/(?<=^|[{}])\s*([^{}@]+?)\s*\{([^{}]*)\}/g)].map((match) => ({ selector: match[1]!.trim(), body: match[2]! }));
+    // One rule, and in it the height alone, for as long as a sheet takes.
+    const animated = all.filter((rule) => /transition(-property)?:[^;]*(?<![\w-])height/.test(rule.body));
+    expect(animated.map((rule) => rule.selector)).toEqual(CARD_HEIGHT.rules);
+    expect(animated[0]!.body).toMatch(/transition: height var\(--motion-sheet\) var\(--ease-out\);/);
+    // No stylesheet sets the card's height: the page gives it two heights for the length of the change and takes them away again.
+    for (const rule of all.filter((item) => item.selector.split(",").some((part) => /^\.card(\[[^\]]*\])*$/.test(part.trim())))) expect(rule.body, rule.selector).not.toMatch(/(?<![\w-])(?:min-|max-)?height:/);
+    expect(fs.readFileSync(path.join(stylesDir, "components", "SwapCard.tsx"), "utf8")).toMatch(/const settle = \(\) => \{\s*if \(element !== null\) element\.style\.height = "";/);
+    // No other stylesheet animates a height of any kind.
+    for (const file of files.filter((name) => !name.endsWith(CARD_HEIGHT.file))) expect(fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, ""), file).not.toMatch(/transition(-property)?:[^;]*(?<![\w-])height/);
+    // And where the system asks for less movement, not even there: nothing slides, and the card is at once the height of the view it shows.
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.card,\s*\.card-view \{\s*transition: none;\s*\}\s*\.card-picker \{\s*animation: none;\s*\}\s*\}/);
+    expect(fs.readFileSync(path.join(stylesDir, "components", "SwapCard.tsx"), "utf8")).toMatch(/if \(element === null \|\| window\.matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches\) \{\s*settle\(\);\s*return;/);
+  });
+
+  it("the swap and the coin picker change places by sliding: a move and a fade, and nothing else", () => {
+    const css = fs.readFileSync(path.join(stylesDir, CARD_HEIGHT.file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(/\.card-view \{[^}]*transition: transform var\(--motion-sheet\) var\(--ease-out\), opacity var\(--motion-sheet\) var\(--ease-out\);/);
+    expect(css).toMatch(/@keyframes card-view-in \{\s*from \{\s*opacity: 0;\s*transform: translateX\([^;]+\);\s*\}\s*\}/);
+    // The time the page waits before it lets the card's height go is the time the slide takes.
+    expect(tokensCss).toMatch(/--motion-sheet: 250ms;/);
+    expect(fs.readFileSync(path.join(stylesDir, "components", "SwapCard.tsx"), "utf8")).toMatch(/const SLIDE_MS = 250;/);
   });
 
   it("is a check that can fail", () => {

@@ -2,7 +2,7 @@
 // Nothing here talks to the server: all of it is drawn from the fixed examples below.
 
 import { bech32 } from "@scure/base";
-import { ArrowDownUp, Check, Moon, RefreshCw, SlidersHorizontal, Sun, TriangleAlert, Wallet, X } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, Moon, RefreshCw, Search, SlidersHorizontal, Sun, TriangleAlert, Wallet, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { routingOf, type OrderView, type QuoteView, type TokenView } from "../../../shared/api.ts";
 import type { RecentOrder } from "../stores/orders.ts";
@@ -15,6 +15,7 @@ import { Wordmark } from "../components/Brand.tsx";
 import { IconButton, PrimaryButton, SecondaryButton, TextButton } from "../components/Button.tsx";
 import { CoinButton } from "../components/CoinButton.tsx";
 import { CoinIcon } from "../components/CoinIcon.tsx";
+import { ChainTile, CoinRow, PickerNote } from "../components/CoinPicker.tsx";
 import { QuotePanel } from "../components/QuotePanel.tsx";
 import { RecentList } from "../components/RecentList.tsx";
 import { Notice } from "../components/Shell.tsx";
@@ -32,6 +33,9 @@ const coin = (symbol: string, chain: string, name: string, decimals: number, ext
 const ETH = coin("ETH", "base", "Ethereum", 18, { price: "2530.26", wallet: true });
 const USDT = coin("USDT", "sol", "Tether USD", 6);
 const HOOD = coin("USDC", "hood", "USD Coin", 6);
+// Two tokens with contracts: on a chain with an explorer link, as the picker's rows show them.
+const USDC_BASE = coin("USDC", "base", "USD Coin", 6, { contract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", wallet: true });
+const WETH_BASE = coin("WETH", "base", "Wrapped Ether", 18, { contract: "0x4200000000000000000000000000000000000006" });
 const UNKNOWN = coin("BLACKDRAGON", "near", "Black Dragon", 24);
 
 // Example addresses are made up from fixed text (a hash of a phrase), so they are nobody's.
@@ -228,6 +232,7 @@ export default function StatesPage() {
   const theme = useTheme();
   const [typed, setTyped] = useState("0.5");
   const [address, setAddress] = useState("");
+  const [chainSearch, setChainSearch] = useState("");
   const [impact, setImpact] = useState(false);
   const [ticked, setTicked] = useState(false);
 
@@ -478,50 +483,55 @@ export default function StatesPage() {
             </li>
           </ul>
         </Case>
-        <Case label="Picker rows: plain, under the arrow keys, chosen, on the other side, loading">
-          <ul className="picker-list states-list">
-            {[
-              { token: ETH, active: false, mark: null },
-              { token: USDT, active: true, mark: null },
-              { token: HOOD, active: false, mark: "chosen" },
-              { token: UNKNOWN, active: false, mark: "You receive" },
-            ].map(({ token, active, mark }) => (
-              <li key={token.id} className="picker-row" data-active={active || undefined}>
-                <CoinIcon symbol={token.symbol} chain={token.chain} />
-                <span className="picker-row-text">
-                  <span className="picker-row-main">
-                    <span className="picker-row-symbol">{token.symbol}</span>
-                    <span className="muted"> · {chainName(token.chain)}</span>
-                  </span>
-                  <span className="picker-row-name faint">{token.name}</span>
-                </span>
-                {mark === "chosen" ? (
-                  <span className="picker-row-mark">
-                    <Check size={16} strokeWidth={1.5} aria-hidden="true" />
-                  </span>
-                ) : mark !== null ? (
-                  <span className="picker-row-mark muted">{mark}</span>
-                ) : null}
-              </li>
-            ))}
-            <li className="picker-row">
-              <span className="skeleton skeleton-icon" />
-              <span className="picker-row-text">
-                <span className="skeleton skeleton-line" />
-                <span className="skeleton skeleton-line skeleton-line-short" />
-              </span>
-            </li>
-          </ul>
+        <Case label="Picker: the way back and the title, and a search field">
+          <div className="picker-head">
+            <button type="button" className="picker-back" aria-label="Back to the swap" title="Back">
+              <ArrowLeft size={20} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+            <h3 className="picker-title">Select a token you pay</h3>
+          </div>
+          <label className="picker-search">
+            <Search size={16} strokeWidth={1.5} aria-hidden="true" />
+            <span className="sr-only">Search by chain name</span>
+            <input className="picker-input" type="text" placeholder="Search by chain name" value={chainSearch} onChange={(event) => setChainSearch(event.target.value)} />
+          </label>
         </Case>
-        <Case label="Picker: nothing found, and a contract that is not listed">
-          <div className="picker-empty">
-            <p className="picker-empty-title">No coins match.</p>
-            <p className="muted">Check the spelling, or choose "All" to search every chain.</p>
+        <Case label="Chain tiles: plain, chosen, a long name, a chain with no artwork">
+          <div className="picker-chains states-chains" role="listbox" aria-label="Chain">
+            <ChainTile chain="bsc" name="BNB Chain" selected={false} tabbable />
+            <ChainTile chain="eth" name="Ethereum" selected />
+            <ChainTile chain="sol" name="Solana" selected={false} />
+            <ChainTile chain="btc" name="Bitcoin" selected={false} />
+            <ChainTile chain="hood" name="Robinhood Chain" selected={false} />
+            <ChainTile chain="near" name="NEAR" selected={false} />
           </div>
-          <div className="picker-empty">
-            <p className="picker-empty-title">This coin is not supported.</p>
-            <p className="muted">That contract is not on the list of coins that can be swapped here. Search by symbol to see what is.</p>
+        </Case>
+        <Case label="Picker rows: a chain's own coin, a token with its contract, under the arrow keys, chosen, on the other side, held, on another chain, loading">
+          <div className="picker-list" role="grid" aria-label="Coins on Base">
+            {[
+              { token: ETH, active: false, chosen: false, otherSide: null, elsewhere: false, balance: 0n },
+              { token: USDC_BASE, active: false, chosen: false, otherSide: null, elsewhere: false, balance: 0n },
+              { token: WETH_BASE, active: true, chosen: false, otherSide: null, elsewhere: false, balance: 0n },
+              { token: HOOD, active: false, chosen: true, otherSide: null, elsewhere: false, balance: 0n },
+              { token: UNKNOWN, active: false, chosen: false, otherSide: "You receive", elsewhere: false, balance: 0n },
+              { token: { ...USDC_BASE, id: "base:USDC:held" }, active: false, chosen: false, otherSide: null, elsewhere: false, balance: 1_250_500_000n },
+              { token: USDT, active: false, chosen: false, otherSide: null, elsewhere: true, balance: 0n },
+            ].map(({ token, active, chosen, otherSide, elsewhere, balance }, index) => (
+              <CoinRow key={token.id} token={token} index={index} id={`states-coin-${index}`} active={active} chosen={chosen} otherSide={otherSide} elsewhere={elsewhere} twin={false} balance={balance} />
+            ))}
           </div>
+          <div className="picker-row" aria-hidden="true">
+            <span className="skeleton skeleton-icon" />
+            <span className="picker-row-text">
+              <span className="skeleton skeleton-line" />
+              <span className="skeleton skeleton-line skeleton-line-short" />
+            </span>
+          </div>
+        </Case>
+        <Case label="Picker: nothing found, a contract that is not listed, and no such chain">
+          <PickerNote title="No coins match.">Check the spelling, or paste the coin's contract address.</PickerNote>
+          <PickerNote title="Not supported.">That contract is not on the list of coins that can be swapped here. Search by name to see what is.</PickerNote>
+          <PickerNote title="No chain matches.">Check the spelling: every chain on the coin list is here.</PickerNote>
         </Case>
       </Group>
 

@@ -1,9 +1,9 @@
 // The swap card's state and its live quote.
 //
 // A quote is asked for 400 ms after the person stops typing and again every
-// 15 seconds. Refreshing pauses while they type, while a sheet is open and
-// while the tab is hidden; it resumes when the tab comes back. A newer request
-// always cancels an older one.
+// 15 seconds. Refreshing pauses while they type, while a sheet is open or the
+// coin picker has the card, and while the tab is hidden; it resumes when the
+// tab comes back. A newer request always cancels an older one.
 //
 // Routing is the server's setting. The one thing kept here about it is the
 // person's choice to route this one swap in public (`withoutPrivate`), which is
@@ -17,6 +17,7 @@ import { api, ApiError } from "../api.ts";
 import { DEFAULT_PAIR, QUOTE_DEBOUNCE_MS, QUOTE_EXPIRES_MS, QUOTE_REFRESH_MS, QUOTE_TIMEOUT_MS } from "../config.ts";
 import { modeTold, parsePrefill, PRIVATE_UNAVAILABLE, refreshDue, routingChoice, type PrivacyMode, type QuoteProblem } from "../lib/swap-logic.ts";
 import { useApp } from "./app.ts";
+import { usePicker } from "./picker.ts";
 import { useSheet } from "./sheet.ts";
 import { findToken, useTokens } from "./tokens.ts";
 import { useWallet } from "./wallet.ts";
@@ -178,7 +179,8 @@ function due(): boolean {
     typing,
     loading: state.loading,
     hidden: document.hidden,
-    sheetOpen: useSheet.getState().current !== null,
+    // The coin picker takes the card's place as a sheet covers it: the numbers are not on show, and are not refreshed.
+    sheetOpen: useSheet.getState().current !== null || usePicker.getState().side !== null,
     hasQuote: state.quote !== null,
     problem: state.problem,
     fetchedAt: state.fetchedAt,
@@ -196,9 +198,12 @@ function start(): void {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && due()) void fetchQuote();
   });
-  // A sheet closing is a moment to catch up.
+  // A sheet closing is a moment to catch up. So is the coin picker giving the card back.
   useSheet.subscribe((sheet, previous) => {
     if (sheet.current === null && previous.current !== null && due()) void fetchQuote();
+  });
+  usePicker.subscribe((picker, previous) => {
+    if (picker.side === null && previous.side !== null && due()) void fetchQuote();
   });
   // Connecting or switching a wallet changes who is paying.
   useWallet.subscribe((wallet, previous) => {

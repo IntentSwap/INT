@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { SecondaryButton } from "../components/Button.tsx";
 import { Notice } from "../components/Shell.tsx";
-import { CoinPicker } from "../components/CoinPicker.tsx";
 import { Faq } from "../components/Faq.tsx";
 import { Backdrop, Headline, HomeSections } from "../components/Home.tsx";
 import { ReviewSheet } from "../components/ReviewSheet.tsx";
@@ -47,8 +46,6 @@ export function SwapPage() {
       </div>
       <HomeSections />
       <Faq />
-      {sheet === "coin-from" ? <CoinPicker side="from" /> : null}
-      {sheet === "coin-to" ? <CoinPicker side="to" /> : null}
       {sheet === "review" ? <ReviewSheet /> : null}
       {sheet === "slippage" ? <SlippageSheet /> : null}
     </>

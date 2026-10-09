@@ -91,7 +91,7 @@ and the Chrome already on the machine. It saves screenshots to `docs/review/`
 and fails if the console complains, anything is fetched from another site, a
 page scrolls sideways, the main button is out of view, anything moves when a
 quote arrives, a message does not fit its line, or one of its walks through
-the site (quoting, the coin picker by keyboard, the review sheet, sheets by
+the site (quoting, the coin picker, the review sheet, sheets by
 touch, pasting an address, focus) does not go as it should.
 
 Add `--practice=http://127.0.0.1:8798` with a second server started with

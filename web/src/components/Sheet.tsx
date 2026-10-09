@@ -11,8 +11,6 @@ interface Props {
   title: string;
   onClose(): void;
   children: ReactNode;
-  /** Fills the height it is allowed, so its content can change without the sheet changing size. */
-  tall?: boolean;
   /** Stays at the bottom of the sheet while the rest scrolls: the place for its one button. */
   footer?: ReactNode;
   /** While true, nothing closes the sheet: not Close, not Esc, not a press outside, not a drag. For the moment something is in flight. */
@@ -25,7 +23,7 @@ interface Props {
  * the page behind cannot be used, and focus goes back to where it was on close.
  * Only one is ever open (see stores/sheet.ts).
  */
-export function Sheet({ title, onClose, children, tall = false, footer, locked = false }: Props) {
+export function Sheet({ title, onClose, children, footer, locked = false }: Props) {
   const titleId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const [closing, setClosing] = useState(false);
@@ -81,7 +79,6 @@ export function Sheet({ title, onClose, children, tall = false, footer, locked =
       ref={dialog}
       className="sheet"
       aria-labelledby={titleId}
-      data-tall={tall || undefined}
       data-closing={closing || undefined}
       data-dragging={drag > 0 || undefined}
       style={drag > 0 ? { transform: `translateY(${drag}px)` } : undefined}

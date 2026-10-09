@@ -444,32 +444,38 @@ export async function walletWalk(browser: Browser, options: { baseUrl: string; p
       }
       await page.getByRole("button", { name: "Review swap" }).waitFor({ timeout: 40_000 });
       if (setup.story === "fail-then-succeed" || setup.story === "refuse-reload-replace") {
-        // The coin picker shows what the wallet holds, on every chain it can pay from, and puts those coins first after the pinned ones.
+        // The coin picker shows what the wallet holds, on every chain it can pay from: at the end of the coin's row, on that chain's list.
         const payChip = page.getByRole("button", { name: /^You pay: .*Change coin$/ });
         if (byKeyboard) {
           await tabTo(payChip, "the coin being paid");
           await page.keyboard.press("Enter");
         } else await payChip.click();
-        const picker = page.getByRole("dialog");
+        const picker = page.getByRole("region", { name: "Select a token you pay" });
         await picker.waitFor();
-        const held = (symbol: string, chain: string) => picker.locator(".picker-row", { has: page.locator(".picker-row-main", { hasText: new RegExp(`^${symbol} · ${chain}$`) }) }).locator(".picker-row-balance");
+        const held = (symbol: string) => picker.locator(".picker-row", { has: page.locator(".picker-row-symbol", { hasText: new RegExp(`^${symbol}$`) }) }).locator(".picker-row-balance");
+        const choose = async (chain: string) => {
+          await picker.getByRole("option", { name: chain, exact: true }).click();
+          await picker.getByRole("grid", { name: `Coins on ${chain}` }).waitFor({ timeout: 5000 });
+        };
         for (const [symbol, chain, amount] of [
           ["USDC", "Base", "1,000.00"],
           ["USDC", "Arbitrum", "1,000.00"],
           ["ETH", "Ethereum", "5.00"],
           ["BNB", "BNB Chain", "5.00"],
         ] as const) {
+          await choose(chain);
           // What the eye is given (a row far down the list is not drawn until it is scrolled to, so the text is read, not the rendering).
-          const cell = held(symbol, chain).locator('[aria-hidden="true"]');
+          const cell = held(symbol).locator('[aria-hidden="true"]');
           await cell.first().waitFor({ state: "attached", timeout: 15_000 }).catch(() => undefined);
           const shown = (await cell.count()) > 0 ? ((await cell.first().textContent()) ?? "").trim() : "(nothing)";
           expectThat(shown === amount, `the picker shows ${shown} beside ${symbol} on ${chain}, ${amount} expected`);
+          if (symbol === "USDC" && chain === "Base") await shoot("picker-balances");
         }
         // A coin the wallet cannot pay with from here (another kind of chain) has no balance beside it.
-        expectThat((await held("SOL", "Solana").count()) === 0, "the picker shows a balance beside a coin on a chain this wallet is not on");
-        await shoot("picker-balances");
+        await choose("Solana");
+        expectThat((await picker.locator(".picker-row").count()) > 1 && (await picker.locator(".picker-row-balance").count()) === 0, "the picker shows a balance beside a coin on a chain this wallet is not on");
         await page.keyboard.press("Escape");
-        await picker.waitFor({ state: "hidden" });
+        await picker.waitFor({ state: "detached" });
       }
       await shoot("card");
       await activate(page.getByRole("button", { name: "Review swap" }), '"Review swap"');

@@ -10,7 +10,7 @@ import { swapPointsMicro } from "../shared/rewards.ts";
 import { readRecent, withOrder } from "../web/src/stores/orders.ts";
 import { quoteAge } from "../web/src/stores/swap.ts";
 import { isToken } from "../web/src/stores/tokens.ts";
-import { aboutMinutes, addressParts, amountStep, cleanAmount, coinLabel, estimateUsd, lookAlikes, maxSpendable, fitAmount, isContractCode, maxAmountChars, minimumNote, minutesText, orderDiffers, parsePrefill, refreshDue, retriesItself, reviewAction, reviewSentence, shouldAnnounce, walletAddressFor, primaryAction, rateText, roundUpForDisplay, searchTokens, shortAddress, sortTokens, type ActionInput, percentToBps, slippageAdvice, SLIPPAGE_CHOICES, balanceCalls, readBalance, refundFor, asksForRefund, fitLabel, pointsByDefault, appFeeWords, cardRouting, feeFree, modeTold, quoteAnnouncement, routedPrivately, routingChoice, routingNote, CARD_BUTTON_ROOM, NO_FEE_NO_POINTS, PRIVATE_UNAVAILABLE } from "../web/src/lib/swap-logic.ts";
+import { aboutMinutes, addressParts, amountStep, cleanAmount, coinLabel, estimateUsd, lookAlikes, maxSpendable, fitAmount, isContractCode, maxAmountChars, minimumNote, minutesText, orderDiffers, parsePrefill, refreshDue, retriesItself, reviewAction, reviewSentence, shouldAnnounce, walletAddressFor, primaryAction, rateText, roundUpForDisplay, searchTokens, shortAddress, sortTokens, chainCoins, contractChain, gridMove, pickerInHistory, pickerRows, searchChains, type ActionInput, percentToBps, slippageAdvice, SLIPPAGE_CHOICES, balanceCalls, readBalance, refundFor, asksForRefund, fitLabel, pointsByDefault, appFeeWords, cardRouting, feeFree, modeTold, quoteAnnouncement, routedPrivately, routingChoice, routingNote, CARD_BUTTON_ROOM, NO_FEE_NO_POINTS, PRIVATE_UNAVAILABLE } from "../web/src/lib/swap-logic.ts";
 import { matchRoute } from "../web/src/router.ts";
 
 const coin = (symbol: string, chain: string, extra: Partial<TokenView> = {}): TokenView => ({ id: `${chain}:${symbol}`, symbol, name: symbol, chain, decimals: 18, price: "1", contract: null, wallet: false, ...extra });
@@ -258,6 +258,165 @@ describe("coin picker order and search", () => {
     expect(searchTokens(tokens, "So11111111111111111111111111111111111111112", null)).toEqual({ kind: "unsupported" });
     // A pasted contract never falls back to a look-alike by name.
     expect(searchTokens([coin("0x1111", "eth")], "0x1111111111111111111111111111111111111111", null)).toEqual({ kind: "unsupported" });
+  });
+});
+
+describe("the coin picker, one chain at a time", () => {
+  const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+  const USDC_ARB = "0xaf88d065e77c8cc2239327c5edb3a432268e5831";
+  // A contract two chains share: the same address on Arbitrum and on Optimism.
+  const SHARED = "0x01bff41798a0bcf287b996046ca68b395dbc1071";
+  const tokens = [
+    coin("WETH", "base", { name: "Wrapped Ether", contract: "0x4200000000000000000000000000000000000006" }),
+    coin("BRETT", "base", { name: "Brett", contract: "0x532f27101965dd16442e59d40670faf5ebb142e4" }),
+    coin("USDC", "base", { name: "USD Coin", decimals: 6, contract: USDC_BASE }),
+    coin("sUSDC", "base", { name: "Spark USDC Vault", contract: "0x3128a0f7f0ea68e7b7c9b00afa7e41045828e858" }),
+    coin("DAI", "base", { name: "Dai Stablecoin", contract: "0x50c5725949a6f0c72e6c4a641f24049a917db0cb" }),
+    coin("usdt", "base", { name: "Tether USD", decimals: 6, contract: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2" }),
+    ETH,
+    coin("cbBTC", "base", { name: "Coinbase Wrapped BTC", decimals: 8, contract: "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" }),
+    coin("USDC", "arb", { name: "USD Coin", decimals: 6, contract: USDC_ARB }),
+    coin("USDT0", "arb", { name: "USDT0", decimals: 6, contract: SHARED }),
+    coin("USDT0", "op", { name: "USDT0", decimals: 6, contract: SHARED }),
+    coin("ETH", "arb", { name: "Ethereum" }),
+    USDT_SOL,
+    coin("SOL", "sol", { name: "Solana" }),
+    BTC,
+    coin("wNEAR", "near", { name: "Wrapped NEAR", decimals: 24, contract: "wrap.near" }),
+    coin("BLACKDRAGON", "near", { name: "Black Dragon", decimals: 24, contract: "blackdragon.tkn.near" }),
+  ];
+  const symbols = (list: TokenView[]) => list.map((token) => token.symbol);
+  const shown = (query: string, chain: string, balances?: Map<string, bigint>) => {
+    const result = pickerRows(tokens, query, chain, balances);
+    return result.kind === "here" || result.kind === "elsewhere" ? `${result.kind}: ${result.tokens.map((token) => `${token.symbol}@${token.chain}`).join(" ")}` : result.kind;
+  };
+
+  it("lists a chain's own coin first, then the stablecoins in their set order, then the rest by name", () => {
+    expect(symbols(chainCoins(tokens, "base"))).toEqual(["ETH", "usdt", "USDC", "DAI", "BRETT", "cbBTC", "sUSDC", "WETH"]);
+    // A chain's own coin is the one with no contract. A chain that has none starts with what it has.
+    expect(symbols(chainCoins(tokens, "near"))).toEqual(["BLACKDRAGON", "wNEAR"]);
+    expect(symbols(chainCoins(tokens, "sol"))).toEqual(["SOL", "USDT"]);
+    expect(symbols(chainCoins(tokens, "btc"))).toEqual(["BTC"]);
+    expect(chainCoins(tokens, "tron")).toEqual([]);
+    // Only that chain's coins, and the list it was given is left as it was.
+    expect(chainCoins(tokens, "base").every((token) => token.chain === "base")).toBe(true);
+    expect(tokens[0]!.symbol).toBe("WETH");
+  });
+
+  it("with nothing typed, shows the chosen chain's coins and no other chain's", () => {
+    expect(shown("", "base")).toBe("here: ETH@base usdt@base USDC@base DAI@base BRETT@base cbBTC@base sUSDC@base WETH@base");
+    expect(shown("  ", "arb")).toBe("here: ETH@arb USDC@arb USDT0@arb");
+    // What the wallet holds is shown beside a coin; it does not move the coin.
+    expect(shown("", "base", new Map([["base:WETH", 5n]]))).toBe(shown("", "base"));
+  });
+
+  it("searches the chosen chain by name and symbol, best matches first, in the chain's own order within each", () => {
+    expect(shown("usd", "base")).toBe("here: usdt@base USDC@base sUSDC@base");
+    expect(shown("wrapped", "base")).toBe("here: cbBTC@base WETH@base");
+    expect(shown("ether", "base")).toBe("here: ETH@base WETH@base");
+    expect(shown("USDC", "arb")).toBe("here: USDC@arb");
+  });
+
+  it("with no match on the chosen chain, shows the matches on other chains; with none anywhere, says so", () => {
+    expect(shown("sol", "base")).toBe("elsewhere: SOL@sol USDT@sol");
+    expect(shown("dragon", "base")).toBe("elsewhere: BLACKDRAGON@near");
+    // The other chains' coins come in the order of a list of every chain: the pinned coins first, then what is held, then by symbol.
+    expect(shown("w", "sol")).toBe("elsewhere: WETH@base wNEAR@near cbBTC@base");
+    expect(shown("w", "sol", new Map([["near:wNEAR", 1n]]))).toBe("elsewhere: wNEAR@near WETH@base cbBTC@base");
+    expect(shown("bitcoin", "sol")).toBe("elsewhere: BTC@btc");
+    // A coin on the chosen chain is never repeated under the other chains.
+    expect(shown("usdc", "arb")).toBe("here: USDC@arb");
+    expect(shown("zzzz", "base")).toBe("none");
+  });
+
+  it("a pasted contract: the coin on the chosen chain, or on another chain, or Not supported; never something that looks alike", () => {
+    expect(shown(USDC_BASE, "base")).toBe("here: USDC@base");
+    expect(shown(USDC_BASE.toUpperCase().replace("0X", "0x"), "base")).toBe("here: USDC@base");
+    expect(shown(` ${USDC_ARB} `, "base")).toBe("elsewhere: USDC@arb");
+    expect(shown("wrap.near", "base")).toBe("elsewhere: wNEAR@near");
+    expect(shown(SOL, "base")).toBe("elsewhere: USDT@sol");
+    expect(shown("0x1111111111111111111111111111111111111111", "base")).toBe("unsupported");
+    expect(shown("So11111111111111111111111111111111111111112", "sol")).toBe("unsupported");
+    expect(shown("nobody.near", "near")).toBe("unsupported");
+  });
+
+  it("a pasted contract takes the picker to the coin's own chain", () => {
+    expect(contractChain(tokens, USDC_ARB, "base")).toBe("arb");
+    expect(contractChain(tokens, ` ${USDC_ARB.toUpperCase().replace("0X", "0x")}\n`, "base")).toBe("arb");
+    expect(contractChain(tokens, SOL, "base")).toBe("sol");
+    expect(contractChain(tokens, "wrap.near", null)).toBe("near");
+    // Already on a chain that has it: nothing moves. Where two chains share the address, the first in the chains' own order.
+    expect(contractChain(tokens, USDC_ARB, "arb")).toBeNull();
+    expect(contractChain(tokens, SHARED, "op")).toBeNull();
+    expect(contractChain(tokens, SHARED, "base")).toBe("arb");
+    // Anything that is not the contract of a listed coin moves nothing: a name, a symbol, an address nobody listed, nothing at all.
+    for (const text of ["usdc", "USD Coin", "0x1111111111111111111111111111111111111111", USDC_ARB.slice(0, -1), "", "   "]) expect(contractChain(tokens, text, "base"), text).toBeNull();
+    // And once there, the list shows the coin.
+    expect(shown(USDC_ARB, "arb")).toBe("here: USDC@arb");
+  });
+
+  it("searches the chains by name: those that start with what was typed, then any word, then anywhere in the name", () => {
+    const chains = [
+      { key: "bsc", name: "BNB Chain" },
+      { key: "eth", name: "Ethereum" },
+      { key: "sol", name: "Solana" },
+      { key: "btc", name: "Bitcoin" },
+      { key: "base", name: "Base" },
+      { key: "bch", name: "Bitcoin Cash" },
+      { key: "hood", name: "Robinhood Chain" },
+      { key: "adi", name: "ADI Chain" },
+    ];
+    const found = (query: string) => searchChains(chains, query).map((chain) => chain.name);
+    expect(found("")).toEqual(chains.map((chain) => chain.name));
+    expect(found("  ")).toEqual(chains.map((chain) => chain.name));
+    expect(found("b")).toEqual(["BNB Chain", "Bitcoin", "Base", "Bitcoin Cash", "Robinhood Chain"]);
+    expect(found("bit")).toEqual(["Bitcoin", "Bitcoin Cash"]);
+    expect(found("SOL")).toEqual(["Solana"]);
+    expect(found("chain")).toEqual(["BNB Chain", "Robinhood Chain", "ADI Chain"]);
+    expect(found("cash")).toEqual(["Bitcoin Cash"]);
+    expect(found("hood")).toEqual(["Robinhood Chain"]);
+    // A chain's short code finds it too.
+    expect(found("bsc")).toEqual(["BNB Chain"]);
+    expect(found("zzz")).toEqual([]);
+    // The list it was given is left as it was.
+    expect(chains[0]!.key).toBe("bsc");
+  });
+
+  it("the arrow keys move within a grid three across, two across, or a list, and stop at its edges", () => {
+    // Eleven chains, three across: rows of 0-2, 3-5, 6-8 and a short last row of 9-10.
+    expect(gridMove(0, "ArrowRight", 11, 3)).toBe(1);
+    expect(gridMove(2, "ArrowRight", 11, 3)).toBe(3);
+    expect(gridMove(1, "ArrowLeft", 11, 3)).toBe(0);
+    expect(gridMove(0, "ArrowLeft", 11, 3)).toBe(0);
+    expect(gridMove(10, "ArrowRight", 11, 3)).toBe(10);
+    expect(gridMove(1, "ArrowDown", 11, 3)).toBe(4);
+    expect(gridMove(4, "ArrowUp", 11, 3)).toBe(1);
+    expect(gridMove(1, "ArrowUp", 11, 3)).toBe(1);
+    // Down from above the short last row goes to its last place; down from the last row goes nowhere.
+    expect(gridMove(8, "ArrowDown", 11, 3)).toBe(10);
+    expect(gridMove(7, "ArrowDown", 11, 3)).toBe(10);
+    expect(gridMove(9, "ArrowDown", 11, 3)).toBe(9);
+    expect(gridMove(5, "Home", 11, 3)).toBe(0);
+    expect(gridMove(5, "End", 11, 3)).toBe(10);
+    // Two across, as on a narrow phone.
+    expect(gridMove(0, "ArrowDown", 11, 2)).toBe(2);
+    expect(gridMove(3, "ArrowUp", 11, 2)).toBe(1);
+    // A list is a grid one across: down and up are the next and the one before.
+    expect(gridMove(0, "ArrowDown", 5, 1)).toBe(1);
+    expect(gridMove(4, "ArrowDown", 5, 1)).toBe(4);
+    expect(gridMove(0, "ArrowUp", 5, 1)).toBe(0);
+    expect(gridMove(3, "End", 5, 1)).toBe(4);
+    // Any other key, and a grid of nothing, move nothing; a place outside the grid is brought inside it.
+    expect(gridMove(2, "Enter", 5, 1)).toBe(2);
+    expect(gridMove(2, "a", 11, 3)).toBe(2);
+    expect(gridMove(0, "ArrowDown", 0, 3)).toBe(0);
+    expect(gridMove(99, "ArrowLeft", 5, 1)).toBe(3);
+  });
+
+  it("reads which picker a page of the browser's history is, and takes nothing else for one", () => {
+    expect(pickerInHistory({ picker: "from" })).toBe("from");
+    expect(pickerInHistory({ picker: "to" })).toBe("to");
+    for (const state of [null, undefined, "from", 1, {}, { picker: "both" }, { picker: null }, { side: "from" }, ["from"]]) expect(pickerInHistory(state), JSON.stringify(state)).toBeNull();
   });
 });
 

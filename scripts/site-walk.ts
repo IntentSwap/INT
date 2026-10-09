@@ -631,14 +631,19 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
       expectThat(!/abstract/i.test(home), "the home page names the Abstract chain");
       const reach = (await page.locator(".fact").nth(2).evaluate((fact) => fact.textContent ?? "")).replace(/\s+/g, " ");
       expectThat(reach.includes(String(listed.length)) && reach.includes(String(chains)), `the home page's count reads "${reach}", but the list has ${listed.length} coins on ${chains} chains`);
-      // The picker: its chain chips and its rows.
+      // The picker: its grid of chains (one tile for each chain on the list, and none for the chain left off) and its rows.
       await page.getByRole("button", { name: /^You pay: / }).click();
-      await page.getByRole("listbox", { name: "Coins" }).waitFor();
-      const picker = await page.getByRole("dialog").evaluate((sheet) => sheet.textContent ?? "");
-      expectThat(!/abstract/i.test(picker), "the coin picker names the Abstract chain");
+      const picker = page.getByRole("region", { name: "Select a token you pay" });
+      await picker.waitFor();
+      expectThat(!/abstract/i.test(await picker.evaluate((view) => view.textContent ?? "")), "the coin picker names the Abstract chain");
+      expectThat((await picker.getByRole("option").count()) === chains, `the coin picker offers ${await picker.getByRole("option").count()} chains, the coin list has ${chains}`);
+      await picker.getByPlaceholder("Search by chain name").fill("abstract");
+      await page.getByText("No chain matches.").waitFor({ timeout: 5000 }).catch(() => expectThat(false, 'searching the picker\'s chains for "abstract" finds something'));
+      await picker.getByPlaceholder("Search by chain name").fill("");
       await page.getByRole("combobox").fill("abstract");
       await page.getByText("No coins match.").waitFor({ timeout: 5000 }).catch(() => expectThat(false, 'searching the picker for "abstract" finds something'));
       await page.keyboard.press("Escape");
+      await picker.waitFor({ state: "detached" });
       // The Docs' table of chains, and its count.
       await visit(page, new URL("/docs/chains", baseUrl).toString());
       await page.locator(".docs-chains tr").first().waitFor({ timeout: 20_000 });

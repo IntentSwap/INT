@@ -20,6 +20,7 @@ import { freshSol, orderPace, orderWalk, seeAll, settle } from "./order-walk.ts"
 import { siteWalk } from "./site-walk.ts";
 import { walletWalk } from "./wallet-walk.ts";
 import { focusWalk } from "./focus-walk.ts";
+import { pickerWalk } from "./picker-walk.ts";
 import { privateWalk } from "./private-walk.ts";
 import { rewardsWalk } from "./rewards-walk.ts";
 
@@ -51,6 +52,8 @@ interface Scenario {
   after?(page: Page): Promise<void>;
   /** The widths at which this state exists at all. Every width when left out. */
   widths?: readonly number[];
+  /** The coin picker has the card: the swap, and its main button with it, must be out of reach, and nothing may lie over the page. */
+  inPicker?: boolean;
 }
 
 // Waits for a quote. This script asks for many previews from one address, so it can run into the
@@ -99,11 +102,17 @@ async function openReview(page: Page, recipient: string = SOL) {
   await page.waitForTimeout(300);
 }
 
-async function openPicker(page: Page) {
-  await page.getByRole("button", { name: /^You pay: / }).click();
-  await page.getByRole("listbox", { name: "Coins" }).waitFor();
-  // Let the sheet finish arriving.
-  await page.waitForTimeout(300);
+/** Opens the coin picker, which takes the swap's place inside the card, and makes the screen tall enough to show the whole card. */
+async function openPicker(page: Page, side: "pay" | "receive" = "pay") {
+  await page.getByRole("button", { name: side === "pay" ? /^You pay: / : /^You receive: / }).click();
+  await page.getByRole("region", { name: `Select a token you ${side}` }).waitFor();
+  // The pointer is taken off the card: it was on the coin selector, where a chain's tile now is, and what is photographed is the picker at rest.
+  await page.mouse.move(0, 0);
+  // Let the two views finish changing places.
+  await page.waitForTimeout(400);
+  const end = await page.locator(".card").evaluate((card) => Math.ceil(card.getBoundingClientRect().bottom + window.scrollY) + 24);
+  const screen = page.viewportSize();
+  if (screen !== null && end > screen.height) await page.setViewportSize({ width: screen.width, height: end });
 }
 
 const SCENARIOS: Scenario[] = [
@@ -551,7 +560,7 @@ const SCENARIOS: Scenario[] = [
       if (outputs.length > 0) throw new Error(`these amounts received do not fit: ${outputs.join(", ")}`);
       // Recent orders: a row gives the amount paid exactly or not at all. The sample with all eighteen
       // decimals names its coins alone; the others give their exact amounts.
-      const rows = (await page.locator(".recent-row .picker-row-symbol").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
+      const rows = (await page.locator(".recent-row .recent-row-main").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
       for (const want of ["ETH to USDT", "250 USDC to ETH", "0.5 ETH to USDT", "0.0125 BTC to USDC"]) if (!rows.includes(want)) throw new Error(`the recent orders on the states page read ${JSON.stringify(rows)}; "${want}" is missing`);
       if (rows.some((row) => /0\.1234/.test(row))) throw new Error(`a recent order's row gives a shortened amount to pay: ${JSON.stringify(rows)}`);
     },
@@ -569,29 +578,39 @@ const SCENARIOS: Scenario[] = [
       await page.locator(".sheet-body").evaluate((el) => el.scrollTo(0, el.scrollHeight));
     },
   },
-  { name: "picker-open", path: "/", screenOnly: true, run: openPicker },
-  {
-    name: "picker-search",
-    path: "/",
-    screenOnly: true,
-    async run(page) {
-      await openPicker(page);
-      await page.getByRole("combobox").fill("usd");
-    },
-  },
+  // The coin picker, inside the card: open for each side, another chain chosen, a search with matches,
+  // with none anywhere, with matches on other chains only, a contract that is not listed, and one that is.
+  { name: "picker-pay", path: "/?amount=0.5", screenOnly: true, inPicker: true, run: (page) => openPicker(page, "pay") },
+  { name: "picker-receive", path: "/?amount=0.5", screenOnly: true, inPicker: true, run: (page) => openPicker(page, "receive") },
   {
     name: "picker-chain",
     path: "/",
     screenOnly: true,
+    inPicker: true,
     async run(page) {
       await openPicker(page);
-      await page.getByRole("button", { name: "Solana", exact: true }).click();
+      await page.getByRole("option", { name: "Solana", exact: true }).click();
+      await page.getByRole("grid", { name: "Coins on Solana" }).waitFor();
+      // The pointer is taken off the tile: what is photographed is the chosen chain, not a chain under the pointer.
+      await page.mouse.move(0, 0);
+    },
+  },
+  {
+    name: "picker-search",
+    path: "/",
+    screenOnly: true,
+    inPicker: true,
+    async run(page) {
+      await openPicker(page);
+      await page.getByRole("combobox").fill("usd");
+      await page.getByRole("grid", { name: "Coins on Base" }).getByRole("button", { name: "USD Coin" }).waitFor();
     },
   },
   {
     name: "picker-no-match",
     path: "/",
     screenOnly: true,
+    inPicker: true,
     async run(page) {
       await openPicker(page);
       await page.getByRole("combobox").fill("zzzz");
@@ -599,9 +618,33 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    name: "picker-other-chains",
+    path: "/",
+    screenOnly: true,
+    inPicker: true,
+    async run(page) {
+      await openPicker(page);
+      // Nothing on Base by this name; other chains have it.
+      await page.getByRole("combobox").fill("tron");
+      await page.getByRole("heading", { name: "On other chains" }).waitFor();
+    },
+  },
+  {
+    name: "picker-chain-search",
+    path: "/",
+    screenOnly: true,
+    inPicker: true,
+    async run(page) {
+      await openPicker(page);
+      await page.getByPlaceholder("Search by chain name").fill("bi");
+      await page.getByRole("option", { name: "Bitcoin", exact: true }).waitFor();
+    },
+  },
+  {
     name: "picker-unsupported",
     path: "/",
     screenOnly: true,
+    inPicker: true,
     async run(page) {
       await openPicker(page);
       // A well-formed contract address that is not on the list.
@@ -622,7 +665,7 @@ if (!baseUrl) {
 }
 const chosen = only.length === 0 ? SCENARIOS : SCENARIOS.filter((scenario) => only.includes(scenario.name));
 // Besides the screenshots, the script walks through behaviour. Each walk has a name and can be run alone:
-// layout, states-in-use, review, paste, quoting, sheet-touch, focus, picker-keyboard, slippage, reduced-motion, chips, site, order, wallet, focus-marks, private, rewards.
+// layout, states-in-use, review, paste, quoting, sheet-touch, focus, picker (also run by its older name, picker-keyboard), slippage, reduced-motion, chips, site, order, wallet, focus-marks, private, rewards.
 const walks = (name: string) => only.length === 0 || only.includes(name);
 
 // The site limits how often one visitor may load it. This script is one visitor, so it keeps a steady pace.
@@ -693,7 +736,27 @@ for (const scenario of chosen) {
           const box = button.getBoundingClientRect();
           return box.top >= 0 && box.bottom <= window.innerHeight ? null : `the main button is out of view (${Math.round(box.top)} to ${Math.round(box.bottom)} of ${window.innerHeight})`;
         });
-        if (hidden !== null && !scenario.noCard) complaints.push(`${label}: ${hidden}`);
+        if (hidden !== null && !scenario.noCard && !scenario.inPicker) complaints.push(`${label}: ${hidden}`);
+        // While the coin picker has the card, the swap and its main button are neither drawn nor reachable,
+        // the picker is inside the card, and nothing lies over the page or holds it still.
+        if (scenario.inPicker) {
+          const inside = await page.evaluate(() => {
+            const card = document.querySelector<HTMLElement>(".card");
+            const swap = document.querySelector<HTMLElement>(".card-swap");
+            const picker = document.querySelector<HTMLElement>(".card-picker");
+            const found: string[] = [];
+            if (card === null || swap === null || picker === null) return ["the card does not hold both the swap and the picker"];
+            if (picker.parentElement !== card || picker.getAttribute("role") !== "region") found.push("the picker is not a region inside the card");
+            if (!swap.inert) found.push("the swap can still be reached");
+            if (getComputedStyle(swap).visibility !== "hidden") found.push("the swap is still drawn");
+            if (document.querySelector("dialog[open]") !== null) found.push("a dialog is open");
+            if (getComputedStyle(document.body).overflow === "hidden" || document.documentElement.hasAttribute("data-sheet")) found.push("the page is held still");
+            const [box, inner] = [card.getBoundingClientRect(), picker.getBoundingClientRect()];
+            if (inner.left < box.left || inner.right > box.right || inner.bottom > box.bottom + 0.5) found.push("the picker reaches outside the card");
+            return found;
+          });
+          for (const problem of inside) complaints.push(`${label}: ${problem}`);
+        }
         // A main button is one line: 48 px high. A label too long for a phone would make it taller and move what is under it.
         if (width === 360) {
           const tall = await page.evaluate(() =>
@@ -897,6 +960,11 @@ if (walks("states-in-use")) {
         ["tool", ".states-case .tool:not(:disabled)"],
         ["quote-line", ".states-case button.quote-summary"],
         ["coin-button", ".states-case button.coin-button"],
+        ["picker-back", ".states-case .picker-back"],
+        ["picker-search", ".states-case .picker-input"],
+        ["chain-tile", '.states-case .chain-tile[aria-selected="false"]'],
+        // (The one coin in the sample list that Tab stops at: the others are reached with the arrow keys.)
+        ["picker-row", '.states-case .picker-pick[tabindex="0"]'],
         ["address", ".states-case .address-input"],
         ["amount", ".states-case .amount-input"],
         ["tick-box", ".states-case .check input:not([readonly])"],
@@ -910,14 +978,15 @@ if (walks("states-in-use")) {
         await frame.screenshot({ path: path.join(out, `states-hover-${name}-${theme}.png`) });
         await page.mouse.move(0, 0);
         // Reached by the keyboard, a control wears one quiet line: 1 px, a neutral tone, 2 px off it (the amount's and
-        // the picker's search wear it round their whole field; the quote's line just inside its edge). Never the accent.
+        // the picker's search wear it round their whole field; the quote's line, a chain's tile and a coin's row
+        // just inside their own edge, the row's round the whole row). Never the accent.
         await control.focus();
         await page.keyboard.press("Shift+Tab");
         await page.keyboard.press("Tab");
         await page.waitForTimeout(200);
         const markOf = () =>
           control.evaluate((el) => {
-            for (const node of [el, el.closest(".field"), el.closest(".picker-search")]) {
+            for (const node of [el, el.closest(".field"), el.closest(".picker-search"), el.closest(".picker-row")]) {
               if (node === null) continue;
               const style = getComputedStyle(node);
               if (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0 && !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(style.outlineColor)) return `${style.outlineWidth} ${style.outlineColor} ${style.outlineOffset}`;
@@ -928,7 +997,7 @@ if (walks("states-in-use")) {
         const greenOn = () =>
           control.evaluate((el, accent) => {
             const found: string[] = [];
-            for (const node of [el, el.closest(".field"), el.closest(".picker-search")]) {
+            for (const node of [el, el.closest(".field"), el.closest(".picker-search"), el.closest(".picker-row")]) {
               if (node === null) continue;
               const style = getComputedStyle(node);
               if (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0 && style.outlineColor === accent) found.push("outline");
@@ -938,7 +1007,7 @@ if (walks("states-in-use")) {
             return found.join(", ");
           }, accentColour);
         const mark = await markOf();
-        const wanted = name === "quote-line" ? `1px ${quietColour} -2px` : `1px ${quietColour} 2px`;
+        const wanted = ["quote-line", "chain-tile", "picker-row"].includes(name) ? `1px ${quietColour} -2px` : `1px ${quietColour} 2px`;
         if (mark === "none") complaints.push(`${label}: ${name} shows nothing when reached by keyboard`);
         else if (mark !== wanted) complaints.push(`${label}: reached by keyboard, ${name} wears "${mark}", not "${wanted}"`);
         if ((await greenOn()) !== "") complaints.push(`${label}: reached by keyboard, ${name} has an accent-coloured ${await greenOn()}`);
@@ -1262,7 +1331,7 @@ if (walks("slippage") && practiceUrl !== null) {
 // 200% zoom and 320 px. A window 1280 by 900 zoomed to 200% lays the page out in 640
 // by 450; a small phone is 320 wide. At both sizes every page must still work: nothing cut off,
 // nothing scrolling sideways, the accessibility rules kept. At 200% the card's main button must be
-// in view and the sheets must fit on the screen. The pages: home (with the coin list and the review),
+// in view and the sheets must fit on the screen. The pages: home (with the coin picker and the review),
 // Track order, Docs, Rewards, Terms, Privacy, the token page, and, with a practice server, an
 // order's page with its deposit details on show.
 if (walks("zoom")) {
@@ -1336,14 +1405,30 @@ if (walks("zoom")) {
         shots += 1;
         if (name === "token") await withToken(false);
         if (name === "home") {
-          // The coin list and the review open and fit; the review's own button can be reached inside it.
+          // The coin picker opens inside the card and nothing of it is cut off or scrolls sideways; every part
+          // of it can be brought onto the screen. The review opens and fits; its own button can be reached inside it.
           await page.getByRole("button", { name: /^You pay: / }).click();
-          await page.getByRole("dialog").waitFor();
-          await page.waitForTimeout(350);
-          await sheetFits("the coin list");
-          await fits("the coin list");
+          const picker = page.getByRole("region", { name: "Select a token you pay" });
+          await picker.waitFor();
+          await page.waitForTimeout(400);
+          await fits("the coin picker");
+          const within = await page.evaluate(() => {
+            const card = document.querySelector(".card")?.getBoundingClientRect();
+            const inner = document.querySelector(".card-picker")?.getBoundingClientRect();
+            const narrow = [...document.querySelectorAll<HTMLElement>(".chain-tile")].filter((tile) => tile.getBoundingClientRect().width < 100).length;
+            return card !== undefined && inner !== undefined && card.left >= 0 && card.right <= window.innerWidth + 0.5 && inner.left >= card.left && inner.right <= card.right && narrow === 0;
+          });
+          if (!within) complaints.push(`${size.label}: the coin picker does not fit inside the card, or the card on the screen`);
+          for (const part of [picker.getByPlaceholder("Search by chain name"), picker.getByRole("listbox", { name: "Chain" }), picker.getByRole("combobox"), picker.getByRole("grid")]) {
+            await part.scrollIntoViewIfNeeded();
+            const at = await part.boundingBox();
+            if (at === null || at.y < 0 || at.y + Math.min(at.height, 44) > size.height + 0.5) complaints.push(`${size.label}: a part of the coin picker cannot be brought onto the screen (${JSON.stringify(at)})`);
+          }
+          await page.screenshot({ path: path.join(out, `${size.tag}-picker-${size.width}-dark.png`), fullPage: false });
+          shots += 1;
           await page.keyboard.press("Escape");
-          await page.getByRole("dialog").waitFor({ state: "detached" });
+          await picker.waitFor({ state: "detached" });
+          await page.evaluate(() => window.scrollTo(0, 0));
           await page.getByRole("button", { name: "Review swap" }).click({ timeout: 40_000 });
           const review = page.getByRole("dialog");
           await review.waitFor();
@@ -1479,7 +1564,8 @@ if (walks("reduced-motion")) {
       if (reduced && pulse !== "none") complaints.push(`${label}: a loading placeholder still pulses (${pulse})`);
       if (!reduced && pulse === "none") complaints.push(`${label}: the check proves nothing: a loading placeholder does not pulse even with movement allowed`);
       release();
-      await page.getByRole("button", { name: /^You pay: / }).click({ timeout: 20_000 });
+      // A sheet: the slippage limit's.
+      await page.getByRole("button", { name: /slippage limit\. Change$/ }).click({ timeout: 20_000 });
       const sheet = page.locator("dialog.sheet");
       await sheet.waitFor();
       const arriving = await sheet.evaluate((el) => getComputedStyle(el).animationName);
@@ -1489,6 +1575,15 @@ if (walks("reduced-motion")) {
       const leaving = await sheet.evaluate((el) => getComputedStyle(el).animationName).catch(() => "");
       if (reduced && leaving !== "" && leaving !== "sheet-fade-out") complaints.push(`${label}: a sheet leaves with "${leaving}", not a fade`);
       await sheet.waitFor({ state: "detached" });
+      // The coin picker: it does not slide in, and the card's height is not animated. (How the height moves, frame by frame, is in the picker's own walk.)
+      await page.getByRole("button", { name: /^You pay: / }).click({ timeout: 20_000 });
+      const picker = page.locator(".card-picker");
+      await picker.waitFor();
+      const sliding = await picker.evaluate((el) => ({ picker: getComputedStyle(el).animationName, card: getComputedStyle(el.parentElement!).transitionDuration, moving: el.parentElement!.hasAttribute("data-moving") }));
+      if (reduced && (sliding.picker !== "none" || !/^0s(, 0s)*$/.test(sliding.card) || sliding.moving)) complaints.push(`${label}: the coin picker still moves into the card (${JSON.stringify(sliding)})`);
+      if (!reduced && (sliding.picker !== "card-view-in" || sliding.card !== "0.25s" || !sliding.moving)) complaints.push(`${label}: the check proves nothing: with movement allowed the coin picker arrives as ${JSON.stringify(sliding)}`);
+      await page.keyboard.press("Escape");
+      await picker.waitFor({ state: "detached" });
     } catch (error) {
       complaints.push(`${label}: ${(error as Error).message.split("\n")[0]}`);
     }
@@ -1585,15 +1680,26 @@ if (walks("quoting")) {
     const refreshGap = (times[1] ?? 0) - arrived;
     expectThat(refreshGap > 13_000 && refreshGap < 17_500, `the refresh came ${refreshGap} ms after the quote arrived, not about 15 seconds`);
     await answered();
-    // With a sheet open nothing is refreshed; closing it catches up.
+    // While the coin picker has the card nothing is refreshed; giving the card back catches up.
     await page.getByRole("button", { name: /^You pay: / }).click();
-    await page.getByRole("listbox", { name: "Coins" }).waitFor();
+    await page.getByRole("region", { name: "Select a token you pay" }).waitFor();
     await page.waitForTimeout(17_000);
     expectThat(times.length === 2, `the quote was refreshed while the coin picker was open (${times.length} requests)`);
     await page.keyboard.press("Escape");
-    await page.getByRole("dialog").waitFor({ state: "detached" });
+    await page.locator(".card-picker").waitFor({ state: "detached" });
     await waitForRequests(3, 2500);
     expectThat(times.length === 3, `closing the picker did not catch up with one refresh (${times.length} requests)`);
+    await answered();
+    // The same with a sheet open: nothing is refreshed, and closing it catches up.
+    await page.getByRole("button", { name: /slippage limit\. Change$/ }).click();
+    await page.getByRole("dialog", { name: "Slippage limit" }).waitFor();
+    const beforeSheet = times.length;
+    await page.waitForTimeout(17_000);
+    expectThat(times.length === beforeSheet, `the quote was refreshed while a sheet was open (${times.length - beforeSheet} requests)`);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "detached" });
+    await waitForRequests(beforeSheet + 1, 2500);
+    expectThat(times.length === beforeSheet + 1, `closing the sheet did not catch up with one refresh (${times.length - beforeSheet} requests)`);
     await answered();
     // With the tab hidden nothing is refreshed; coming back catches up.
     // Passed as text: the page must not depend on anything this script's own tooling adds to a function.
@@ -1604,14 +1710,15 @@ if (walks("quoting")) {
         document.dispatchEvent(new Event("visibilitychange"));
       `);
     await setHidden(true);
+    const beforeHidden = times.length;
     await page.waitForTimeout(17_000);
-    expectThat(times.length === 3, `the quote was refreshed while the tab was hidden (${times.length} requests)`);
+    expectThat(times.length === beforeHidden, `the quote was refreshed while the tab was hidden (${times.length - beforeHidden} requests)`);
     await setHidden(false);
-    await waitForRequests(4, 2500);
-    expectThat(times.length === 4, `coming back to the tab did not refresh the quote (${times.length} requests)`);
+    await waitForRequests(beforeHidden + 1, 2500);
+    expectThat(times.length === beforeHidden + 1, `coming back to the tab did not refresh the quote (${times.length - beforeHidden} requests)`);
     await answered();
     // What a screen reader is told: once for the new inputs, not again for each refresh.
-    const spoken = await page.locator('.card > [role="status"].sr-only').innerText();
+    const spoken = await page.locator('.card-swap > [role="status"].sr-only').innerText();
     expectThat(/^You receive about [\d.,]+ USDT on Solana\.$/.test(spoken), `the quote was not read out as expected ("${spoken}")`);
     expectThat((await page.locator("#amount-out").getAttribute("aria-live")) === "off", "the refreshing number is itself read out on every change");
   } catch (error) {
@@ -1639,7 +1746,8 @@ if (walks("sheet-touch")) {
   };
   try {
     await visit(page, new URL("/", baseUrl).toString());
-    await page.getByRole("button", { name: /^You pay: / }).click();
+    // (The slippage limit's sheet. The coin picker is not a sheet: on a phone too it is a view inside the card, and its own walk covers it.)
+    await page.getByRole("button", { name: /slippage limit\. Change$/ }).click();
     await page.getByRole("dialog").waitFor();
     await page.waitForTimeout(350);
     // The page behind stays put.
@@ -1693,76 +1801,12 @@ if (walks("focus")) {
   await context.close();
 }
 
-// The coin picker by keyboard alone: open, search, move, pick, and close; and the same-coin flip.
-if (walks("picker-keyboard")) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const page = await context.newPage();
-  const label = "picker by keyboard";
-  const expectThat = (ok: boolean, what: string) => {
-    if (!ok) complaints.push(`${label}: ${what}`);
-  };
-  // The chip's name as it is read aloud: "You pay: USDC on Base. Change coin".
-  const coinOn = (side: "You pay" | "You receive") => page.getByRole("button", { name: new RegExp(`^${side}: `) }).evaluate((el) => (el.textContent ?? "").replace(/\s+/g, " ").trim());
-  try {
-    await visit(page, new URL("/", baseUrl).toString());
-    const pay = page.getByRole("button", { name: /^You pay: / });
-    await pay.focus();
-    await page.keyboard.press("Enter");
-    const search = page.getByRole("combobox");
-    await search.waitFor();
-    expectThat(await search.evaluate((el) => el === document.activeElement), "the search field is not focused when the picker opens");
-    // A press on a chain chip must not strand the keyboard: focus goes back to the search, typing
-    // goes into it, and the arrows still move.
-    await page.getByRole("dialog").getByRole("button", { name: "Base", exact: true }).click();
-    expectThat(await search.evaluate((el) => el === document.activeElement), "focus did not go back to the search after a chain was chosen");
-    await page.keyboard.press("ArrowDown");
-    const firstRow = await page.locator(".picker-row[data-active]").innerText().catch(() => "");
-    await page.keyboard.press("ArrowDown");
-    const secondRow = await page.locator(".picker-row[data-active]").innerText().catch(() => "");
-    expectThat(firstRow !== "" && secondRow !== "" && secondRow !== firstRow, `the arrow keys did not move after a chain was chosen ("${firstRow.replace(/\n/g, " ")}" then "${secondRow.replace(/\n/g, " ")}")`);
-    expectThat(/Base/.test(secondRow), `with Base chosen the list shows "${secondRow.replace(/\n/g, " ")}"`);
-    await page.getByRole("dialog").getByRole("button", { name: "All", exact: true }).click();
-    expectThat(await search.evaluate((el) => el === document.activeElement), "focus did not go back to the search after All was chosen");
-    await page.keyboard.type("usdc");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("ArrowDown");
-    const active = await page.locator(".picker-row[data-active]").innerText();
-    await page.keyboard.press("Enter");
-    await page.getByRole("dialog").waitFor({ state: "detached" });
-    const chosen = (await coinOn("You pay")) ?? "";
-    expectThat(/USDC/.test(chosen) && chosen.includes((active.split("·")[1] ?? "").trim().split("\n")[0] ?? "?"), `Enter did not pick the highlighted coin (highlighted "${active.replace(/\n/g, " ")}", got "${chosen}")`);
-    expectThat(await pay.evaluate((el) => el === document.activeElement), "focus did not return to the coin button after picking");
-
-    // Esc closes and changes nothing.
-    await page.keyboard.press("Enter");
-    await search.waitFor();
-    await page.keyboard.press("Escape");
-    await page.getByRole("dialog").waitFor({ state: "detached" });
-    expectThat((await coinOn("You pay")) === chosen, "Esc changed the coin");
-    expectThat(await pay.evaluate((el) => el === document.activeElement), "focus did not return to the coin button after Esc");
-
-    // Tab stays inside the sheet.
-    await page.keyboard.press("Enter");
-    await search.waitFor();
-    for (let i = 0; i < 14; i++) await page.keyboard.press("Tab");
-    expectThat(await page.evaluate(() => document.activeElement?.closest("dialog") !== null), "Tab left the sheet");
-    await page.keyboard.press("Escape");
-    await page.getByRole("dialog").waitFor({ state: "detached" });
-
-    // Picking, for "You pay", the coin that is on the other side swaps the two.
-    const before = { pay: await coinOn("You pay"), receive: await coinOn("You receive") };
-    await page.keyboard.press("Enter");
-    await search.waitFor();
-    await page.keyboard.type("usdt");
-    await page.locator(".picker-row", { hasText: "You receive" }).click();
-    await page.getByRole("dialog").waitFor({ state: "detached" });
-    const after = { pay: await coinOn("You pay"), receive: await coinOn("You receive") };
-    const strip = (text: string | null) => (text ?? "").replace(/^You (pay|receive): /, "");
-    expectThat(strip(after.pay) === strip(before.receive) && strip(after.receive) === strip(before.pay), `picking the coin on the other side did not swap the two (${JSON.stringify(before)} then ${JSON.stringify(after)})`);
-  } catch (error) {
-    complaints.push(`${label}: ${(error as Error).message.split("\n")[0]}`);
-  }
-  await context.close();
+// The coin picker, inside the swap card: opening and closing, the chains and the coins, searching, a pasted
+// address, the keyboard, the browser's Back button, and the card's height (see scripts/picker-walk.ts).
+if (walks("picker") || (only.length > 0 && only.includes("picker-keyboard"))) {
+  const result = await pickerWalk(browser, { baseUrl, out, visit });
+  complaints.push(...result.complaints);
+  shots += result.shots;
 }
 
 // The two coin chips, measured (see scripts/chips-walk.ts).
