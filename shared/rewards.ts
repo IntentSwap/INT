@@ -159,15 +159,25 @@ export interface RewardsView {
   swaps: { at: string; week: string; from: { symbol: string; chain: string }; to: { symbol: string; chain: string }; pointsMicro: string; reasons: PointsReason[] }[];
   /** Each with the coin it was paid in and that coin's decimals: a week closed in another coin keeps its own. */
   payouts: { week: string; amount: string; asset: string; decimals: number; txs: string[] }[];
+  /**
+   * This address's part in this week's pool, worked out on the server: its share of the week's
+   * points in hundredths of a percent, and what that share of the pool comes to, in the coin's
+   * smallest unit (null while there is no pool to share) and in cents (null while there is no
+   * price for the coin), with the coin's decimals.
+   */
+  share: { bps: number; estimate: string | null; estimateCents: string | null; decimals: number };
 }
 
 /**
- * What anyone may see: this week's dates, this week's points of every address together as one
- * number, and of the closed weeks only their totals. No address, and no figure of any one address.
+ * What anyone may see: this week's dates, about how many points the week has in all, and of the
+ * closed weeks only their totals. No address, and no figure of any one address or any one swap.
  */
 export interface RewardsSummary {
   week: { id: string; start: string; end: string };
-  /** This week's points, everyone's together, in millionths of a point. A total only. */
+  /**
+   * This week's points, everyone's together, in millionths of a point: as they stood when the
+   * current quarter of an hour began, rounded down to two significant figures (see roundedPoints).
+   */
   weekPointsMicro: string;
   /** The weeks that have been paid, each with the coin it was paid in and that coin's decimals. */
   weeks: { week: string; asset: string; decimals: number; paid: string; txs: string[] }[];
@@ -199,23 +209,37 @@ export interface RewardsPublic extends RewardsSummary {
 }
 
 /**
- * One address's part in this week's pool, from its own points this week, the week's points of
- * everyone together, and the pool (null when it is not known): its amount in the coin's smallest
+ * One address's part in this week's pool, from its own points this week, the week's points it is
+ * measured against, and the pool (null when it is not known): its amount in the coin's smallest
  * unit, and that amount's value in millionths of a dollar (null when there is no price). The share
- * is in hundredths of a percent, rounded down, and never above 100%. The estimate is that part of
- * the pool in the coin's smallest unit, rounded down, and beside it in cents where there is a
- * price. All are nothing while nobody has points; with no price there are no dollars at all.
+ * is in hundredths of a percent, rounded down, and never above 100%.
+ *
+ * The estimate is worked out from that share as it is shown, two decimals and no finer: the pool's
+ * amount times the share, rounded down to the coin's smallest unit. So an estimate says no more of
+ * the week's total than the share beside it does. Its dollars are the estimate at the pool's own
+ * price, rounded down to the cent. All are nothing while nobody has points; with no price there
+ * are no dollars at all.
  */
 export function poolShare(mineMicro: bigint, totalMicro: bigint, pool: { amount: bigint; usdMicro: bigint | null } | null): { shareBps: bigint; estimate: bigint; estimateCents: bigint | null } {
   const usd = pool === null ? null : pool.usdMicro;
   if (totalMicro <= 0n || mineMicro <= 0n) return { shareBps: 0n, estimate: 0n, estimateCents: usd === null ? null : 0n };
   // An address's own points and the week's total are read a moment apart: they never count for more than all of it.
   const mine = mineMicro > totalMicro ? totalMicro : mineMicro;
-  return {
-    shareBps: (mine * 10_000n) / totalMicro,
-    estimate: pool === null || pool.amount <= 0n ? 0n : (pool.amount * mine) / totalMicro,
-    estimateCents: usd === null ? null : usd <= 0n ? 0n : (usd * mine) / (totalMicro * 10_000n),
-  };
+  const shareBps = (mine * 10_000n) / totalMicro;
+  const estimate = pool === null || pool.amount <= 0n ? 0n : (pool.amount * shareBps) / 10_000n;
+  return { shareBps, estimate, estimateCents: pool === null || usd === null ? null : pool.amount <= 0n ? 0n : (usd * estimate) / (pool.amount * 10_000n) };
+}
+
+/**
+ * A number of points as anyone is told it: rounded down to two significant figures, in millionths
+ * of a point. 14,908.237 points are 14,000; 2,500 stay 2,500; under ten points it is the whole
+ * number of points. A total that is told this coarsely, and only as it stood at the last quarter of
+ * an hour, does not give away the size of any one swap.
+ */
+export function roundedPoints(micro: bigint): bigint {
+  const whole = (micro < 0n ? 0n : micro) / MICRO;
+  const step = whole < 100n ? 1n : 10n ** BigInt(whole.toString().length - 2);
+  return (whole / step) * step * MICRO;
 }
 
 /** What a sign-in message is made of: the site's host as the browser knows it, the address in its standard spelling, the one-time code and the two times. */

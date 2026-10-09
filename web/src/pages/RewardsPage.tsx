@@ -1,9 +1,11 @@
-// Points and weekly rewards. One thing to look at: this week, with its dates, its countdown, the
-// points of everyone together as one total and, after a sign-in, the points of the address that
-// signed in, with its share of that total. Under it: the current pool where a reserve wallet is
-// set, that address's swaps and payouts, and the rules in short.
+// Points and weekly rewards. One thing to look at: this week, with its dates, its countdown, about
+// how many points everyone has together and, after a sign-in, the points of the address that
+// signed in, with its share of the week's points. Under it: the current pool where a reserve wallet
+// is set, that address's swaps and payouts, and the rules in short.
 //
-// Nobody is shown another address's points: of everyone else there is the one total, and no list.
+// Nobody is shown another address's points: of everyone else there is one rounded total, brought up
+// to date every quarter of an hour, and no list. An address's share and its estimate are worked out
+// by the server and read here as they come.
 // To see one's own, the wallet is asked to sign one plain message; the page says so before the
 // wallet opens.
 
@@ -11,7 +13,7 @@ import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { displayExact } from "../../../shared/amounts.ts";
 import { explorerAddressUrl, explorerTxUrl } from "../../../shared/chains.ts";
-import { poolShare, RESERVE_ASSET, REWARDS, showPoints, type PoolView, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
+import { RESERVE_ASSET, REWARDS, showPoints, type PoolView, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
 import { Address } from "../components/Address.tsx";
 import { Amount } from "../components/Amount.tsx";
 import { PrimaryButton, TextButton } from "../components/Button.tsx";
@@ -20,7 +22,7 @@ import { CopyButton } from "../components/CopyButton.tsx";
 import { TableFrame } from "../components/DocsLayout.tsx";
 import { Link } from "../components/Link.tsx";
 import { Reveal } from "../components/Reveal.tsx";
-import { countdownText, ESTIMATE_NOTE, momentText, pairText, reasonWords, RULES_IN_SHORT, shareText, usdMicroText, usdText, weekDates, weekName } from "../lib/rewards-logic.ts";
+import { aboutPoints, countdownText, ESTIMATE_NOTE, momentText, pairText, reasonWords, RULES_IN_SHORT, shareText, usdMicroText, usdText, weekDates, weekName } from "../lib/rewards-logic.ts";
 import { shortAddress } from "../lib/swap-logic.ts";
 import { useRewards } from "../stores/rewards.ts";
 import { useWallet } from "../stores/wallet.ts";
@@ -84,8 +86,8 @@ function Week({ summary, offset }: { summary: RewardsPublic | null; offset: numb
         <p className="rewards-label mono">This week's points</p>
         {total > 0n ? (
           <>
-            <p className="rewards-figure mono">{showPoints(total)}</p>
-            <p className="muted">Collected by everyone together.</p>
+            <p className="rewards-figure mono">{aboutPoints(total)}</p>
+            <p className="muted">Collected by everyone together. Brought up to date every quarter of an hour.</p>
           </>
         ) : (
           <p className="muted">No points have been collected yet this week.</p>
@@ -97,20 +99,18 @@ function Week({ summary, offset }: { summary: RewardsPublic | null; offset: numb
 
 /**
  * Beside the week: an invitation to connect and sign in, or the signed-in address's points, with
- * its share of the week's total and what that share of the pool comes to. Both are worked out here,
- * from this address's own points and the two figures anyone may see.
+ * its share of the week's points and what that share of the pool comes to. Both come from the
+ * server with the address's own points: nothing here works them out.
  */
-function Mine({ mine, summary }: { mine: RewardsView | null; summary: RewardsPublic | null }) {
+function Mine({ mine }: { mine: RewardsView | null }) {
   const wallet = useWallet();
   const rewards = useRewards();
   const signedIn = rewards.session !== null && mine !== null;
   if (signedIn) {
     const carried = BigInt(mine.week.carriedInMicro);
     const own = BigInt(mine.week.pointsMicro);
-    // The pool, where a reserve wallet is set and its balance has been read: an amount of NEAR, and its dollars where there is a price. Without it there is no estimate.
-    const pool = summary?.pool ?? null;
-    const held = pool === null || pool.amount === null ? null : { amount: BigInt(pool.amount), usdMicro: pool.usdMicro === null ? null : BigInt(pool.usdMicro) };
-    const part = summary === null ? null : poolShare(own, BigInt(summary.weekPointsMicro), held);
+    // The estimate is there where a reserve wallet is set and its balance has been read: an amount of NEAR, and its dollars where there is a price.
+    const part = mine.share;
     return (
       <div className="rewards-mine">
         <p className="rewards-label mono">Your points this week</p>
@@ -119,32 +119,28 @@ function Mine({ mine, summary }: { mine: RewardsView | null; summary: RewardsPub
           All time: <span className="mono">{showPoints(BigInt(mine.allTimeMicro))}</span>
         </p>
         {carried > 0n ? <p className="muted">Includes {showPoints(carried)} carried from last week, when no payout was sent for them.</p> : null}
-        {part !== null ? (
-          <>
-            <dl className="rewards-facts">
-              <div className="rewards-fact">
-                <dt className="rewards-label mono">Your share</dt>
-                <dd className="rewards-figure mono">{own > 0n ? shareText(part.shareBps) : "0%"}</dd>
-              </div>
-              {held !== null && pool !== null ? (
-                <div className="rewards-fact">
-                  <dt className="rewards-label mono">Estimated reward</dt>
-                  <dd className="rewards-figure">
-                    <Amount raw={part.estimate} decimals={pool.decimals} symbol={RESERVE_ASSET.symbol} />
-                  </dd>
-                  {/* In dollars beside it, only where there is a price for the coin just now. */}
-                  {part.estimateCents !== null ? <dd className="muted">about {usdText(part.estimateCents)}</dd> : null}
-                </div>
-              ) : null}
-            </dl>
-            {held !== null ? <p className="muted">{ESTIMATE_NOTE}</p> : null}
-            {own > 0n ? null : (
-              <p className="muted">
-                <Link href="/">Make a swap to collect points.</Link>
-              </p>
-            )}
-          </>
-        ) : null}
+        <dl className="rewards-facts">
+          <div className="rewards-fact">
+            <dt className="rewards-label mono">Your share</dt>
+            <dd className="rewards-figure mono">{own > 0n ? shareText(BigInt(part.bps)) : "0%"}</dd>
+          </div>
+          {part.estimate !== null ? (
+            <div className="rewards-fact">
+              <dt className="rewards-label mono">Estimated reward</dt>
+              <dd className="rewards-figure">
+                <Amount raw={part.estimate} decimals={part.decimals} symbol={RESERVE_ASSET.symbol} />
+              </dd>
+              {/* In dollars beside it, only where there is a price for the coin just now. */}
+              {part.estimateCents !== null ? <dd className="muted">about {usdText(BigInt(part.estimateCents))}</dd> : null}
+            </div>
+          ) : null}
+        </dl>
+        {part.estimate !== null ? <p className="muted">{ESTIMATE_NOTE}</p> : null}
+        {own > 0n ? null : (
+          <p className="muted">
+            <Link href="/">Make a swap to collect points.</Link>
+          </p>
+        )}
         <p className="rewards-who muted">
           Signed in as <span className="mono">{shortAddress(mine.address)}</span>
           <TextButton onClick={rewards.signOut}>Sign out</TextButton>
@@ -365,7 +361,7 @@ export default function RewardsPage() {
       {/* The one thing on the page: this week, and beside it your part in it. */}
       <Reveal className="rewards-week">
         <Week summary={rewards.summary} offset={rewards.clockOffset} />
-        <Mine mine={mine} summary={rewards.summary} />
+        <Mine mine={mine} />
       </Reveal>
 
       {/* Only where a reserve wallet is set. Where none is, there is no such part and nothing in its place. */}

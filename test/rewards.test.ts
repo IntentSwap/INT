@@ -9,9 +9,9 @@ import { signInHost } from "../server/app.ts";
 import { getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
-import { briefPoints, isSignInMessage, MICRO, minPayoutFor, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
+import { briefPoints, isSignInMessage, MICRO, minPayoutFor, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, roundedPoints, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
 import { silentLogger } from "../server/log.ts";
-import { createRewards, createSignIn, entryFor, orderHash, rewardsAddressOf, type PointsEntry, type Rewards, type WeekRecord } from "../server/rewards.ts";
+import { createRewards, createSignIn, entryFor, orderHash, QUARTER_MS, rewardsAddressOf, type PointsEntry, type Rewards, type WeekRecord } from "../server/rewards.ts";
 import { checkPayoutTx, exportWeek, poolAmount, recordPayouts, reserveHolds, rewardTokenDecimals, weekCsv } from "../server/rewards-tools.ts";
 import { createSanctions, createStaticSanctions } from "../server/sanctions.ts";
 import type { OrderRecord } from "../server/store.ts";
@@ -112,10 +112,20 @@ describe("a wallet's share of the week's pool", () => {
     expect(poolShare(MICRO, 100n * MICRO, pool(500n * NEAR, 2400))).toEqual({ shareBps: 100n, estimate: 5n * NEAR, estimateCents: 2400n });
     expect(shareText(poolShare(MICRO, 100n * MICRO, null).shareBps)).toBe("1.00%");
     // Rounded down, never up, to the coin's smallest unit and to the cent.
-    expect(poolShare(1n, 3n, pool(100n, 100))).toEqual({ shareBps: 3333n, estimate: 33n, estimateCents: 3333n });
-    expect(poolShare(2n, 3n, pool(NEAR, 0.05))).toEqual({ shareBps: 6666n, estimate: 666_666_666_666_666_666n, estimateCents: 3n });
+    expect(poolShare(1n, 3n, pool(100n, 100))).toEqual({ shareBps: 3333n, estimate: 33n, estimateCents: 3300n });
+    expect(poolShare(2n, 3n, pool(NEAR, 0.05))).toEqual({ shareBps: 6666n, estimate: 666_600_000_000_000_000n, estimateCents: 3n });
     // All of it.
     expect(poolShare(7n, 7n, pool(42n * NEAR, 42.42))).toEqual({ shareBps: 10_000n, estimate: 42n * NEAR, estimateCents: 4242n });
+  });
+
+  it("works the estimate out from the share as it is shown, two decimals and no finer, and prices that estimate", () => {
+    // A third of 1,000 NEAR worth $4,800. The share is 33.33%, so the estimate is 333.3 NEAR, not 333.333…, and its dollars are that amount's: $1,599.84.
+    expect(poolShare(1n, 3n, pool(1000n * NEAR, 4800))).toEqual({ shareBps: 3333n, estimate: 3333n * NEAR / 10n, estimateCents: 159_984n });
+    // Two totals that give the same share to two decimals give the same estimate to the last unit: the estimate says no more of the total than the share does.
+    const one = poolShare(100_000n * MICRO, 300_000n * MICRO, pool(1000n * NEAR, 4800));
+    const other = poolShare(100_000n * MICRO, 300_029n * MICRO, pool(1000n * NEAR, 4800));
+    expect(other).toEqual(one);
+    expect(one.estimate).toBe((1000n * NEAR * one.shareBps) / 10_000n);
   });
 
   it("is nothing while nobody has points, and nothing for an address with none", () => {
@@ -1569,10 +1579,116 @@ describe("points over the wire", () => {
     expect((await ask(mute)).pool).toMatchObject({ amount: null, readAt: null });
   });
 
+  /** A swap of so many dollars (in millionths), delivered at a moment, written straight into a server's record of points. */
+  const swapped = (h: Harness, who: { address: string }, label: string, usdMicro: bigint, at: number) => h.rewards.record({ v: 2, order: orderHash(`test swap ${label}`), address: who.address, week: weekOf(at), at: new Date(at).toISOString(), volumeUsdMicro: usdMicro.toString(), reasons: [], from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" } });
+
+  it("tells anyone the week's points as they stood when the quarter of an hour began, rounded down to two figures: no reading gives away one swap", async () => {
+    // Rounded down to two significant figures, and to whole points under ten.
+    for (const [points, told] of [[14_908.237, 14_000], [2_500, 2_500], [105, 100], [99.9, 99], [10, 10], [9.7, 9], [0.99, 0], [0, 0], [1_234_567.89, 1_200_000]] as const) expect(roundedPoints(usd(points)), String(points)).toBe(usd(told));
+    const h = await start();
+    const ask = async () => (await h.get("/api/rewards")).body as RewardsPublic;
+    // Alice swapped $250 an hour ago: 2,500 points.
+    swapped(h, ALICE, "earlier", usd(250), h.clock.t - 3_600_000);
+    const before = await ask();
+    expect(before.weekPointsMicro).toBe("2500000000");
+    // Now one swap of $1,240.8237 is delivered: 12,408.237 points. Inside this quarter of an hour the total does not move at all.
+    swapped(h, BOB, "the one", 1_240_823_700n, h.clock.t + 1000);
+    for (const later of [2_000, 60_000, QUARTER_MS - 3_000]) {
+      h.clock.t += later - (h.clock.t % QUARTER_MS);
+      expect((await ask()).weekPointsMicro, String(later)).toBe(before.weekPointsMicro);
+    }
+    // At the next quarter it moves: 14,908.237 points, told as 14,000. Nothing in the answer spells the swap's value, its points or the exact total.
+    h.clock.t += 3_000;
+    const after = await h.get("/api/rewards");
+    expect((after.body as RewardsPublic).weekPointsMicro).toBe("14000000000");
+    expect(after.text).not.toMatch(/1240\.?8237|12408\.?237|14908\.?237/);
+    // The difference between the two readings is the rounding's, not the swap's.
+    expect(BigInt((after.body as RewardsPublic).weekPointsMicro) - BigInt(before.weekPointsMicro)).toBe(11_500n * MICRO);
+    // A swap delivered in the quarter that has just begun waits for the next one in its turn.
+    swapped(h, ALICE, "newest", usd(5_000), h.clock.t);
+    expect((await ask()).weekPointsMicro).toBe("14000000000");
+  });
+
+  it("gives a signed-in address its share and its estimate, worked out on the server: its own new points count at once, other people's from the next quarter, and the estimate comes from the rounded share", async () => {
+    const TOKEN = RESERVE_ASSET.contract;
+    const listed = { ok: true as const, status: 200, data: [...FIXTURE_TOKENS, { assetId: "nep245:v2_1.omni.hot.tg:56_near", decimals: 18, blockchain: "bsc", symbol: "NEAR", price: 4.8, contractAddress: TOKEN.toLowerCase() }] };
+    const server = async (env: Record<string, string> = { RESERVE_ADDRESS: ADDR.evm3 }) => {
+      const h = await start({ env });
+      h.tap.tokensResult = listed;
+      // The pool: 1,000 NEAR, worth $4,800.
+      h.rpc.tokenBalances.set(`${TOKEN.toLowerCase()}:${ADDR.evm3.toLowerCase()}`, 1000n * 10n ** 18n);
+      return h;
+    };
+    const mine = async (h: Harness, who: ReturnType<typeof wallet>, ip: string) => ((await h.get("/api/rewards/me", { headers: { "x-rewards-session": await signedIn(h, who, ip) }, ip })).body as RewardsView).share;
+    const NEAR = 10n ** 18n;
+
+    // One address alone, with 100 points from before the quarter: all of it.
+    const alone = await server();
+    swapped(alone, ALICE, "alone", usd(10), alone.clock.t - 3_600_000);
+    expect(await mine(alone, ALICE, "203.0.113.10")).toEqual({ bps: 10_000, estimate: (1000n * NEAR).toString(), estimateCents: "480000", decimals: 18 });
+
+    // Two addresses with 1 point and 99 from before the quarter: 1 point of 100 is 1%.
+    const h = await server();
+    swapped(h, ALICE, "one", usd(0.1), h.clock.t - 3_600_000);
+    swapped(h, BOB, "ninety-nine", usd(9.9), h.clock.t - 3_600_000);
+    expect(await mine(h, ALICE, "203.0.113.10")).toEqual({ bps: 100, estimate: (10n * NEAR).toString(), estimateCents: "4800", decimals: 18 });
+    expect(await mine(h, BOB, "203.0.113.11")).toEqual({ bps: 9900, estimate: (990n * NEAR).toString(), estimateCents: "475200", decimals: 18 });
+    // Alice swaps again, inside this quarter: 100 points more. Her own count at once: 101 of 200. Bob's answer does not move with her swap.
+    swapped(h, ALICE, "one more", usd(10), h.clock.t + 1000);
+    h.clock.t += 2000;
+    expect(await mine(h, ALICE, "203.0.113.10")).toMatchObject({ bps: 5050, estimate: (505n * NEAR).toString() });
+    expect(await mine(h, BOB, "203.0.113.11")).toMatchObject({ bps: 9900, estimate: (990n * NEAR).toString() });
+    // From the next quarter it counts for everyone: 101 and 99 of 200.
+    h.clock.t += QUARTER_MS;
+    expect(await mine(h, ALICE, "203.0.113.10")).toMatchObject({ bps: 5050 });
+    expect(await mine(h, BOB, "203.0.113.11")).toMatchObject({ bps: 4950, estimate: (495n * NEAR).toString(), estimateCents: "237600" });
+
+    // The estimate is the pool times the share as it is shown, and no finer: a third is 33.33%, so 333.3 NEAR and its own dollars.
+    const thirds = await server();
+    swapped(thirds, ALICE, "a third", usd(1), thirds.clock.t - 3_600_000);
+    swapped(thirds, BOB, "two thirds", usd(2), thirds.clock.t - 3_600_000);
+    expect(await mine(thirds, ALICE, "203.0.113.10")).toEqual({ bps: 3333, estimate: (3333n * NEAR / 10n).toString(), estimateCents: "159984", decimals: 18 });
+    // The signed-in answer holds the share and nothing of the week's total itself.
+    const answer = await thirds.get("/api/rewards/me", { headers: { "x-rewards-session": await signedIn(thirds, ALICE) } });
+    expect(Object.keys(answer.body).sort()).toEqual(["address", "allTimeMicro", "payouts", "share", "swaps", "week"]);
+    expect(answer.text).not.toMatch(/"30000000"|weekPoints|total/);
+
+    // With no reserve wallet there is a share and no estimate. With no points at all, nothing.
+    const bare = await start();
+    swapped(bare, ALICE, "bare", usd(1), bare.clock.t - 3_600_000);
+    expect(await mine(bare, ALICE, "203.0.113.10")).toEqual({ bps: 10_000, estimate: null, estimateCents: null, decimals: 18 });
+    expect(await mine(bare, BOB, "203.0.113.11")).toEqual({ bps: 0, estimate: null, estimateCents: null, decimals: 18 });
+  });
+
+  it("does not try a pool read that failed again within the minute, and answers a request that arrives during a read from that read", async () => {
+    const h = await start({ env: { RESERVE_ADDRESS: ADDR.evm3 } });
+    const reads = () => h.rpc.calls.filter((call) => call.chain === "bsc" && JSON.stringify(call.call.params).toLowerCase().includes(ADDR.evm3.toLowerCase().slice(2))).length;
+    const ask = async () => ((await h.get("/api/rewards")).body as RewardsPublic).pool;
+    h.rpc.down = true;
+    expect(await ask()).toMatchObject({ amount: null, readAt: null });
+    expect(reads()).toBe(1);
+    // The chain is back, and within the minute it is not asked again.
+    h.rpc.down = false;
+    h.rpc.tokenBalances.set(`${RESERVE_ASSET.contract.toLowerCase()}:${ADDR.evm3.toLowerCase()}`, 10n ** 18n);
+    h.clock.t += 59_000;
+    expect(await ask()).toMatchObject({ amount: null, readAt: null });
+    expect(reads()).toBe(1);
+    // After the minute it is: and two requests that arrive together are both answered from the one reading.
+    h.clock.t += 2_000;
+    let release: () => void = () => undefined;
+    h.rpc.beforeBatch = () => new Promise<void>((resolve) => (release = resolve));
+    const together = [ask(), ask()];
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    h.rpc.beforeBatch = null;
+    release();
+    expect(await Promise.all(together)).toEqual([expect.objectContaining({ amount: (10n ** 18n).toString() }), expect.objectContaining({ amount: (10n ** 18n).toString() })]);
+    expect(reads()).toBe(2);
+  });
+
   it("no route returns another wallet's points: of everyone else there is one total, and nothing to make a list from", async () => {
     const h = await start({ practice: true, env: { RESERVE_ADDRESS: ADDR.evm3 } });
     await delivered(h, { rewardsAddress: ALICE.address });
-    await delivered(h, { rewardsAddress: BOB.address, recipient: ADDR.evm3, amount: "7000000000000000" });
+    await delivered(h, { rewardsAddress: BOB.address, recipient: ADDR.evm3, amount: "7300000000000000" });
     const alice = h.rewards.view(ALICE.address, h.clock.t).week.pointsMicro;
     const bob = h.rewards.view(BOB.address, h.clock.t).week.pointsMicro;
     expect(BigInt(alice) > 0n && BigInt(bob) > 0n && alice !== bob).toBe(true);
@@ -1587,10 +1703,14 @@ describe("points over the wire", () => {
       for (const who of [ALICE.address, BOB.address]) expect(reply.text.toLowerCase(), route).not.toContain(who.toLowerCase().slice(2));
       for (const figure of [alice, bob]) expect(held, route).not.toContain(figure);
     }
-    // The one figure about points is the total of everyone's.
+    // The one figure about points is about how many everyone has together: nothing while the quarter of an
+    // hour in which the two were delivered lasts, and from the next quarter the total rounded to two figures.
+    expect(((await h.get("/api/rewards")).body as RewardsPublic).weekPointsMicro).toBe("0");
+    h.clock.t += QUARTER_MS;
     const anyone = (await h.get("/api/rewards")).body as RewardsPublic;
-    expect(anyone.weekPointsMicro).toBe(total);
-    expect(values(anyone).filter((value) => value === total)).toHaveLength(1);
+    expect(anyone.weekPointsMicro).toBe(roundedPoints(BigInt(total)).toString());
+    expect(anyone.weekPointsMicro).not.toBe(total);
+    expect(values(anyone)).not.toContain(total);
     // Signed in, Alice is shown her own points and nothing of Bob's: not his address, not his figure.
     const token = await signedIn(h, ALICE);
     const mine = await h.get("/api/rewards/me", { headers: { "x-rewards-session": token } });
@@ -1693,7 +1813,12 @@ describe("the Rewards page, as it is drawn", () => {
   /** The reserve wallet holds 1,234.5678 NEAR, worth $5,925.92544. */
   const POOL = { address: ADDR.evm3, amount: (12_345_678n * 10n ** 14n).toString(), decimals: 18, usdMicro: "5925925440", readAt: new Date(MONDAY + 3_600_000).toISOString() };
   const summaryOf = (pool: RewardsPublic["pool"], points: bigint, extra: Partial<RewardsPublic> = {}): RewardsPublic => ({ week, weekPointsMicro: (points * MICRO).toString(), weeks: [], totalPaid: "0", weeksPaid: 0, pool, serverNow: new Date(MONDAY + 3_600_000).toISOString(), ...extra });
-  const mineOf = (points: bigint, payouts: RewardsView["payouts"] = []): RewardsView => ({ address: ALICE.address, week: { ...week, pointsMicro: (points * MICRO).toString(), carriedInMicro: "0" }, allTimeMicro: (points * MICRO).toString(), swaps: [], payouts });
+  /** An address's own answer, with its share as the server works it out: out of so many points in all, of the pool handed in. */
+  const mineOf = (points: bigint, of: bigint, pool: RewardsPublic["pool"], payouts: RewardsView["payouts"] = []): RewardsView => {
+    const part = poolShare(points * MICRO, of * MICRO, pool === null || pool.amount === null ? null : { amount: BigInt(pool.amount), usdMicro: pool.usdMicro === null ? null : BigInt(pool.usdMicro) });
+    const share = { bps: Number(part.shareBps), estimate: pool === null || pool.amount === null ? null : part.estimate.toString(), estimateCents: part.estimateCents === null ? null : part.estimateCents.toString(), decimals: 18 };
+    return { address: ALICE.address, week: { ...week, pointsMicro: (points * MICRO).toString(), carriedInMicro: "0" }, allTimeMicro: (points * MICRO).toString(), swaps: [], payouts, share };
+  };
   /** The page as it is first drawn from what its store holds: put there for the length of one drawing, and taken away again. */
   const draw = (summary: RewardsPublic, mine: RewardsView | null = null): string => {
     const first = useRewards.getInitialState() as unknown as Record<string, unknown>;
@@ -1715,7 +1840,7 @@ describe("the Rewards page, as it is drawn", () => {
     // The week and its total are there all the same, and say that nobody has points yet.
     expect(read(html)).toContain("This week's points No points have been collected yet this week.");
     // Signed in, an address still sees its share. With no pool there is no estimate, and nothing in its place.
-    const signedIn = read(draw(summaryOf(null, 1000n), mineOf(250n)));
+    const signedIn = read(draw(summaryOf(null, 1000n), mineOf(250n, 1000n, null)));
     expect(signedIn).toContain("Your share 25.00%");
     expect(signedIn).not.toMatch(/Estimated reward|An estimate\.|\$[\d,]+\.\d\d/);
   });
@@ -1733,7 +1858,9 @@ describe("the Rewards page, as it is drawn", () => {
     expect(html).toContain(`<a href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" class="outbound">View the wallet on BscScan`);
     // Nothing else the wallet holds is listed, and nothing on the page names another coin for rewards.
     expect(text).not.toMatch(/\bZEC\b|Zcash|\$INT|\bBNB\b(?! Chain)|not counted in the total|Binance-Peg/);
-    expect(text).toContain("This week's points 1,000.00 Collected by everyone together.");
+    // The week's points are told as a round figure, and said to be one.
+    expect(text).toContain("This week's points About 1,000 points Collected by everyone together. Brought up to date every quarter of an hour.");
+    expect(read(draw(summaryOf(POOL, 14_000n)))).toContain("This week's points About 14,000 points");
     // Nobody has signed in: no points of any one address, no share, and no address but the wallet's own.
     expect(html).not.toMatch(/rewards-points|Your share|Estimated reward/);
     // (An address is drawn in three parts, so that its two ends stand out: the parts are put together again before it is looked for.)
@@ -1754,20 +1881,22 @@ describe("the Rewards page, as it is drawn", () => {
   });
 
   it("after a sign-in, shows the address its share of the week's points and what that share of the pool comes to in NEAR, with its dollars beside it, and says that it is an estimate", () => {
-    const text = read(draw(summaryOf(POOL, 1000n), mineOf(250n)));
+    const text = read(draw(summaryOf(POOL, 1000n), mineOf(250n, 1000n, POOL)));
     // 250 points of 1,000 is a quarter, and a quarter of 1,234.5678 NEAR is 308.64195: shown rounded down, with a quarter of its dollars.
     expect(text).toContain("Your points this week 250.00");
     expect(text).toContain("Your share 25.00% Estimated reward 308.6419 NEAR about $1,481.48 An estimate. Your share changes as others swap, and the pool changes until the week closes.");
     expect(ESTIMATE_NOTE).toBe("An estimate. Your share changes as others swap, and the pool changes until the week closes.");
     expect(text).not.toContain("Make a swap to collect points.");
     // 1 point of 100 is 1%.
-    expect(read(draw(summaryOf(POOL, 100n), mineOf(1n)))).toContain("Your share 1.00% Estimated reward 12.3456 NEAR about $59.25");
+    expect(read(draw(summaryOf(POOL, 100n), mineOf(1n, 100n, POOL)))).toContain("Your share 1.00% Estimated reward 12.3456 NEAR about $59.25");
+    // The page shows what the server sent, and works nothing out from the round total anyone is told: here the two do not agree, and the server's stands.
+    expect(read(draw(summaryOf(POOL, 9_000n), mineOf(250n, 1000n, POOL)))).toContain("Your share 25.00% Estimated reward 308.6419 NEAR about $1,481.48");
     // With no price for the coin: the estimate in NEAR, and nothing in dollars.
-    const unpriced = read(draw(summaryOf({ ...POOL, usdMicro: null }, 1000n), mineOf(250n)));
+    const unpriced = read(draw(summaryOf({ ...POOL, usdMicro: null }, 1000n), mineOf(250n, 1000n, { ...POOL, usdMicro: null })));
     expect(unpriced).toContain("Your share 25.00% Estimated reward 308.6419 NEAR An estimate.");
     expect(unpriced).not.toMatch(/about \$/);
     // With no points of its own: 0%, and a short way to the swap page.
-    const none = draw(summaryOf(POOL, 1000n), mineOf(0n));
+    const none = draw(summaryOf(POOL, 1000n), mineOf(0n, 1000n, POOL));
     expect(read(none)).toContain("Your share 0% Estimated reward 0 NEAR about $0.00");
     expect(none).toMatch(/<a href="\/"[^>]*>Make a swap to collect points\.<\/a>/);
   });
@@ -1781,14 +1910,14 @@ describe("the Rewards page, as it is drawn", () => {
       { week: "2026-W40", amount: (25n * 10n ** 17n).toString(), asset: "NEAR", decimals: 18, txs: [] },
       { week: "2026-W39", amount: 10n ** 18n + "", asset: "ZEC", decimals: 18, txs: [] },
     ];
-    const text = read(draw(summaryOf(POOL, 1000n, { weeks, totalPaid: (125n * 10n ** 17n).toString(), weeksPaid: 1 }), mineOf(250n, payouts)));
+    const text = read(draw(summaryOf(POOL, 1000n, { weeks, totalPaid: (125n * 10n ** 17n).toString(), weeksPaid: 1 }), mineOf(250n, 1000n, POOL, payouts)));
     expect(text).toContain("Paid out so far: 12.5 NEAR over 1 week.");
     expect(text).toContain("Week 40, 2026 12.5 NEAR");
     expect(text).toContain("Week 39, 2026 3 ZEC");
     expect(text).toContain("Week 40, 2026 2.5 NEAR");
     expect(text).toContain("Week 39, 2026 1 ZEC");
     // With every week paid in NEAR, the page nowhere names another coin.
-    expect(read(draw(summaryOf(POOL, 1000n, { weeks: weeks.slice(0, 1), totalPaid: weeks[0]!.paid, weeksPaid: 1 }), mineOf(250n, payouts.slice(0, 1))))).not.toMatch(/\bZEC\b|Zcash/);
+    expect(read(draw(summaryOf(POOL, 1000n, { weeks: weeks.slice(0, 1), totalPaid: weeks[0]!.paid, weeksPaid: 1 }), mineOf(250n, 1000n, POOL, payouts.slice(0, 1))))).not.toMatch(/\bZEC\b|Zcash/);
   });
 });
 

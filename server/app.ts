@@ -364,9 +364,10 @@ export function createApp(deps: AppDeps): RequestListener {
    * The current pool, for the Rewards page: what the reserve wallet holds of the coin rewards are
    * paid in (NEAR on BNB Chain, by the reward token's contract), and what that comes to in US
    * dollars. Nothing else the wallet holds is part of it. The chain is read at most once in a
-   * minute, and every visitor is given that one reading. A read that fails changes nothing: the
-   * last good figures stand, with the time they were read. Until a read has worked there is no
-   * figure at all, and the page says so.
+   * minute, and every visitor is given that one reading: a request that arrives while a reading is
+   * under way waits for it, and is answered from it. A read that fails changes nothing, and is not
+   * tried again within the minute: the last good figures stand, with the time they were read.
+   * Until a read has worked there is no figure at all, and the page says so.
    *
    * The dollar value is worked out at the price the coin list holds for this very token on BNB
    * Chain, in whole numbers, rounded down to a millionth of a dollar. Where the list has no price
@@ -376,8 +377,8 @@ export function createApp(deps: AppDeps): RequestListener {
   let poolTriedAt: number | null = null;
   let poolReading: Promise<void> | null = null;
   async function currentPool(reserve: string): Promise<PoolView> {
-    if (poolTriedAt === null || now() - poolTriedAt >= POOL_READ_EVERY_MS) {
-      // One reading at a time: requests that arrive together wait for the same one.
+    if (poolReading !== null || poolTriedAt === null || now() - poolTriedAt >= POOL_READ_EVERY_MS) {
+      // One reading at a time: requests that arrive while it is under way wait for the same one.
       poolReading ??= (async () => {
         poolTriedAt = now();
         // A practice server's made-up reserve holds a made-up amount; the chain is not asked about it.
@@ -869,9 +870,10 @@ export function createApp(deps: AppDeps): RequestListener {
       },
     },
     {
-      // What anyone may see of the rewards: this week's dates and its points as one total, the totals of
-      // the weeks already paid, and the current pool. No address but the reserve wallet's own, and no
-      // figure of any one address: there is no list and no ranking to be made from it.
+      // What anyone may see of the rewards: this week's dates, about how many points it has in all (as
+      // they stood when the quarter of an hour began, rounded), the totals of the weeks already paid,
+      // and the current pool. No address but the reserve wallet's own, and no figure of any one
+      // address or any one swap: there is no list and no ranking to be made from it.
       method: "GET",
       pattern: /^\/api\/rewards$/,
       name: "rewards_summary",
@@ -957,7 +959,11 @@ export function createApp(deps: AppDeps): RequestListener {
         if (address === null) throw new HttpError(401, "session", "Sign in to see your points.");
         // On a practice server, whoever signs in is given sample points to look at.
         deps.practice?.samples?.ensureFor(address, now());
-        return { status: 200, body: rewards.view(address, now()) };
+        // Its share of the week's points, and what that share of the pool comes to, are worked out
+        // here and not in the browser: the browser is never given the week's total to work them out with.
+        const pool = config.reserveAddress === null ? null : await currentPool(config.reserveAddress);
+        const held = pool === null || pool.amount === null ? null : { amount: BigInt(pool.amount), usdMicro: pool.usdMicro === null ? null : BigInt(pool.usdMicro), decimals: pool.decimals };
+        return { status: 200, body: rewards.view(address, now(), held) };
       },
     },
     // The site's own totals, and its list of recent swaps: sums and rounded rows, as server/stats.ts

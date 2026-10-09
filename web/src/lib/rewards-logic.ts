@@ -63,6 +63,11 @@ export function shareText(bps: bigint): string {
   return `${bps / 100n}.${(bps % 100n).toString().padStart(2, "0")}%`;
 }
 
+/** The week's points as anyone is told them, a rounded figure in millionths of a point: "About 14,000 points". */
+export function aboutPoints(micro: bigint): string {
+  return `About ${((micro < 0n ? 0n : micro) / 1_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")} points`;
+}
+
 /** Said under an address's share and its estimate, in these words. */
 export const ESTIMATE_NOTE = "An estimate. Your share changes as others swap, and the pool changes until the week closes.";
 

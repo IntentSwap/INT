@@ -196,8 +196,11 @@ describe("start-up wiring", () => {
     const rewards = (await get("/api/rewards")) as { pool: Record<string, unknown>; weekPointsMicro: string; weeks: unknown[] };
     expect(rewards.pool).toMatchObject({ address: SAMPLE.reserveAddress, amount: "2480500000000000000000", decimals: 18, usdMicro: "11906400000" });
     expect(SAMPLE.pool).toBe(24_805n * 10n ** 17n);
-    // And the week has sample points in it before anyone signs in: three made-up swaps of $3,400, $1,820.50 and $760.
-    expect(rewards.weekPointsMicro).toBe("59805000000");
+    // And the week has sample points in it before anyone signs in: three made-up swaps of $3,400, $1,820.50 and $760,
+    // which are 59,805 points. Anyone is told that as about 59,000. (In a week's own first quarter of an hour
+    // they are not counted yet: the total is the one from when the quarter began.)
+    const weekIsYoung = Date.now() % (7 * 86_400_000) >= 4 * 86_400_000 && Date.now() % (7 * 86_400_000) < 4 * 86_400_000 + 900_000;
+    expect(rewards.weekPointsMicro).toBe(weekIsYoung ? "0" : "59000000000");
     // Whoever signs in is given points over three weeks and two paid weeks.
     const account = privateKeyToAccount(`0x${"7".repeat(64)}`);
     const post = async (route: string, body: unknown) => (await fetch(`http://127.0.0.1:${at}${route}`, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${at}`, "x-session": config.session }, body: JSON.stringify(body) })).json() as Promise<Record<string, string>>;

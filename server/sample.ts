@@ -261,9 +261,10 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
     orderIds: SAMPLES.map((sample) => sampleOrderId(sample.n)),
     pool: SAMPLE.pool,
     ensureStats,
-    ensureWeek(at) {
-      // Swaps of $3,400, $1,820.50 and $760 this week, by three addresses that are nobody's.
-      [3_400_000_000n, 1_820_500_000n, 760_000_000n].forEach((volume, index) => addEntry(others[index]!, `this week ${thisWeek}`, Math.min(at, start + (4 + index) * HOUR), volume, [COIN.baseEth!, COIN.solUsdt!]));
+    ensureWeek() {
+      // Swaps of $3,400, $1,820.50 and $760 this week, by three addresses that are nobody's. They are dated at the
+      // week's first moments, so that they are in the week's total from its first quarter of an hour on.
+      [3_400_000_000n, 1_820_500_000n, 760_000_000n].forEach((volume, index) => addEntry(others[index]!, `this week ${thisWeek}`, start + index * 1000, volume, [COIN.baseEth!, COIN.solUsdt!]));
     },
     ensureFor(who, at) {
       // Points in this week and in the two before it.

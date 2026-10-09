@@ -19,7 +19,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import fs from "node:fs";
 import path from "node:path";
 import { checkAddress, toChecksumAddress } from "../shared/addresses.ts";
-import { nextWeek, pointsMicro, RESERVE_ASSET, REWARDS, sharePool, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
+import { nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, roundedPoints, sharePool, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
 import type { Sanctions } from "./sanctions.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
 
@@ -77,6 +77,9 @@ export interface WeekRecord {
   /** The payout transactions, once they have been sent and recorded. Which share each one paid is kept with the share. */
   txs: { hash: string; recordedAt: string }[];
 }
+
+/** A quarter of an hour: how often what anyone is told of the week's points is brought up to date. */
+export const QUARTER_MS = 900_000;
 
 /** The decimals of the coin a week was closed in: 18 where its record does not say. */
 export const decimalsOf = (week: Pick<WeekRecord, "decimals">): number => week.decimals ?? 18;
@@ -187,7 +190,12 @@ export interface Rewards {
    * for one week only.
    */
   recordPaid(week: string, paid: readonly { address: string; hash: string }[], now: number): WeekRecord;
-  view(address: string, now: number): RewardsView;
+  /**
+   * One address's own points, with its share of the week's points and what that share of the pool
+   * comes to. The pool is handed in by whoever asks (its amount in the coin's smallest unit, its
+   * value in millionths of a dollar or null, the coin's decimals), or null where there is none.
+   */
+  view(address: string, now: number, pool?: { amount: bigint; usdMicro: bigint | null; decimals: number } | null): RewardsView;
   summary(now: number): RewardsSummary;
 }
 
@@ -259,8 +267,9 @@ export function createRewards(dataDir: string): Rewards {
       });
 
   /** An address's own swaps in a week, before anything carried in: their volume, summed, and the points for it. */
-  const ownWeek = (entries: readonly PointsEntry[], week: string): { volume: bigint; points: bigint } => {
-    const volume = entries.filter((entry) => entry.week === week).reduce((total, entry) => total + BigInt(entry.volumeUsdMicro), 0n);
+  const ownWeek = (entries: readonly PointsEntry[], week: string, before?: number): { volume: bigint; points: bigint } => {
+    // With a moment given, only the swaps delivered before it are counted.
+    const volume = entries.filter((entry) => entry.week === week && (before === undefined || Date.parse(entry.at) < before)).reduce((total, entry) => total + BigInt(entry.volumeUsdMicro), 0n);
     return { volume, points: pointsMicro(volume) };
   };
   /** A week's volume, every address's swaps together, in millionths of a dollar. */
@@ -293,6 +302,51 @@ export function createRewards(dataDir: string): Rewards {
     return null;
   };
 
+  /**
+   * Every address's points for a week, by the lower-case form of the address: its own swaps, plus
+   * what was carried in from the week before. With a moment given, only swaps delivered before it.
+   */
+  const pointsOf = (week: string, before?: number): Map<string, { address: string; points: bigint }> => {
+    const out = new Map<string, { address: string; points: bigint }>();
+    for (const [key, entries] of byAddress) {
+      const { points } = ownWeek(entries, week, before);
+      if (points > 0n) out.set(key, { address: entries[0]?.address ?? key, points });
+    }
+    const earlier = previousWeek(week);
+    const closedBefore = earlier === null ? null : readWeek(earlier);
+    const carried = carriedFrom(closedBefore);
+    for (const share of closedBefore?.shares ?? []) {
+      const amount = carried.get(lower(share.address)) ?? 0n;
+      if (amount === 0n) continue;
+      const held = out.get(lower(share.address));
+      out.set(lower(share.address), { address: held?.address ?? share.address, points: (held?.points ?? 0n) + amount });
+    }
+    return out;
+  };
+
+  /**
+   * The week's points as they stood when the current quarter of an hour began: everyone's together,
+   * and each address's own. Worked out once in a quarter and kept for it, so that what anyone is
+   * told of the week's total moves four times an hour and not with each swap, and so that no
+   * request adds up the whole record again. A swap delivered inside the quarter is not in it, and
+   * neither is one written down late: both join at the next quarter.
+   */
+  let quarter: { start: number; week: string; total: bigint; own: Map<string, bigint> } | null = null;
+  const quarterOf = (now: number) => {
+    const start = Math.floor(now / QUARTER_MS) * QUARTER_MS;
+    const week = weekOf(now);
+    if (quarter === null || quarter.start !== start || quarter.week !== week) {
+      const own = new Map<string, bigint>();
+      let total = 0n;
+      for (const [key, item] of pointsOf(week, start)) {
+        own.set(key, item.points);
+        total += item.points;
+      }
+      quarter = { start, week, total, own };
+    }
+    return quarter;
+  };
+
   const self: Rewards = {
     recordDelivered(record) {
       const entry = entryFor(record);
@@ -310,21 +364,7 @@ export function createRewards(dataDir: string): Rewards {
     },
     entriesFor: (address) => [...(byAddress.get(lower(address)) ?? [])],
     weekPoints(week) {
-      const out = new Map<string, { address: string; points: bigint }>();
-      for (const [key, entries] of byAddress) {
-        const { points } = ownWeek(entries, week);
-        if (points > 0n) out.set(key, { address: entries[0]?.address ?? key, points });
-      }
-      const before = previousWeek(week);
-      const closedBefore = before === null ? null : readWeek(before);
-      const carried = carriedFrom(closedBefore);
-      for (const share of closedBefore?.shares ?? []) {
-        const amount = carried.get(lower(share.address)) ?? 0n;
-        if (amount === 0n) continue;
-        const held = out.get(lower(share.address));
-        out.set(lower(share.address), { address: held?.address ?? share.address, points: (held?.points ?? 0n) + amount });
-      }
-      return new Map([...out.values()].map((item) => [item.address, item.points]));
+      return new Map([...pointsOf(week).values()].map((item) => [item.address, item.points]));
     },
     week: readWeek,
     weeks: readWeeks,
@@ -411,7 +451,7 @@ export function createRewards(dataDir: string): Rewards {
       writeDurable(weekFile(week), JSON.stringify(next));
       return next;
     },
-    view(address, now) {
+    view(address, now, pool = null) {
       const entries = self.entriesFor(address).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
       const week = weekOf(now);
       const bounds = weekBounds(week);
@@ -422,6 +462,13 @@ export function createRewards(dataDir: string): Rewards {
       const weeksWithEntries = new Set(entries.map((entry) => entry.week));
       let allTime = 0n;
       for (const item of weeksWithEntries) allTime += ownWeek(entries, item).points;
+      // The share: this address's points now, out of the week's total as it stood when the quarter
+      // began with this address's own newer points put in place of its older ones. So a person's own
+      // new swap counts at once, and everybody else's a quarter late: the answer to one address
+      // never moves with another's swap inside the quarter.
+      const mine = own.points + carriedIn;
+      const snapshot = quarterOf(now);
+      const part = poolShare(mine, snapshot.total - (snapshot.own.get(lower(address)) ?? 0n) + mine, pool);
       return {
         address: toChecksumAddress(address),
         week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString(), pointsMicro: (own.points + carriedIn).toString(), carriedInMicro: carriedIn.toString() },
@@ -434,6 +481,7 @@ export function createRewards(dataDir: string): Rewards {
             return share !== undefined && BigInt(share.payout) > 0n ? [{ week: item.week, amount: share.payout, asset: item.asset, decimals: decimalsOf(item), txs: share.tx === undefined ? [] : [share.tx] }] : [];
           })
           .reverse(),
+        share: { bps: Number(part.shareBps), estimate: pool === null ? null : part.estimate.toString(), estimateCents: part.estimateCents === null ? null : part.estimateCents.toString(), decimals: pool?.decimals ?? RESERVE_ASSET.decimals },
       };
     },
     summary(now) {
@@ -451,12 +499,11 @@ export function createRewards(dataDir: string): Rewards {
         return [{ week: item.week, asset: item.asset, decimals: decimalsOf(item), paid, txs: [...new Set([...inOrder, ...mine])] }];
       });
       const paidNow = paidWeeks.filter((item) => item.asset === RESERVE_ASSET.symbol);
-      // This week's points as one number: every address's together, with what was carried in. No address goes with it.
-      let weekPoints = 0n;
-      for (const points of self.weekPoints(week).values()) weekPoints += points;
       return {
         week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString() },
-        weekPointsMicro: weekPoints.toString(),
+        // The week's points as one number, with no address to it: as they stood when this quarter of an
+        // hour began, and rounded down to two significant figures. Nothing finer is told to anyone.
+        weekPointsMicro: roundedPoints(quarterOf(now).total).toString(),
         weeks: paidWeeks.map((item) => ({ week: item.week, asset: item.asset, decimals: item.decimals, paid: item.paid.toString(), txs: item.txs })).reverse(),
         // Added up in the coin rewards are paid in now. A week that was paid in another coin is on the list above, in its own.
         totalPaid: paidNow.reduce((sum, item) => sum + item.paid, 0n).toString(),
