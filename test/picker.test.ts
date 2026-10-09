@@ -146,9 +146,8 @@ describe("the picker's top half: chains", () => {
     for (const tile of tiles(picker("from"))) {
       expect(tile.style, tile.chain).toBe(`--chain-colour:${chainColour(tile.chain)}`);
       expect(tile.inside, tile.chain).toContain(`<span class="chain-tile-name">${tile.name}</span>`);
-      // The artwork of the strip of chains; a chain the site has no artwork for shows its first letters.
-      if (tile.chain === "near") expect(tile.inside).toContain('<span class="chain-mark chain-mark-letters" aria-hidden="true">NE</span>');
-      else expect(tile.inside, tile.chain).toContain(`<img class="chain-mark" src="/chains/${tile.chain}.svg" alt="" width="24" height="24" decoding="async" loading="lazy"/>`);
+      // The artwork of the strip of chains: a drawing of the site's, or (for NEAR) one of the pictures it makes from a logo.
+      expect(tile.inside, tile.chain).toContain(`<img class="chain-mark" src="/chains/${tile.chain}.${tile.chain === "near" ? "webp" : "svg"}" alt="" width="24" height="24" decoding="async" loading="lazy"/>`);
     }
   });
 

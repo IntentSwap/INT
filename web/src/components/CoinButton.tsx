@@ -21,7 +21,7 @@ export function CoinButton({ token, label, onClick, ref }: { token: TokenView | 
   return (
     <button ref={ref} type="button" className="coin-button" onClick={onClick}>
       <span className="sr-only">{label}: </span>
-      <CoinIcon symbol={token.symbol} chain={token.chain} size={24} />
+      <CoinIcon symbol={token.symbol} chain={token.chain} contract={token.contract} size={24} />
       <span className="coin-button-text">
         <span className="coin-button-symbol">{token.symbol}</span>
         <span className="sr-only"> on </span>

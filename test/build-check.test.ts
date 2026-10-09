@@ -140,14 +140,21 @@ describe("build check", () => {
     expect(problems()).toEqual(["site.webmanifest: is not valid JSON"]);
   });
 
-  it("fails when NEAR's own mark is among the coin or chain icons", () => {
+  it("lets NEAR's own mark be the icon of the NEAR coin and of the NEAR chain, and fails when it is published anywhere else", () => {
     fs.mkdirSync(path.join(dist, "coins"));
     fs.mkdirSync(path.join(dist, "chains"));
+    fs.mkdirSync(path.join(dist, "brand"));
     fs.writeFileSync(path.join(dist, "coins", "aurora.svg"), "<svg/>");
+    fs.writeFileSync(path.join(dist, "coins", "near.webp"), "RIFF");
+    fs.writeFileSync(path.join(dist, "chains", "near.webp"), "RIFF");
     expect(problems()).toEqual([]);
-    fs.writeFileSync(path.join(dist, "coins", "near.svg"), "<svg/>");
+    // Under another name, in another folder, among the built files or at the top of the site: refused.
+    fs.writeFileSync(path.join(dist, "coins", "wnear.webp"), "RIFF");
     fs.writeFileSync(path.join(dist, "chains", "near-protocol.svg"), "<svg/>");
-    expect(problems().sort()).toEqual([`${path.join("chains", "near-protocol.svg")}: NEAR's own mark is not used on this site`, `${path.join("coins", "near.svg")}: NEAR's own mark is not used on this site`]);
+    fs.writeFileSync(path.join(dist, "brand", "near.webp"), "RIFF");
+    fs.writeFileSync(path.join(dist, "assets", "near-mark-1.png"), "PNG");
+    const only = "NEAR's own mark is published only as the icon of the NEAR coin and of the NEAR chain";
+    expect(problems().sort()).toEqual([path.join("assets", "near-mark-1.png"), path.join("brand", "near.webp"), path.join("chains", "near-protocol.svg"), path.join("coins", "wnear.webp")].map((file) => `${file}: ${only}`));
   });
 
   it("fails when wallet code is part of the first page load, and not when it is in a file fetched later", () => {

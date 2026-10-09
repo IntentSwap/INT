@@ -23,7 +23,7 @@ import { SOCIAL_MARKS } from "../components/Social.tsx";
 import { socialLinks } from "../lib/site-logic.ts";
 import { PayPanel } from "../components/WalletPay.tsx";
 import { payAction, payMessage, paySecondary, type PayAction, type PayPhase } from "../lib/order-logic.ts";
-import { COIN_ICONS } from "../lib/icons.ts";
+import { COIN_ICONS, COIN_LOGOS } from "../lib/icons.ts";
 import { NO_FEE_NO_POINTS, PRIVATE_UNAVAILABLE, primaryAction, reviewAction, reviewSentence, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
 import { DepositDetails, OrderContent } from "./OrderPage.tsx";
 import { setTheme, useTheme } from "../theme.ts";
@@ -111,8 +111,8 @@ function order(overrides: Partial<OrderView> = {}): OrderView {
 const details = (extra: Partial<NonNullable<OrderView["details"]>>): NonNullable<OrderView["details"]> => ({ originTxs: [], destinationTxs: [], depositedAmount: null, amountIn: null, amountOut: null, refundedAmount: null, refundReason: null, ...extra });
 const DEPOSIT_TX = { hash: HASH, url: `https://basescan.org/tx/${HASH}` };
 
-/** The coins the picker shows first, each on a chain it lives on, then every other coin that has artwork. */
-const ICON_SAMPLES: [string, string][] = [
+/** The coins the picker shows first, each on a chain it lives on, then every other coin that has artwork: by its symbol, or (the third part) by its contract. */
+const ICON_SAMPLES: [string, string, (string | null)?][] = [
   ["BNB", "bsc"],
   ["USDT", "bsc"],
   ["USDC", "base"],
@@ -123,12 +123,12 @@ const ICON_SAMPLES: [string, string][] = [
   ["SOL", "sol"],
   ["USDT", "sol"],
   ["ZEC", "zec"],
-  ["NEAR", "near"],
   ["USDT", "tron"],
   ...[...COIN_ICONS]
     .sort()
     .filter((symbol) => !["bnb", "usdt", "usdc", "eth", "btc", "sol", "zec"].includes(symbol))
     .map((symbol): [string, string] => [symbol.toUpperCase(), "eth"]),
+  ...Object.entries(COIN_LOGOS).map(([key, name]): [string, string, string | null] => [name.toUpperCase(), key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1) || null]),
 ];
 
 const RECENT: RecentOrder[] = [
@@ -454,9 +454,9 @@ export default function StatesPage() {
         </Case>
         <Case label="Every coin icon on the list, with its chain badge, at 32 px" wide>
           <ul className="states-icons">
-            {ICON_SAMPLES.map(([symbol, chain]) => (
-              <li key={`${symbol}-${chain}`}>
-                <CoinIcon symbol={symbol} chain={chain} />
+            {ICON_SAMPLES.map(([symbol, chain, contract]) => (
+              <li key={`${symbol}-${chain}-${contract ?? ""}`}>
+                <CoinIcon symbol={symbol} chain={chain} contract={contract} />
                 <span className="muted">
                   {symbol} · {chainName(chain)}
                 </span>
@@ -502,7 +502,7 @@ export default function StatesPage() {
             <ChainTile chain="sol" name="Solana" selected={false} />
             <ChainTile chain="btc" name="Bitcoin" selected={false} />
             <ChainTile chain="hood" name="Robinhood Chain" selected={false} />
-            <ChainTile chain="near" name="NEAR" selected={false} />
+            <ChainTile chain="qtc" name="Quantus" selected={false} />
           </div>
         </Case>
         <Case label="Picker rows: a chain's own coin, a token with its contract, under the arrow keys, chosen, on the other side, held, on another chain, loading">

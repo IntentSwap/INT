@@ -56,6 +56,42 @@ interface Scenario {
   inPicker?: boolean;
 }
 
+/**
+ * Opens the coin picker on one chain and looks at every coin's icon there: each is a picture of this
+ * site's own that has loaded, or the plain drawing, and none holds a letter. The chain's badge likewise.
+ */
+async function pickerLogos(page: Page, chain: string) {
+  await openPicker(page);
+  await page.getByRole("option", { name: chain, exact: true }).click();
+  const grid = page.getByRole("grid", { name: `Coins on ${chain}` });
+  await grid.waitFor();
+  await page.mouse.move(0, 0);
+  // The page fetches an icon only as it nears the screen. For this check every one is asked for now.
+  await grid.evaluate((list) => Promise.all([...list.querySelectorAll("img")].map((img) => ((img.loading = "eager"), img.decode().catch(() => undefined)))));
+  const icons = await grid.evaluate((list) =>
+    [...list.querySelectorAll(".picker-row")].map((row) => {
+      const icon = row.querySelector(".coin-icon");
+      const images = [...(icon?.querySelectorAll("img") ?? [])];
+      return {
+        coin: (row.querySelector(".picker-row-main")?.textContent ?? "").trim(),
+        icons: row.querySelectorAll(".coin-icon").length,
+        letters: icon?.textContent ?? "",
+        pictures: images.map((img) => new URL(img.src).pathname),
+        elsewhere: images.filter((img) => new URL(img.src).origin !== location.origin).length,
+        loaded: images.every((img) => img.complete && img.naturalWidth > 0),
+        drawn: icon?.querySelectorAll("svg.no-artwork").length ?? 0,
+      };
+    }),
+  );
+  if (icons.length < 3) throw new Error(`the picker lists ${icons.length} coins on ${chain}`);
+  const wrong = icons.filter((icon) => icon.icons !== 1 || icon.letters !== "" || icon.elsewhere > 0 || !icon.loaded || icon.pictures.length + icon.drawn !== 2 || !icon.pictures.every((src) => /^\/(coins|chains)\/[a-z0-9]+\.(svg|webp)$/.test(src)));
+  if (wrong.length > 0) throw new Error(`these coins on ${chain} are not drawn as a logo or the plain drawing: ${JSON.stringify(wrong)}`);
+  // The whole list is photographed: the screen is made as tall as the card has become.
+  const end = await page.locator(".card").evaluate((card) => Math.ceil(card.getBoundingClientRect().bottom + window.scrollY) + 24);
+  const screen = page.viewportSize();
+  if (screen !== null && end > screen.height) await page.setViewportSize({ width: screen.width, height: end });
+}
+
 // Waits for a quote. This script asks for many previews from one address, so it can run into the
 // per-visitor limit; when the card offers "Try again", it waits a little and presses it.
 const quoted = async (page: Page) => {
@@ -652,6 +688,17 @@ const SCENARIOS: Scenario[] = [
       await page.getByText("Not supported.").waitFor();
     },
   },
+  // The coins of three chains with many coins, each with its icon: a logo, or the one plain drawing where the site has none.
+  ...([["base", "Base"], ["sol", "Solana"], ["bsc", "BNB Chain"]] as const).map(
+    ([code, chain]): Scenario => ({
+      name: `picker-logos-${code}`,
+      path: "/",
+      screenOnly: true,
+      inPicker: true,
+      widths: [360, 1280],
+      run: (page) => pickerLogos(page, chain),
+    }),
+  ),
 ];
 
 const args = process.argv.slice(2);

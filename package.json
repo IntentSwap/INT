@@ -14,6 +14,7 @@
     "build": "vite build --config web/vite.config.ts && tsx scripts/check-build.ts",
     "check:pages": "tsx scripts/page-quality.ts",
     "check:lock": "tsx scripts/check-lock.ts",
+    "check:logos": "tsx scripts/check-coin-logos.ts",
     "start": "tsx server/index.ts",
     "rewards:export": "tsx scripts/rewards-export.ts",
     "rewards:record": "tsx scripts/rewards-record.ts"

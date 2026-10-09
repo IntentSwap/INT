@@ -331,8 +331,8 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
     <section className="order" aria-labelledby="order-title">
       <header className="order-head">
         <div className="order-pair">
-          <CoinIcon symbol={order.from.symbol} chain={order.from.chain} />
-          <CoinIcon symbol={order.to.symbol} chain={order.to.chain} />
+          <CoinIcon symbol={order.from.symbol} chain={order.from.chain} contract={order.from.contract} />
+          <CoinIcon symbol={order.to.symbol} chain={order.to.chain} contract={order.to.contract} />
         </div>
         <div className="order-head-text">
           {/* An order made with private routing wears the small tag beside its title. Any other order's title stands alone, as ever. */}

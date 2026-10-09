@@ -39,8 +39,6 @@
   --coin-badge-radius-small: 3px;
   /* How far the badge reaches past the icon, right and down. */
   --coin-badge-out: 4px;
-  /* The two letters of a coin without artwork, at the small size: smaller, so that the badge does not cover them. */
-  --coin-letters-small: 10px;
   --coin-badge-out-small: 3px;
   /* The ring round the badge, in the colour of whatever it sits on, so it reads as cut out. Thinner round the small badge. */
   --coin-ring-width: 2px;

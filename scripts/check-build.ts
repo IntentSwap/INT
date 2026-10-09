@@ -2,7 +2,7 @@
 //   - contains anything that looks like a secret, the name or value of a server-only variable, a
 //     path from the build machine, the provider's address, or a wallet kit this site leaves out;
 //   - holds a file at its top level that this site is not known to publish, a source map, or
-//     NEAR's own mark;
+//     NEAR's own mark anywhere but as the icon of the NEAR coin and of the NEAR chain;
 //   - names a script or a stylesheet that is not in the build;
 //   - has wallet code in the first page load;
 //   - breaks a size budget.
@@ -45,8 +45,13 @@ const WALLET_CODE = /walletconnect\.org|web3modal\.org|w3m-modal/;
  */
 export const TOP_LEVEL = new Set(["index.html", "assets", "coins", "chains", "brand", "favicon.ico", "favicon-32.png", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "site.webmanifest", "share.png", "share-private.png"]);
 
-/** NEAR's own mark is not used anywhere on the site: NEAR is shown as two letters, like any coin without artwork. */
-const NEAR_ARTWORK = /^(coins|chains)\/[^/]*near[^/]*$/i;
+/**
+ * NEAR's own mark is published only as the icon of the NEAR coin and of the NEAR chain, like any
+ * other coin's and chain's: one picture in each of the two folders. A picture named for NEAR under
+ * any other name or in any other place (the brand folder, the top of the site) is refused.
+ */
+const NEAR_PICTURE = /(^|\/)[^/]*near[^/]*\.(svg|png|webp|jpe?g|gif|avif|ico)$/i;
+const NEAR_ICON = /^(coins|chains)\/near\.(webp|svg)$/;
 
 const TEXT = new Set([".html", ".js", ".css", ".json", ".svg", ".txt", ".webmanifest", ".map"]);
 const KB = 1024;
@@ -99,7 +104,8 @@ export function checkBuild(dist: string, env: Record<string, string | undefined>
     const rel = path.relative(dist, file);
     const raw = fs.readFileSync(file);
     if (ext === ".map") problems.push(`${rel}: source maps are not shipped`);
-    if (NEAR_ARTWORK.test(rel.split(path.sep).join("/"))) problems.push(`${rel}: NEAR's own mark is not used on this site`);
+    const place = rel.split(path.sep).join("/");
+    if (NEAR_PICTURE.test(place) && !NEAR_ICON.test(place)) problems.push(`${rel}: NEAR's own mark is published only as the icon of the NEAR coin and of the NEAR chain`);
     if (ext === ".woff2") sizes.fonts += raw.length;
     if (!TEXT.has(ext)) continue;
     const text = raw.toString("utf8");

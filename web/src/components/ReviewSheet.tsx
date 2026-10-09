@@ -269,7 +269,7 @@ export function ReviewSheet() {
           <dl className="review-rows" data-stale={stale || undefined}>
             <Row label="You send">
               <span className="review-coin">
-                <CoinIcon symbol={from.symbol} chain={from.chain} size={24} />
+                <CoinIcon symbol={from.symbol} chain={from.chain} contract={from.contract} size={24} />
                 <span className="mono">
                   {displayExact(BigInt(quote.amountIn), from.decimals)}{NBSP}{from.symbol}
                 </span>
@@ -278,7 +278,7 @@ export function ReviewSheet() {
             </Row>
             <Row label="You receive, about">
               <span className="review-coin">
-                <CoinIcon symbol={to.symbol} chain={to.chain} size={24} />
+                <CoinIcon symbol={to.symbol} chain={to.chain} contract={to.contract} size={24} />
                 <span className="mono">
                   {receiveText}{NBSP}{to.symbol}
                 </span>

@@ -172,16 +172,11 @@
   border-radius: var(--radius-8);
 }
 
-/* No artwork for this chain: its first letters. */
-.chain-mark-letters {
-  display: grid;
-  place-items: center;
+/* No artwork for this chain: the one plain drawing. */
+.chain-mark-fallback {
   border: var(--border-width) solid var(--border-strong);
   background: var(--tint-neutral);
   color: var(--text-muted);
-  font-size: var(--coin-letters-small);
-  line-height: var(--line-12);
-  font-weight: var(--weight-600);
 }
 
 .skeleton-tile {

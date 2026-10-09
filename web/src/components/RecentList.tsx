@@ -30,7 +30,7 @@ export function RecentList({ orders, onOpen, onClear }: { orders: RecentOrder[];
                   onOpen(order.id);
                 }}
               >
-                <CoinIcon symbol={order.to.symbol} chain={order.to.chain} />
+                <CoinIcon symbol={order.to.symbol} chain={order.to.chain} logo={order.to.logo} />
                 <span className="recent-row-text">
                   <span className="recent-row-main">
                     {/* The two coins and no amount: the list keeps none (see stores/orders.ts). The order's own page gives the figures. */}

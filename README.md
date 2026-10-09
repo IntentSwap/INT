@@ -46,6 +46,8 @@ Rules the code keeps:
 | `npm run rewards:export -- --week … --pool … [--close]` | Show what closing a week of points would do. With `--close`, close it and write the list of payouts (sends nothing) |
 | `npm run rewards:record -- --week … --tx 0x…` | Record the transactions that paid a closed week, after checking on BNB Chain what each one paid |
 | `npx tsx scripts/make-brand.ts` | Make every size of the logo, the favicons, the home-screen icons and the web manifest again from the two source files in `web/src/assets/brand/` (only when one of them changes) |
+| `npm run check:logos -- http://127.0.0.1:8799` | Ask a running site for its coin list and fail, naming them, if a listed coin has no logo. Run it after the provider lists new coins. A coin that was looked for and is not in the logo collection is named in the script's own list, and is shown as a plain coin drawing until it has one |
+| `npx tsx scripts/make-coin-icons.ts` | Make the coin and chain icons again from the logo files in `web/src/assets/coins/` and `web/src/assets/chains/` (only when one is added or changed): each becomes a 96 px WebP under `web/public/` |
 | `npx tsx scripts/make-share.ts <url>` | Redraw the image a shared link shows (`web/public/share.png`) from the running site |
 
 Node 24 is required.
@@ -452,3 +454,10 @@ disables the coin and raises an alert.
 The X and GitHub icons are from Simple Icons (CC0 1.0). The DexScreener icon is the line drawing
 from Arcticons (CC BY-SA 4.0), with heavier lines. Each mark belongs to its owner and is used only
 to link to the project's page on that service. Other icons are from Lucide (ISC).
+
+The coin logos kept in `web/src/assets/coins/` and `web/src/assets/chains/` are from the Trust Wallet
+assets repository (github.com/trustwallet/assets; MIT licence, copyright 2019-2023 Trust Wallet, its
+text kept in `web/src/assets/coin-logos-LICENSE.txt`), each taken by the coin's chain and contract
+address. The site serves its own scaled copies of them and loads
+nothing from that repository. Each logo is a trade mark that belongs to its owner, and is used
+only to name that coin or that chain in a list.

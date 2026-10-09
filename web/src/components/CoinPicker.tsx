@@ -2,7 +2,7 @@ import { ArrowLeft, Check, ExternalLink, Search } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import type { TokenView } from "../../../shared/api.ts";
 import { chainName, explorerAddressUrl } from "../../../shared/chains.ts";
-import { chainColour, chainIconUrl, initials } from "../lib/icons.ts";
+import { chainColour, chainIconUrl } from "../lib/icons.ts";
 import { chainsOnList } from "../lib/site-logic.ts";
 import { coinLabel, contractChain, gridMove, lookAlikes, pickerRows, searchChains, shortAddress, type PickerRows } from "../lib/swap-logic.ts";
 import type { PickerSide } from "../stores/picker.ts";
@@ -10,7 +10,7 @@ import { useSwap } from "../stores/swap.ts";
 import { useTokens } from "../stores/tokens.ts";
 import { useWallet } from "../stores/wallet.ts";
 import { Amount } from "./Amount.tsx";
-import { CoinIcon } from "./CoinIcon.tsx";
+import { CoinIcon, NoArtwork } from "./CoinIcon.tsx";
 
 const SKELETON_TILES = 12;
 const SKELETON_ROWS = 5;
@@ -19,13 +19,13 @@ const MOVES = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"]
 /** True where there is a mouse and a keyboard: a search field may then take the keyboard unasked. On touch that would open the on-screen keyboard. */
 const finePointer = () => window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 
-/** A chain's mark at 24 px: its own artwork, the same as on the strip of chains, or its first letters where the site has none. */
+/** A chain's mark at 24 px: its own artwork, the same as on the strip of chains, or the plain drawing where the site has none. */
 function ChainMark({ chain }: { chain: string }) {
   const url = chainIconUrl(chain);
   if (url !== null) return <img className="chain-mark" src={url} alt="" width={24} height={24} decoding="async" loading="lazy" />;
   return (
-    <span className="chain-mark chain-mark-letters" aria-hidden="true">
-      {initials(chainName(chain))}
+    <span className="chain-mark chain-mark-fallback" aria-hidden="true">
+      <NoArtwork />
     </span>
   );
 }
@@ -85,7 +85,7 @@ export function CoinRow({ token, index, id, active, chosen, otherSide, elsewhere
         if (event.pointerType !== "touch" && !active) onPoint?.();
       }}
     >
-      <CoinIcon symbol={token.symbol} chain={token.chain} />
+      <CoinIcon symbol={token.symbol} chain={token.chain} contract={token.contract} />
       <span className="picker-row-text">
         <span role="gridcell" id={id} className="picker-row-main">
           <button type="button" className="picker-pick" tabIndex={active ? 0 : -1} aria-describedby={hasEnd ? `${id}-sub ${id}-end` : `${id}-sub`} onClick={onPick} onFocus={onPoint}>

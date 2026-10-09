@@ -3,7 +3,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { routingOf, SLIPPAGE, SLIPPAGE_BOUNDS_WORDS, type QuoteView, type TokenView } from "../shared/api.ts";
 import { displayBps } from "../shared/amounts.ts";
-import { CHAIN_ICONS, COIN_ICONS, chainIconUrl, coinIconUrl, initials } from "../web/src/lib/icons.ts";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { NO_CHAIN_LOGO, NO_LOGO, logoProblems } from "../scripts/check-coin-logos.ts";
+import { ICON_SIDE, pictureType } from "../scripts/make-coin-icons.ts";
+import { ALLOWLIST } from "../server/allowlist.ts";
+import { CoinIcon } from "../web/src/components/CoinIcon.tsx";
+import * as icons from "../web/src/lib/icons.ts";
+import { CHAIN_ICONS, CHAIN_LOGOS, COIN_ICONS, COIN_LOGOS, chainIconUrl, coinIconUrl, coinKey, coinLogoName, logoUrl } from "../web/src/lib/icons.ts";
 import { DEPOSIT_CLOSE_MS, payWindowMs, sendWindowMs } from "../shared/chains.ts";
 import { HEADLINE_SUB, headlineWords, POSITIONING } from "../shared/positioning.ts";
 import { swapPointsMicro } from "../shared/rewards.ts";
@@ -795,6 +802,19 @@ describe("orders kept in this browser", () => {
     expect(readRecent(older)).toEqual([list[0]]);
     expect(JSON.stringify(readRecent(older))).not.toContain("amount");
   });
+  it("keeps the name of the received coin's logo, where it has one, and still no address: not even the coin's contract", () => {
+    const brett = { symbol: "BRETT", chain: "base", decimals: 18, contract: "0x532f27101965dd16442e59d40670faf5ebb142e4" };
+    const list = withOrder([], { id: "a", createdAt: "2026-10-08T12:00:00.000Z", from: brett, to: brett, amountIn: "5", amountOut: "7" } as never);
+    expect(list[0]?.to).toEqual({ symbol: "BRETT", chain: "base", decimals: 18, logo: "brett" });
+    expect(list[0]?.from).toEqual({ symbol: "BRETT", chain: "base", decimals: 18 });
+    expect(JSON.stringify(list)).not.toMatch(/0x|contract|recipient|refund|deposit/i);
+    expect(readRecent(JSON.stringify(list))).toEqual(list);
+    // A name that could not be a logo's is not read back, and one that is no logo's draws nothing of its own.
+    expect(readRecent(JSON.stringify([{ ...list[0], to: { ...list[0]!.to, logo: "../x" } }]))).toEqual([]);
+    expect(logoUrl("brett")).toBe("/coins/brett.webp");
+    expect(logoUrl("eth")).toBeNull();
+    expect(logoUrl(undefined)).toBeNull();
+  });
   it("keeps at most 50", () => {
     let list: ReturnType<typeof withOrder> = [];
     for (let i = 0; i < 60; i++) list = withOrder(list, order(`o${i}`));
@@ -1004,11 +1024,137 @@ describe("routes", () => {
 });
 
 describe("bundled icons", () => {
-  const files = (dir: string) => new Set(fs.readdirSync(path.resolve("web", "public", dir)).filter((f) => f.endsWith(".svg")).map((f) => f.slice(0, -4)));
+  const files = (dir: string, kind = ".svg") => new Set(fs.readdirSync(path.resolve("web", "public", dir)).filter((f) => f.endsWith(kind)).map((f) => f.slice(0, -kind.length)));
+  const publicFile = (url: string) => path.resolve("web", "public", ...url.split("/").filter((part) => part !== ""));
+  /** The width and height a WebP says it has, whichever of the format's three kinds it is. Null for anything that is not a WebP. */
+  const webpSize = (bytes: Buffer): [number, number] | null => {
+    if (pictureType(bytes) !== "image/webp") return null;
+    const kind = bytes.toString("latin1", 12, 16);
+    if (kind === "VP8X") return [1 + bytes.readUIntLE(24, 3), 1 + bytes.readUIntLE(27, 3)];
+    if (kind === "VP8L") return [1 + (bytes.readUInt32LE(21) & 0x3fff), 1 + ((bytes.readUInt32LE(21) >> 14) & 0x3fff)];
+    if (kind === "VP8 ") return [bytes.readUInt16LE(26) & 0x3fff, bytes.readUInt16LE(28) & 0x3fff];
+    return null;
+  };
 
   it("match the files on disk exactly", () => {
     expect([...COIN_ICONS].sort()).toEqual([...files("coins")].sort());
     expect([...CHAIN_ICONS].sort()).toEqual([...files("chains")].sort());
+    // The pictures made from logos: each one is named by the list, and each name on the list is a picture.
+    expect([...new Set(Object.values(COIN_LOGOS))].sort()).toEqual([...files("coins", ".webp")].sort());
+    expect([...CHAIN_LOGOS].sort()).toEqual([...files("chains", ".webp")].sort());
+    // Nothing else is in the two folders, and no name is both a drawing and a picture.
+    for (const dir of ["coins", "chains"]) expect(fs.readdirSync(path.resolve("web", "public", dir)).filter((f) => !/^[a-z0-9]+\.(svg|webp)$/.test(f)), dir).toEqual([]);
+    expect([...files("coins", ".webp")].filter((name) => COIN_ICONS.has(name))).toEqual([]);
+    expect([...files("chains", ".webp")].filter((name) => CHAIN_ICONS.has(name))).toEqual([]);
+  });
+
+  it("the pictures made from logos are real pictures of one size, each with its source kept beside the code", () => {
+    for (const dir of ["coins", "chains"]) {
+      const names = [...files(dir, ".webp")];
+      expect(names.length, dir).toBeGreaterThan(0);
+      for (const name of names) {
+        const made = fs.readFileSync(path.resolve("web", "public", dir, `${name}.webp`));
+        expect(webpSize(made), `${dir}/${name}`).toEqual([ICON_SIDE, ICON_SIDE]);
+        expect(made.length, `${dir}/${name}`).toBeLessThanOrEqual(12 * 1024);
+        // No colour profile, and nothing but the picture: a WebP holds no script.
+        expect(made.includes("ICCP"), `${dir}/${name}`).toBe(false);
+        const source = fs.readdirSync(path.resolve("web", "src", "assets", dir)).filter((f) => f.replace(/\.[^.]+$/, "") === name);
+        expect(source, `${dir}/${name}`).toHaveLength(1);
+        const bytes = fs.readFileSync(path.resolve("web", "src", "assets", dir, source[0]!));
+        expect(pictureType(bytes), `${dir}/${source[0]}`).not.toBeNull();
+        expect(bytes.length, `${dir}/${source[0]}`).toBeLessThanOrEqual(2 * 1024 * 1024);
+      }
+      // And no source is left without its picture.
+      expect(fs.readdirSync(path.resolve("web", "src", "assets", dir)).map((f) => f.replace(/\.[^.]+$/, "")).sort(), dir).toEqual(names.sort());
+    }
+    // What is not a picture is told by its first bytes, whatever it is called.
+    expect(pictureType(Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'><script/></svg>"))).toBeNull();
+    expect(pictureType(Buffer.from("#!/bin/sh\n"))).toBeNull();
+    expect(pictureType(Buffer.alloc(0))).toBeNull();
+  });
+
+  it("every coin that may be paid from a wallet has a logo that is a real picture, or is listed as having none in the collection", () => {
+    const without: string[] = [];
+    for (const allowed of ALLOWLIST) {
+      const where = `${allowed.symbol} on ${allowed.chain}`;
+      const url = coinIconUrl(allowed.symbol, allowed.chain, allowed.contractAddress);
+      if (url === null) {
+        without.push(where);
+        expect(coinKey(allowed.chain, allowed.contractAddress) in NO_LOGO, `${where} has no logo, and nobody has said why`).toBe(true);
+        continue;
+      }
+      const bytes = fs.readFileSync(publicFile(url));
+      if (url.endsWith(".webp")) expect(webpSize(bytes), where).toEqual([ICON_SIDE, ICON_SIDE]);
+      else expect(bytes.toString("utf8").trim().startsWith("<svg") && bytes.toString("utf8").trim().endsWith("</svg>"), where).toBe(true);
+      expect(coinKey(allowed.chain, allowed.contractAddress) in NO_LOGO, `${where} has a logo and is listed as having none`).toBe(false);
+    }
+    // Today that is one coin, on its two chains. A new entry on the allowlist without a logo fails above until someone has looked.
+    expect(without).toEqual(["cbBTC on eth", "cbBTC on base"]);
+    // The check a person runs against a live list says the same of these coins, and names a coin it has never met.
+    const listed = ALLOWLIST.map((allowed) => ({ id: allowed.assetId, symbol: allowed.symbol, chain: allowed.chain, contract: allowed.contractAddress }));
+    expect(logoProblems(listed, path.resolve("web", "public"))).toEqual([]);
+    const stranger = { id: "nep141:base-0x00000000000000000000000000000000000000aa.omft.near", symbol: "NEWCOIN", chain: "base", contract: "0x00000000000000000000000000000000000000aa" };
+    expect(logoProblems([...listed, stranger], path.resolve("web", "public"))).toEqual([expect.stringMatching(/^NEWCOIN on base \(0x0{38}aa, .*\): has no logo /)]);
+    expect(logoProblems([{ ...stranger, chain: "newchain" }], path.resolve("web", "public"))).toEqual([expect.stringContaining("NEWCOIN on newchain"), expect.stringMatching(/^the chain newchain: has no mark /)]);
+    // An entry that is no longer true fails too: a coin with a logo is not left on the list of those without.
+    for (const key of Object.keys(NO_LOGO)) expect(COIN_LOGOS[key], key).toBeUndefined();
+    for (const chain of NO_CHAIN_LOGO) expect(chainIconUrl(chain), chain).toBeNull();
+  });
+
+  it("a logo belongs to one coin by its chain and contract: another coin with the same symbol is not given it", () => {
+    const TRUMP = "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN";
+    expect(coinIconUrl("TRUMP", "sol", TRUMP)).toBe("/coins/trump.webp");
+    // A look-alike: the same symbol on the same chain, under another contract. And the same symbol on another chain.
+    expect(coinIconUrl("TRUMP", "sol", "7p7xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN")).toBeNull();
+    expect(coinIconUrl("TRUMP", "eth", "0x576e2bed8f7b46d34016198911cdf9886f78bea7")).toBeNull();
+    expect(coinIconUrl("TRUMP", "sol", null)).toBeNull();
+    // With no contract given at all, nothing is known of the coin but its symbol: no logo is named by that.
+    expect(coinIconUrl("TRUMP")).toBeNull();
+    expect(coinIconUrl("TRUMP", "sol")).toBeNull();
+    // A symbol dressed as another coin's does not borrow its logo either.
+    expect(coinIconUrl("BRETT", "base", "0x00000000000000000000000000000000000000aa")).toBeNull();
+    expect(coinIconUrl("BRETT", "base", "0x532F27101965DD16442E59D40670FAF5EBB142E4")).toBe("/coins/brett.webp");
+    // An address that is not hexadecimal is the address only as it is written.
+    expect(coinIconUrl("TRUMP", "sol", TRUMP.toLowerCase())).toBeNull();
+    expect(coinKey("base", "0xABCDEF")).toBe("base:0xabcdef");
+    expect(coinKey("sol", TRUMP)).toBe(`sol:${TRUMP}`);
+    expect(coinKey("btc", null)).toBe("btc:");
+    // The same asset on several chains is listed for each of them, by each one's own contract.
+    expect(coinIconUrl("USD1", "eth", "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d")).toBe("/coins/usd1.webp");
+    expect(coinIconUrl("USD1", "sol", "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB")).toBe("/coins/usd1.webp");
+    expect(coinLogoName("sol", TRUMP)).toBe("trump");
+    expect(coinLogoName("sol", null)).toBeUndefined();
+    // Every name on the list is a chain and a contract, in the spelling the lookup uses.
+    for (const key of Object.keys(COIN_LOGOS)) {
+      const [chain, contract = ""] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
+      expect(key, key).toBe(coinKey(chain, contract === "" ? null : contract));
+      expect(/^[a-z0-9]{2,20}$/.test(chain), key).toBe(true);
+    }
+  });
+
+  it("a coin with no logo is drawn as the one plain drawing, and a chain with none the same in its badge: never as letters", () => {
+    const strip = (html: string) => html.replace(/<[^>]*>/g, "");
+    for (const size of [32, 24] as const) {
+      const none = renderToStaticMarkup(createElement(CoinIcon, { symbol: "BLACKDRAGON", chain: "qtc", contract: "blackdragon.tkn.near", size }));
+      expect(strip(none), `${size}`).toBe("");
+      expect(none.match(/<svg class="no-artwork"/g), `${size}`).toHaveLength(2);
+      expect(none, `${size}`).not.toContain("<img");
+      expect(none, `${size}`).toContain(`<span class="coin-icon" data-size="${size}" aria-hidden="true"><span class="coin-icon-fallback"><svg class="no-artwork"`);
+      expect(none, `${size}`).toContain('<span class="coin-icon-badge"><span class="coin-icon-badge-fallback"><svg class="no-artwork"');
+      // The same drawing for every such coin: nothing of the coin's own name is in it.
+      expect(renderToStaticMarkup(createElement(CoinIcon, { symbol: "SHITZU", chain: "qtc", contract: "token.0xshitzu.near", size }))).toBe(none);
+      // A coin with a logo keeps the same place and size, so nothing moves when its picture arrives.
+      const drawn = renderToStaticMarkup(createElement(CoinIcon, { symbol: "BRETT", chain: "base", contract: "0x532f27101965dd16442e59d40670faf5ebb142e4", size }));
+      expect(drawn, `${size}`).toContain(`<img class="coin-icon-image" src="/coins/brett.webp" alt="" width="${size}" height="${size}" decoding="async" loading="lazy"/>`);
+      expect(drawn, `${size}`).toContain('src="/chains/base.svg"');
+      expect(strip(drawn), `${size}`).toBe("");
+    }
+    // Nothing is left that could write a coin's or a chain's first letters.
+    expect(Object.keys(icons)).not.toContain("initials");
+    for (const file of [path.join("components", "CoinIcon.tsx"), path.join("components", "CoinPicker.tsx"), path.join("components", "Home.tsx"), path.join("lib", "icons.ts")]) {
+      expect(fs.readFileSync(path.resolve("web", "src", file), "utf8"), file).not.toMatch(/initials|\.slice\(0, [12]\)\.toUpperCase/);
+    }
+    for (const sheet of ["card.css", "picker.css", "tokens.css"]) expect(fs.readFileSync(path.resolve("web", "src", "styles", sheet), "utf8"), sheet).not.toMatch(/letters-small|chain-mark-letters/);
   });
 
   it("are plain drawings: only known drawing elements and attributes, nothing that runs, loads or links", () => {
@@ -1041,17 +1187,31 @@ describe("bundled icons", () => {
     }
   });
 
-  it("never include the NEAR logo, and fall back to two letters", () => {
+  it("name NEAR's own mark for the NEAR coin and the NEAR chain alone, and nothing for a coin they do not know", () => {
+    // The chain, its own coin, that coin wrapped on its own chain, and the one issued on BNB Chain.
+    expect(chainIconUrl("near")).toBe("/chains/near.webp");
+    expect(coinIconUrl("NEAR", "near", null)).toBe("/coins/near.webp");
+    expect(coinIconUrl("wNEAR", "near", "wrap.near")).toBe("/coins/near.webp");
+    expect(coinIconUrl("NEAR", "bsc", "0x1fa4a73a3f0133f0025378af00236f3abdee5d63")).toBe("/coins/near.webp");
+    expect(Object.entries(COIN_LOGOS).filter(([, name]) => name === "near").map(([key]) => key).sort()).toEqual(["bsc:0x1fa4a73a3f0133f0025378af00236f3abdee5d63", "near:", "near:wrap.near"]);
+    // Not by its symbol: a coin that calls itself NEAR, or is on NEAR, is not given the mark for that.
     expect(coinIconUrl("NEAR")).toBeNull();
     expect(coinIconUrl("wNEAR")).toBeNull();
-    expect(chainIconUrl("near")).toBeNull();
+    expect(coinIconUrl("NEAR", "eth", "0x00000000000000000000000000000000000000aa")).toBeNull();
+    expect(coinIconUrl("stNEAR", "near", "meta-pool.near")).toBeNull();
+    expect(coinIconUrl("BLACKDRAGON", "near", "blackdragon.tkn.near")).toBeNull();
+    // The mark is two files and no more: no drawing of it, no other picture named for it.
+    for (const dir of ["coins", "chains", "brand"]) expect(fs.readdirSync(path.resolve("web", "public", dir)).filter((f) => /near/i.test(f)), dir).toEqual(dir === "brand" ? [] : ["near.webp"]);
+    expect(fs.readdirSync(path.resolve("web", "public")).filter((f) => /near/i.test(f))).toEqual([]);
+    // The page's own parts that carry a brand (the header, the footer, the first screen, the share picture) name neither file.
+    for (const file of [path.join("web", "index.html"), path.join("shared", "brand.ts"), ...["Shell.tsx", "Brand.tsx", "Home.tsx", "Stage.tsx", "Social.tsx"].map((name) => path.join("web", "src", "components", name))]) {
+      expect(fs.readFileSync(path.resolve(file), "utf8"), file).not.toMatch(/(coins|chains)\/near|near\.(webp|svg|png)/i);
+    }
     expect(coinIconUrl("ETH")).toBe("/coins/eth.svg");
+    expect(coinIconUrl("ETH", "base", null)).toBe("/coins/eth.svg");
     expect(coinIconUrl("$WIF")).toBeNull();
     expect(chainIconUrl("bsc")).toBe("/chains/bsc.svg");
-    expect(initials("NEAR")).toBe("NE");
-    expect(initials("$WIF")).toBe("WI");
-    expect(initials("x")).toBe("X");
-    expect(initials("")).toBe("?");
+    expect(chainIconUrl("qtc")).toBeNull();
   });
 });
 

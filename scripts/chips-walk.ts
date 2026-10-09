@@ -10,7 +10,7 @@
 //     the two selectors, and on every coin on the page of states), and the ring round it is the colour
 //     of what it sits on (the field's tint over the card's, on the plain page), also when the selector
 //     is pressed or pointed at;
-//   - a coin with no artwork shows two letters at both sizes.
+//   - a coin with no artwork shows the one plain drawing at both sizes, and no letters.
 // It also saves the two selectors at four times their size, for looking at.
 
 import path from "node:path";
@@ -156,7 +156,7 @@ export async function chipsWalk(browser: Browser, options: { baseUrl: string; ou
           }
         }
         // Every coin shown on the page of states: one badge, the same size and in the same place on every
-        // icon of a size, artwork or none; and a coin with no artwork shows two letters at both sizes.
+        // icon of a size, artwork or none; and a coin with no artwork shows the one plain drawing at both sizes, and no letters.
         if (width === 1280) {
           await visit(page, new URL("/states", baseUrl).toString());
           await page.locator(".states-icons .coin-icon").first().waitFor({ timeout: 20_000 });
@@ -168,8 +168,8 @@ export async function chipsWalk(browser: Browser, options: { baseUrl: string; ou
             const b = badge.getBoundingClientRect();
             const fallback = icon.querySelector(".coin-icon-fallback");
             const image = icon.querySelector("img.coin-icon-image");
-            return { size: icon.dataset.size, w: a.width, h: a.height, bw: b.width, bh: b.height, right: b.right - a.right, bottom: b.bottom - a.bottom, radius: getComputedStyle(badge).borderRadius, letters: fallback ? fallback.textContent : null, weight: fallback ? getComputedStyle(fallback).fontWeight : null, loaded: image ? image.complete && image.naturalWidth > 0 : null };
-          }))()`)) as { size: string; w: number; h: number; bw: number; bh: number; right: number; bottom: number; radius: string; letters: string | null; weight: string | null; loaded: boolean | null }[];
+            return { size: icon.dataset.size, w: a.width, h: a.height, bw: b.width, bh: b.height, right: b.right - a.right, bottom: b.bottom - a.bottom, radius: getComputedStyle(badge).borderRadius, letters: fallback ? fallback.textContent : null, drawn: fallback ? fallback.querySelectorAll("svg.no-artwork").length : null, loaded: image ? image.complete && image.naturalWidth > 0 : null };
+          }))()`)) as { size: string; w: number; h: number; bw: number; bh: number; right: number; bottom: number; radius: string; letters: string | null; drawn: number | null; loaded: boolean | null }[];
           expectThat(icons.length >= 60, `the page of states shows ${icons.length} coin icons`);
           const want = { "32": { size: 32, badge: 14, out: 4, radius: "4px" }, "24": { size: 24, badge: 10, out: 3, radius: "3px" } } as const;
           for (const [index, icon] of icons.entries()) {
@@ -178,7 +178,7 @@ export async function chipsWalk(browser: Browser, options: { baseUrl: string; ou
             if (icon.loaded !== null) expectThat(icon.loaded, `coin icon ${index} on the page of states did not load its artwork`);
           }
           const fallbacks = icons.filter((icon) => icon.letters !== null);
-          expectThat(fallbacks.length >= 2 && fallbacks.every((icon) => (icon.letters ?? "").length === 2 && icon.weight === "600"), `coins with no artwork show ${JSON.stringify(fallbacks.map((icon) => [icon.size, icon.letters, icon.weight]))}`);
+          expectThat(fallbacks.length >= 2 && fallbacks.every((icon) => icon.letters === "" && icon.drawn === 1), `coins with no artwork show ${JSON.stringify(fallbacks.map((icon) => [icon.size, icon.letters, icon.drawn]))}`);
         }
       } catch (error) {
         complaints.push(`${label}: ${(error as Error).message.split("\n")[0]}`);

@@ -191,7 +191,7 @@ export async function pickerWalk(browser: Browser, options: { baseUrl: string; o
   const chainSearch = (page: Page) => page.getByPlaceholder("Search by chain name");
   const coinSearch = (page: Page) => page.getByPlaceholder("Search by name or paste address");
   const tile = (page: Page, name: string) => page.getByRole("option", { name, exact: true });
-  /** The words on a coin selector, as they are read aloud: "You pay: USDC on Base. Change coin". (Without its icon, which for a coin with no artwork holds two letters.) */
+  /** The words on a coin selector, as they are read aloud: "You pay: USDC on Base. Change coin". (Without its icon, which is a picture and says nothing.) */
   const selector = async (page: Page, side: "pay" | "receive") =>
     (
       (await (side === "pay" ? pay(page) : receive(page)).evaluate((el) => {
