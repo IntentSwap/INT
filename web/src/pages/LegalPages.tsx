@@ -190,6 +190,9 @@ export function PrivacyPage() {
             <strong>Points.</strong> When a swap is delivered and has a rewards address, the server writes down: a one-way fingerprint of the order's ID, the rewards address, IntentSwap's fee on that swap in US dollars, why the swap counted for less than in full if it did, the two coins and their chains, and the time. When a week is closed it writes down the pool, each rewards address's points and payout, and afterwards the payout transactions. These are the record of what was counted and paid, and are kept.
           </li>
           <li>
+            <strong>Stats.</strong> For the Stats page the server keeps running totals of delivered swaps and, for 48 hours, one rounded row for each (the two coins and their chains, a size band and a quarter of an hour), with no address, no transaction hash, no exact amount and no exact time in either.
+          </li>
+          <li>
             <strong>Signing in on the Rewards page.</strong> The one-time code of a sign-in is held in the server's memory for {REWARDS.nonceMinutes} minutes and used once. The sign-in itself is not stored on the server: it is a pass that your browser shows with each request, good for {REWARDS.sessionMinutes} minutes. Your signature is checked and not kept.
           </li>
           <li>

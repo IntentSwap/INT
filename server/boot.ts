@@ -20,6 +20,7 @@ import { holdsSampleContent, seedSamples, withSampleSettings } from "./sample.ts
 import { createSanctions, type SanctionsService } from "./sanctions.ts";
 import { createSessionIssuer } from "./session.ts";
 import { loadStaticSite } from "./static.ts";
+import { createStats } from "./stats.ts";
 import { createOrderStore } from "./store.ts";
 import { createTokenService } from "./tokens.ts";
 
@@ -116,12 +117,22 @@ export function boot(options: {
   // any (a delivered order with a rewards address does, once). At start every stored order is put to
   // it once more, so that a delivery saved a moment before a restart is not missed.
   const rewards = createRewards(config.dataDir);
+  // The site's own totals, for the Stats page. They are told of the same orders at the same two
+  // moments, and count each once: the order's own record is marked as counted before the totals
+  // are touched. They are kept whether or not the page is switched on, so that they are whole when it is.
+  const stats = createStats(config.dataDir, { feedMin: config.statsFeedMin, now });
+  if (stats.setAside) log.error("stats_file_unreadable");
   const store = createOrderStore(config.dataDir, {
     onState(record) {
       try {
         rewards.recordDelivered(record);
       } catch (err) {
         log.error("points_not_recorded", { order: hashId(record.id), error: errorKind(err) });
+      }
+      try {
+        stats.recordDelivered(record, () => store.markCounted(record.id));
+      } catch (err) {
+        log.error("stats_not_counted", { order: hashId(record.id), error: errorKind(err) });
       }
     },
   });
@@ -133,6 +144,18 @@ export function boot(options: {
     } catch (err) {
       log.error("points_not_recorded", { order: hashId(id), error: errorKind(err) });
     }
+    try {
+      const record = store.get(id);
+      // Added up in memory, and written once after the last of them.
+      if (record !== null) stats.recordDelivered(record, () => store.markCounted(id), false);
+    } catch (err) {
+      log.error("stats_not_counted", { order: hashId(id), error: errorKind(err) });
+    }
+  }
+  try {
+    stats.save();
+  } catch (err) {
+    log.error("stats_not_saved", { error: errorKind(err) });
   }
   const poller = createPoller({ store, oneclick, alerts, log, now, unpaidCallsPerMin: idleBudget(config.oneClickMaxPerMin) });
   const sanctions = createSanctions({ dataDir: config.dataDir, log, alerts, now, ...net });
@@ -153,7 +176,7 @@ export function boot(options: {
   // Practice mode only: sample content, and a sample token and reserve where the operator has set none,
   // so that every screen can be looked at full. None of this runs on the live site: `stub` is only
   // ever there in local development (see server/provider.ts and the settings' own refusal).
-  const samples = stub === null ? null : seedSamples({ practice: true, dataDir: config.dataDir, store, rewards, now: now() });
+  const samples = stub === null ? null : seedSamples({ practice: true, dataDir: config.dataDir, store, rewards, stats, now: now() });
   const shown = stub === null ? config : withSampleSettings(config);
 
   const site = loadStaticSite(options.siteDir ?? path.resolve("web", "dist"), {
@@ -161,6 +184,7 @@ export function boot(options: {
     tokenPage: shown.tokenAddress !== null,
     // How this server routes swaps, as the page is told it by /api/config: the site's first words follow it.
     privateRouting: shown.privacyMode === "basic",
+    statsPage: config.statsPage,
     siteUrl: config.siteUrl,
     // What this server will show in its banner for as long as it runs. Known now, so written into the page.
     banner: config.swapsPaused ? (["paused"] as const) : [],
@@ -183,6 +207,7 @@ export function boot(options: {
     sessions: createSessionIssuer(),
     rewards,
     signIn: createSignIn(),
+    stats,
     site,
     now,
     liveOrders,

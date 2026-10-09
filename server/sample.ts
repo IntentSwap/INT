@@ -1,6 +1,6 @@
 // Sample content for practice mode: past orders in every end state, points over a few weeks, two
-// paid weeks, a reserve with a balance and a token with an address, so that every screen can be
-// looked at full while testing on one's own machine.
+// paid weeks, a reserve with a balance, a token with an address and three months of made-up swaps
+// behind the Stats page, so that every screen can be looked at full while testing on one's own machine.
 //
 // It exists only in practice mode (local development with the practice provider). The live site
 // never has it: production refuses to start in practice mode, nothing here runs unless practice
@@ -17,6 +17,7 @@ import { explorerTxUrl } from "../shared/chains.ts";
 import { RESERVE_ASSET, sharePool, weekBounds, weekOf } from "../shared/rewards.ts";
 import type { Config } from "./config.ts";
 import { orderHash, type PointsEntry, type Rewards, type WeekRecord } from "./rewards.ts";
+import { QUARTER_MS, type Delivery, type Stats } from "./stats.ts";
 import { writeDurable, type OrderRecord, type OrderStore } from "./store.ts";
 
 const made = (label: string, bytes: number) => createHash("sha256").update(`intentswap sample ${label}`).digest("hex").slice(0, bytes * 2);
@@ -123,6 +124,8 @@ function sampleOrder(sample: Sample, owner: string, now: number): OrderRecord {
     rewardsAddress: evm ? owner : null,
     // Every sample order is an ordinary, publicly routed one.
     confidentiality: "public",
+    // The Stats page's sample figures are made up by themselves (see sampleDeliveries); these orders are not added to them.
+    statsCounted: true,
     depositAddress: evm ? address(`deposit ${sample.n}`) : `bc1q${made(`deposit ${sample.n}`, 19)}`,
     depositMemo: null,
     deadline: iso(created + (sample.pay === "wallet" ? 30 : 60) * 60_000),
@@ -146,11 +149,52 @@ function sampleOrder(sample: Sample, owner: string, now: number): OrderRecord {
   };
 }
 
+/** The pairs of the made-up swaps behind the Stats page, the first of them the commonest. */
+const SAMPLE_PAIRS: readonly (readonly [string, string, string, string])[] = [
+  ["ETH", "base", "USDT", "sol"],
+  ["USDC", "arb", "ETH", "base"],
+  ["BTC", "btc", "USDC", "arb"],
+  ["ETH", "base", "USDT", "sol"],
+  ["BNB", "bsc", "USDC", "arb"],
+  ["USDC", "base", "USDT", "sol"],
+  ["ETH", "eth", "BTC", "btc"],
+  ["USDC", "arb", "ETH", "base"],
+  ["SOL", "sol", "USDC", "base"],
+  ["USDT", "sol", "BNB", "bsc"],
+];
+/** How far back the made-up swaps go the first time: 90 days, in quarters of an hour. */
+const SAMPLE_QUARTERS = 90 * 96;
+
+/**
+ * Made-up deliveries for the Stats page, for the quarters of an hour from one to another: one or
+ * two to most quarters, of every size, worked out from the quarter's own number, so the same
+ * quarter always gives the same swaps and some days are busier than others.
+ */
+export function sampleDeliveries(fromQuarter: number, toQuarter: number): Delivery[] {
+  const out: Delivery[] = [];
+  for (let quarter = fromQuarter; quarter <= toQuarter; quarter++) {
+    const bytes = createHash("sha256").update(`intentswap sample swaps ${quarter}`).digest();
+    const busy = createHash("sha256").update(`intentswap sample day ${Math.floor(quarter / 96)}`).digest()[0]! % 5;
+    const count = (quarter % 3 === 0 ? 1 : 0) + (bytes[0]! % 8 < busy ? 1 : 0);
+    for (let n = 0; n < count; n++) {
+      const at = bytes.subarray(n * 8, n * 8 + 8);
+      const pair = SAMPLE_PAIRS[at[0]! % SAMPLE_PAIRS.length]!;
+      // Sizes: about half under $100, a third under $1,000, most of the rest under $10,000, and now and then one above.
+      const [floor, span] = at[1]! < 120 ? [8, 90] : at[1]! < 205 ? [100, 900] : at[1]! < 249 ? [1_000, 7_000] : [10_000, 24_000];
+      const usdMicro = BigInt(floor) * 1_000_000n + (BigInt(at.readUInt32BE(2)) * BigInt(span) * 1_000_000n) / 0x1_0000_0000n;
+      out.push({ from: { symbol: pair[0], chain: pair[1] }, to: { symbol: pair[2], chain: pair[3] }, usdMicro, seconds: 22 + (at[6]! % 55), at: quarter * QUARTER_MS + (at.readUInt16BE(6) % 900) * 1000 });
+    }
+  }
+  return out;
+}
+
 export interface Samples {
   /** The IDs of the sample orders, newest first: a practice browser lists them under Recent orders. */
   orderIds: string[];
   /** Makes sure an address that signs in on a practice server has something to look at: points over three weeks and two paid weeks. */
   ensureFor(address: string, now: number): void;
+  /** Makes sure the Stats page has made-up swaps up to the last quarter of an hour that has ended. Each quarter is filled once. */
+  ensureStats(now: number): void;
   reserveBalance: string;
 }
 
@@ -158,16 +202,37 @@ export interface Samples {
  * Puts the sample content in place. Only ever in practice mode: called with anything else, it
  * refuses. Safe to run at every start: what is already there is left as it is.
  */
-export function seedSamples(options: { practice: boolean; dataDir: string; store: OrderStore; rewards: Rewards; now: number }): Samples {
+export function seedSamples(options: { practice: boolean; dataDir: string; store: OrderStore; rewards: Rewards; stats?: Stats; now: number }): Samples {
   if (options.practice !== true) throw new Error("sample data is for practice mode only");
-  const { store, rewards, dataDir, now } = options;
+  const { store, rewards, stats, dataDir, now } = options;
   // Said first, before anything is put in: the folder now holds made-up orders, points and paid
   // weeks, and only a practice server may start on it (see where server/boot.ts looks for this).
   const marker = path.join(dataDir, SAMPLE_MARKER);
   if (!fs.existsSync(marker)) {
     fs.mkdirSync(path.dirname(marker), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(marker, "This data folder holds practice content: orders, points and paid weeks made up for looking at the site.\nA server that is not in practice mode will not start on it.\n", { mode: 0o600 });
+    fs.writeFileSync(marker, "This data folder holds practice content: orders, points, paid weeks and site totals made up for looking at the site.\nA server that is not in practice mode will not start on it.\n", { mode: 0o600 });
   }
+  // The made-up swaps behind the Stats page. A note beside the totals says up to which quarter of an
+  // hour they have been added, so that a quarter is never added twice, at this start or a later one.
+  const through = path.join(dataDir, "stats", "sample-through");
+  let filled: number | null = null;
+  const ensureStats = (at: number): void => {
+    if (stats === undefined) return;
+    const last = Math.floor(at / QUARTER_MS) - 1;
+    if (filled === null) {
+      try {
+        filled = Number(fs.readFileSync(through, "utf8"));
+      } catch {
+        filled = Number.NaN;
+      }
+    }
+    const first = Number.isSafeInteger(filled) ? Math.max(filled + 1, last - SAMPLE_QUARTERS + 1) : last - SAMPLE_QUARTERS + 1;
+    if (first > last) return;
+    stats.seed(sampleDeliveries(first, last));
+    filled = last;
+    writeDurable(through, String(last));
+  };
+  ensureStats(now);
   const owner = address("owner");
   for (const sample of SAMPLES) {
     if (store.get(sampleOrderId(sample.n)) !== null) continue;
@@ -190,6 +255,7 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
   return {
     orderIds: SAMPLES.map((sample) => sampleOrderId(sample.n)),
     reserveBalance: SAMPLE.reserveBalance,
+    ensureStats,
     ensureFor(who, at) {
       // Points in this week and in the two before it.
       addEntry(who, "this week a", Math.min(at, start + 6 * HOUR), 2_481_640n, [COIN.baseEth!, COIN.solUsdt!]);

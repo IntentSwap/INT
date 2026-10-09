@@ -54,6 +54,8 @@ interface Scenario {
   widths?: readonly number[];
   /** The coin picker has the card: the swap, and its main button with it, must be out of reach, and nothing may lie over the page. */
   inPicker?: boolean;
+  /** Opened on the practice server, for a page that is full only with its made-up content. Left out of a run that has no practice server. */
+  practice?: boolean;
 }
 
 /**
@@ -538,6 +540,24 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The Stats page with a practice server's made-up swaps: the five figures, the chart, the two ranked lists and the list of recent swaps.
+    name: "page-stats",
+    path: "/stats",
+    noCard: true,
+    practice: true,
+    async run(page) {
+      await page.getByRole("heading", { name: "IntentSwap in numbers", level: 1 }).waitFor();
+      await page.locator(".stats-bars").waitFor({ timeout: 20_000 });
+      await page.getByRole("heading", { name: "Recent swaps" }).waitFor();
+      // The figures have counted up and the bars have grown before anything is measured or photographed.
+      await page.waitForTimeout(1200);
+      // A size and a stretch of the day to each swap, and nothing that could name one.
+      const text = await page.locator("main#main").innerText();
+      if (/0x[0-9a-fA-F]{6}|\d{1,2}:\d{2}/.test(text)) throw new Error("the Stats page shows an address or a time of day");
+      if ((await page.locator(".stats-swap").count()) < 10) throw new Error("the Stats page lists fewer than ten recent swaps on a practice server");
+    },
+  },
+  {
     name: "page-not-found",
     path: "/no-such-page",
     noCard: true,
@@ -740,6 +760,12 @@ let shots = 0;
 let busy = 0;
 
 for (const scenario of chosen) {
+  // Where a scenario is opened: the practice server for a page of made-up content, this server for everything else.
+  const origin = scenario.practice === true ? practiceUrl : baseUrl;
+  if (origin === null) {
+    notes.push(`${scenario.name} was left out: it is photographed on a practice server (--practice=<url>)`);
+    continue;
+  }
   for (const theme of THEMES) {
     for (const width of WIDTHS) {
       if (scenario.widths !== undefined && !scenario.widths.includes(width)) continue;
@@ -762,11 +788,11 @@ for (const scenario of chosen) {
       page.on("pageerror", (error) => complaints.push(`${label}: page error: ${error.message}`));
       page.on("request", (request) => {
         const host = new URL(request.url()).host;
-        if (host !== new URL(baseUrl).host) complaints.push(`${label}: request to another site: ${host}`);
+        if (host !== new URL(origin).host) complaints.push(`${label}: request to another site: ${host}`);
       });
       try {
         await scenario.before?.(page);
-        await visit(page, new URL(scenario.path, baseUrl).toString());
+        await visit(page, new URL(scenario.path, origin).toString());
         await scenario.run?.(page);
         // Everything that comes into view on scroll is brought into view once, so that the whole page is checked and photographed.
         if (!scenario.screenOnly) await seeAll(page);

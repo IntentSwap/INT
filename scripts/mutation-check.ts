@@ -454,6 +454,12 @@ const M: Mutation[] = [
   { file: "server/static.ts", find: "  if (!/^\\/[A-Za-z0-9/_-]{0,80}$/.test(pathname)) throw new Error(\"not an address of a page\");\n", replace: "", label: "only a plain address of a page is written into a canonical link" },
   { file: "server/static.ts", find: "  if (!SITE_ORIGIN.test(siteUrl)) throw new Error(\"the site's address is not a plain origin\");\n  if (!/^\\/[A-Za-z0-9/_-]{0,80}$/.test(pathname))", replace: "  if (!/^\\/[A-Za-z0-9/_-]{0,80}$/.test(pathname))", label: "a canonical link is written only at a plain address of a site" },
   { file: "server/static.ts", find: "known && !orderPage ? pageAt(pathname) : index", replace: "known ? pageAt(pathname) : index", label: "an order's page names no canonical address" },
+
+  // ---- the Stats page ----
+  { file: "server/stats.ts", find: "band: bandOf(delivery.usdMicro), quarter: showQuarter(delivery.at) };", replace: "band: bandOf(delivery.usdMicro), quarter: Math.floor(delivery.at / 1000) };", label: "a recent swap's row is kept with a quarter of an hour, never the time of its delivery" },
+  { file: "server/stats.ts", find: "  if (recent.swaps >= feedMin) {", replace: "  if (recent.swaps >= 0) {", label: "recent swaps are listed only while enough were delivered in the last 24 hours" },
+  { file: "server/stats.ts", find: "      if (!claim()) return false;", replace: "      claim();", label: "an order is added to the site's totals once" },
+  { file: "server/app.ts", find: "    ...(config.statsPage ? [statsRoute] : []),", replace: "    statsRoute,", label: "the Stats page's data route is gone where the page is switched off" },
 ];
 
 const only = process.argv.slice(2);

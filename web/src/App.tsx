@@ -5,6 +5,7 @@ import { isLoadFailure, partFailedToLoad, useSiteUpdated } from "./lib/stale.ts"
 import { SwapPage } from "./pages/SwapPage.tsx";
 import { docExists } from "./lib/docs-logic.ts";
 import { isPrivateMode } from "./lib/site-logic.ts";
+import { statsPageOn } from "./lib/stats-logic.ts";
 import { matchRoute, navigate, usePath, type Route } from "./router.ts";
 import { useApp } from "./stores/app.ts";
 import { HelpButton, TokenSection } from "./components/Home.tsx";
@@ -23,6 +24,7 @@ const PrivacyPage = lazy(() => import("./pages/LegalPages.tsx").then((pages) => 
 const TrackPage = lazy(() => import("./pages/TrackPage.tsx"));
 const DocsPage = lazy(() => import("./pages/DocsPage.tsx"));
 const RewardsPage = lazy(() => import("./pages/RewardsPage.tsx"));
+const StatsPage = lazy(() => import("./pages/StatsPage.tsx"));
 
 /**
  * Catches a page that could not be drawn. The usual cause is that its code could not be fetched:
@@ -84,6 +86,8 @@ export function App() {
   const loadTokens = useTokens((state) => state.load);
   const sheet = useSheet((state) => state.current);
   const tokenAddress = useApp((state) => state.config?.tokenAddress ?? null);
+  // The Stats page is a page only where the server has it switched on. Anywhere else its address is no page at all.
+  const statsOn = useApp((state) => statsPageOn(state.config));
 
   useEffect(() => {
     void loadApp();
@@ -145,6 +149,8 @@ export function App() {
     page = <p className="muted">Loading…</p>;
   } else if (route.page === "track" || route.page === "docs" || route.page === "rewards") {
     page = route.page === "track" ? <TrackPage /> : route.page === "docs" ? <DocsPage slug={route.slug} /> : <RewardsPage />;
+  } else if (route.page === "stats" && statsOn) {
+    page = <StatsPage />;
   } else if (route.page === "token" && boot === "loading") {
     // Whether this page exists is not known until the server has said whether the token has an address.
     page = <p className="muted">Loading…</p>;

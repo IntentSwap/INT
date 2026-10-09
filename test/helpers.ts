@@ -21,6 +21,7 @@ import { createRewards, createSignIn, type Rewards, type SignIn } from "../serve
 import { createStaticSanctions, type Sanctions } from "../server/sanctions.ts";
 import { createSessionIssuer } from "../server/session.ts";
 import type { StaticSite } from "../server/static.ts";
+import { createStats } from "../server/stats.ts";
 import { createOrderStore, type OrderStore } from "../server/store.ts";
 import { createStubProvider, type StubProvider } from "../server/stub-provider.ts";
 import { createTokenService, type TokenService } from "../server/tokens.ts";
@@ -260,7 +261,14 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const tokens = createTokenService({ oneclick: realProvider ?? oneclick, rpc: realRpc ?? rpc, alerts: alertSink, log, dataDir, excludedChains: config.excludedChains, now });
   const rewards = createRewards(dataDir);
   const signIn = createSignIn();
-  const store = createOrderStore(dataDir, { onState: (record) => void rewards.recordDelivered(record) });
+  // The site's totals are told of each saved state as the server itself tells them (see server/boot.ts).
+  const stats = createStats(dataDir, { feedMin: config.statsFeedMin, now });
+  const store: OrderStore = createOrderStore(dataDir, {
+    onState(record) {
+      rewards.recordDelivered(record);
+      stats.recordDelivered(record, () => store.markCounted(record.id));
+    },
+  });
   const poller = createPoller({ store, oneclick: realProvider ?? oneclick, alerts: alertSink, log, now });
 
   const deps: AppDeps = {
@@ -279,6 +287,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     sessions: createSessionIssuer(),
     rewards,
     signIn,
+    stats,
     site: options.site ?? null,
     now,
     liveOrders: options.liveOrders ?? true,

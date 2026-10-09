@@ -99,6 +99,8 @@ export interface ConfigResponse {
   siteUrl: string | null;
   /** True where the server refuses visitors by where they are. The Privacy Policy says that a country is worked out only then. */
   regionBlock: boolean;
+  /** True where the Stats page is switched on. Where it is not, the site has no link to it and its address is no page. */
+  statsPage: boolean;
   termsVersion: string;
   /** Short-lived token required by the quote and order routes. */
   session: string;
@@ -109,6 +111,50 @@ export interface ConfigResponse {
 export interface StatusResponse {
   status: "ok" | "degraded" | "paused";
   serverNow: string;
+}
+
+/** How large a swap was, as the Stats page says it: one of four bands of its dollar value, each including its lower bound. Never the amount. */
+export type StatsBand = "under-100" | "100-1k" | "1k-10k" | "over-10k";
+export const STATS_BANDS: readonly StatsBand[] = ["under-100", "100-1k", "1k-10k", "over-10k"];
+
+/** When a swap was delivered, as the Stats page says it. Never the time. */
+export type StatsWhen = "last-hour" | "earlier-today" | "yesterday";
+export const STATS_WHENS: readonly StatsWhen[] = ["last-hour", "earlier-today", "yesterday"];
+
+/** A coin as the Stats page names it: its symbol and its chain's code. */
+export interface StatsCoin {
+  symbol: string;
+  chain: string;
+}
+
+/** One line of "Recent swaps". These four things and nothing else: no address, no transaction, no amount, no time, no order. */
+export interface StatsFeedRow {
+  from: StatsCoin;
+  to: StatsCoin;
+  band: StatsBand;
+  when: StatsWhen;
+}
+
+/** What the Stats page is sent. Every dollar figure is a whole number of US dollars, rounded down. */
+export interface StatsResponse {
+  totals: {
+    swaps: number;
+    volumeUsd: number;
+    /** The hour now running and the 23 before it. */
+    volume24hUsd: number;
+    /** How many chains a delivered swap has started or ended on. */
+    chains: number;
+    /** The average, in seconds. Null while no delivery has been timed. */
+    deliverySeconds: number | null;
+  };
+  /** The last 30 days by the clock in UTC, oldest first. A day without a swap is there with nothing. */
+  days: { day: string; volumeUsd: number }[];
+  /** The five pairs with the most volume, largest first. */
+  pairs: { from: StatsCoin; to: StatsCoin; volumeUsd: number }[];
+  /** The five chains with the most volume, largest first. A swap counts for the chain it starts on and the chain it ends on. */
+  chains: { chain: string; name: string; volumeUsd: number }[];
+  /** Null while too few swaps were delivered in the last 24 hours for a list of them to be shown. */
+  feed: StatsFeedRow[] | null;
 }
 
 /**

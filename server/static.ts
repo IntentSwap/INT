@@ -51,6 +51,8 @@ const APP_ROUTES = [/^\/$/, /^\/order\/[A-Za-z0-9_-]{1,64}$/, /^\/track$/, /^\/d
 const PRIVATE_ROUTES = [new RegExp(`^/docs/${PRIVATE_DOC_SLUG}$`)];
 /** The token's own page. It exists only once the token's address has been set; until then its address is a 404 like any other. */
 const TOKEN_ROUTES = [/^\/token$/];
+/** The Stats page. It exists only where the server has it switched on; where it is off its address is a 404 like any other. */
+const STATS_ROUTES = [/^\/stats$/];
 /** The page of component states: a tool for looking over every component, with made-up content. Never part of the live site. */
 const TEST_ROUTES = [/^\/states$/];
 
@@ -152,6 +154,14 @@ export function withPrivateRouting(html: string): string {
   return out;
 }
 
+/**
+ * The page as it is served where the Stats page is switched off: marked, so that its scripts leave
+ * the link out of the navigation from the first moment, before the server's settings have reached them.
+ */
+export function withoutStats(html: string): string {
+  return html.replace('<html lang="en"', () => '<html lang="en" data-stats="off"');
+}
+
 /** Where the page keeps a place for the service banner (web/index.html). */
 const BANNER_PLACE = "<!--banner-->";
 
@@ -179,8 +189,8 @@ export function withCanonical(html: string, siteUrl: string, pathname: string): 
   return html.replace("</title>", () => `</title>\n    <link rel="canonical" href="${siteUrl}${pathname}" />`);
 }
 
-export function loadStaticSite(distDir: string, options: { testPages?: boolean; tokenPage?: boolean; siteUrl?: string | null; banner?: readonly BannerKind[]; privateRouting?: boolean } = {}): StaticSite | null {
-  const routes = [...APP_ROUTES, ...(options.privateRouting === true ? PRIVATE_ROUTES : []), ...(options.tokenPage ? TOKEN_ROUTES : []), ...(options.testPages ? TEST_ROUTES : [])];
+export function loadStaticSite(distDir: string, options: { testPages?: boolean; tokenPage?: boolean; siteUrl?: string | null; banner?: readonly BannerKind[]; privateRouting?: boolean; statsPage?: boolean } = {}): StaticSite | null {
+  const routes = [...APP_ROUTES, ...(options.privateRouting === true ? PRIVATE_ROUTES : []), ...(options.statsPage === true ? STATS_ROUTES : []), ...(options.tokenPage ? TOKEN_ROUTES : []), ...(options.testPages ? TEST_ROUTES : [])];
   if (!fs.existsSync(path.join(distDir, "index.html"))) return null;
   const assets = new Map<string, Asset>();
   for (const rel of walk(distDir)) {
@@ -190,6 +200,7 @@ export function loadStaticSite(distDir: string, options: { testPages?: boolean; 
     let raw = fs.readFileSync(path.join(distDir, rel));
     // The first words before the share image's address: the address is written round whichever image the page then names.
     if (rel === "/index.html" && options.privateRouting === true) raw = Buffer.from(withPrivateRouting(raw.toString("utf8")), "utf8");
+    if (rel === "/index.html" && options.statsPage === false) raw = Buffer.from(withoutStats(raw.toString("utf8")), "utf8");
     if (rel === "/index.html" && typeof options.siteUrl === "string") raw = Buffer.from(withSiteUrl(raw.toString("utf8"), options.siteUrl), "utf8");
     if (rel === "/index.html" && options.banner !== undefined && options.banner.length > 0) raw = Buffer.from(withBanner(raw.toString("utf8"), options.banner), "utf8");
     const compress = COMPRESSIBLE.has(ext) && raw.length > 512;

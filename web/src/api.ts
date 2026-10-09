@@ -1,7 +1,7 @@
 // The browser's only line to the outside: our own server. It never calls the
 // swap provider and never holds a key.
 
-import type { ApiErrorBody, ConfigResponse, CreateOrderBody, ErrorCode, OrderView, QuoteBody, QuoteView, StatusResponse, TokensResponse } from "../../shared/api.ts";
+import type { ApiErrorBody, ConfigResponse, CreateOrderBody, ErrorCode, OrderView, QuoteBody, QuoteView, StatsResponse, StatusResponse, TokensResponse } from "../../shared/api.ts";
 import type { RewardsPublic, RewardsView } from "../../shared/rewards.ts";
 
 export class ApiError extends Error {
@@ -101,6 +101,8 @@ export const api = {
   /** Finds an order by its deposit address. Answers with the order's ID, or "not found" exactly as an unknown order ID does. */
   track: (depositAddress: string) => post<{ id: string }>("/api/track", { depositAddress }, AbortSignal.timeout(15_000)),
   practice: (id: string, action: string) => post<{ ok: true }>(`/api/practice/${encodeURIComponent(id)}`, { action }),
+  /** The site's own totals and its rounded list of recent swaps, for the Stats page. */
+  stats: () => send<StatsResponse>("GET", "/api/stats", undefined, AbortSignal.timeout(15_000)),
   /** What anyone may see of the rewards: the week's dates, the weeks already paid, the reserve. */
   rewards: () => send<RewardsPublic>("GET", "/api/rewards"),
   /** The first half of the Rewards page's sign-in: the message to sign for an address, with its one-time code. */

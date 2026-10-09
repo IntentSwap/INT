@@ -23,7 +23,7 @@ import { freshSol, headerFits, orderPace, seeAll, settle } from "./order-walk.ts
 
 const SOL = "DZrFMBPK8J5Jf6KYNDrj4mo2QYAGgQaxsxyyCwQtAWjP";
 const EVM = "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83";
-const NAMES = ["Swap", "Track order", "Docs", "Rewards"];
+const NAMES = ["Swap", "Track order", "Rewards", "Stats", "Docs"];
 
 export interface WalkResult {
   complaints: string[];
@@ -227,7 +227,7 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     // No page of the four brings any of the wallet's code with it, or touches another site, before Connect
     // is pressed. Judged by what the fetched scripts contain, not by what they are called.
     const walletMark = /walletconnect\.org|web3modal\.org|w3m-modal/;
-    for (const address of ["/", "/track", "/docs", "/rewards"]) {
+    for (const address of ["/", "/track", "/docs", "/rewards", "/stats"]) {
       const fresh = await wide.newPage();
       const scripts: string[] = [];
       const strangers: string[] = [];

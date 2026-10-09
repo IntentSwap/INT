@@ -6,7 +6,7 @@ import { DOC_SLUGS, docSlugs, isDocSlug, PRIVATE_DOC_SLUG } from "../shared/page
 import { DOC_PAGES, docExists, docHref, docPages, headingId, headingInView, neighbours, PRIVATE_DOC } from "../web/src/lib/docs-logic.ts";
 import { chainsOnList, features, isPrivateMode, listCounts, PRIVATE_MEANS, socialLinks } from "../web/src/lib/site-logic.ts";
 import { findOrder, readTrackInput, TRACK_WORDS, type TrackOutcome } from "../web/src/lib/track-logic.ts";
-import { matchRoute, NAV, navFor } from "../web/src/router.ts";
+import { matchRoute, NAV, navFor, navItems } from "../web/src/router.ts";
 
 const ID = "oVWFWOKqE4uReqBK1gTFrZDSwnk";
 const EVM = "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83";
@@ -97,9 +97,11 @@ describe("what a miss says", () => {
   });
 });
 
-describe("the header's four pages", () => {
-  it("are Swap, Track order, Docs and Rewards, in that order", () => {
-    expect(NAV.map((item) => `${item.label} ${item.href}`)).toEqual(["Swap /", "Track order /track", "Docs /docs", "Rewards /rewards"]);
+describe("the header's pages", () => {
+  it("are Swap, Track order, Rewards, Stats and Docs, in that order, and without Stats where that page is switched off", () => {
+    expect(NAV.map((item) => `${item.label} ${item.href}`)).toEqual(["Swap /", "Track order /track", "Rewards /rewards", "Stats /stats", "Docs /docs"]);
+    expect(navItems(true)).toEqual(NAV);
+    expect(navItems(false).map((item) => `${item.label} ${item.href}`)).toEqual(["Swap /", "Track order /track", "Rewards /rewards", "Docs /docs"]);
     for (const item of NAV) expect(matchRoute(item.href).page, item.href).not.toBe("not-found");
     expect(matchRoute("/track")).toEqual({ page: "track" });
     expect(matchRoute("/docs")).toEqual({ page: "docs", slug: null });
@@ -189,6 +191,7 @@ describe("the header's four pages", () => {
     expect(navFor(`/order/${"A".repeat(27)}`)).toBe("/track");
     expect(navFor("/docs")).toBe("/docs");
     expect(navFor("/rewards")).toBe("/rewards");
+    expect(navFor("/stats")).toBe("/stats");
     for (const outside of ["/terms", "/privacy", "/nowhere", "/states"]) expect(navFor(outside), outside).toBeNull();
   });
 });

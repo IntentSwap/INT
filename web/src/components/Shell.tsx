@@ -2,7 +2,8 @@ import { Menu, Moon, Sun, Wallet } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { BANNER_WORDS } from "../../../shared/banner.ts";
 import { shortAddress } from "../lib/swap-logic.ts";
-import { NAV, navFor, navigate, usePath } from "../router.ts";
+import { statsPageOn } from "../lib/stats-logic.ts";
+import { navFor, navigate, navItems, usePath } from "../router.ts";
 import { useApp } from "../stores/app.ts";
 import { useSheet } from "../stores/sheet.ts";
 import { useToast } from "../stores/toast.ts";
@@ -56,12 +57,13 @@ function WalletButton() {
   );
 }
 
-/** The four pages, as links across the header. On a narrow screen they are in the menu instead. */
+/** The site's pages, as links across the header. On a narrow screen they are in the menu instead. */
 function HeaderNav() {
   const current = navFor(usePath());
+  const statsOn = useApp((state) => statsPageOn(state.config));
   return (
     <nav className="nav" aria-label="Main">
-      {NAV.map((item) => (
+      {navItems(statsOn).map((item) => (
         <Link key={item.href} href={item.href} className="nav-link" aria-current={current === item.href ? "page" : undefined}>
           {item.label}
         </Link>

@@ -35,6 +35,7 @@ export type Route =
   | { page: "track" }
   | { page: "docs"; slug: DocSlug | null }
   | { page: "rewards" }
+  | { page: "stats" }
   | { page: "terms" }
   | { page: "privacy" }
   | { page: "token" }
@@ -50,6 +51,7 @@ export function matchRoute(pathname: string): Route {
   const doc = /^\/docs\/([a-z]+)$/.exec(pathname);
   if (doc && isDocSlug(doc[1] ?? "")) return { page: "docs", slug: doc[1] as DocSlug };
   if (pathname === "/rewards") return { page: "rewards" };
+  if (pathname === "/stats") return { page: "stats" };
   if (pathname === "/terms") return { page: "terms" };
   if (pathname === "/privacy") return { page: "privacy" };
   if (pathname === "/token") return { page: "token" };
@@ -57,13 +59,19 @@ export function matchRoute(pathname: string): Route {
   return { page: "not-found" };
 }
 
-/** The four places in the header's navigation. An order's own page belongs to "Track order". */
+/** The places in the header's navigation, in order. An order's own page belongs to "Track order". */
 export const NAV = [
   { href: "/", label: "Swap" },
   { href: "/track", label: "Track order" },
-  { href: "/docs", label: "Docs" },
   { href: "/rewards", label: "Rewards" },
+  { href: "/stats", label: "Stats" },
+  { href: "/docs", label: "Docs" },
 ] as const;
+
+/** The navigation as it stands on this site: with Stats only where the server has that page switched on. */
+export function navItems(statsPage: boolean): readonly (typeof NAV)[number][] {
+  return statsPage ? NAV : NAV.filter((item) => item.href !== "/stats");
+}
 
 /** Which navigation entry a path belongs to, or null for pages outside it (Terms, Privacy, an unknown address). */
 export function navFor(pathname: string): (typeof NAV)[number]["href"] | null {
@@ -72,5 +80,6 @@ export function navFor(pathname: string): (typeof NAV)[number]["href"] | null {
   if (route.page === "track" || route.page === "order") return "/track";
   if (route.page === "docs") return "/docs";
   if (route.page === "rewards") return "/rewards";
+  if (route.page === "stats") return "/stats";
   return null;
 }

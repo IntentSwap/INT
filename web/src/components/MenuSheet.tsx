@@ -1,21 +1,24 @@
 import { Check } from "lucide-react";
-import { NAV, navFor, usePath } from "../router.ts";
+import { statsPageOn } from "../lib/stats-logic.ts";
+import { navFor, navItems, usePath } from "../router.ts";
+import { useApp } from "../stores/app.ts";
 import { useSheet } from "../stores/sheet.ts";
 import { Link } from "./Link.tsx";
 import { Sheet } from "./Sheet.tsx";
 import { ThemeMenuItem } from "./Shell.tsx";
 import { SocialLinks } from "./Social.tsx";
 
-/** The four pages, on a screen too narrow to list them in the header; and, at its foot, the three icon links the header has no room for. */
+/** The site's pages, on a screen too narrow to list them in the header; and, at its foot, the three icon links the header has no room for. */
 export function MenuSheet() {
   const close = useSheet((state) => state.close);
   const current = navFor(usePath());
+  const statsOn = useApp((state) => statsPageOn(state.config));
 
   return (
     <Sheet title="Menu" onClose={close}>
       <nav className="menu" aria-label="Main">
         <ul className="menu-list">
-          {NAV.map((item) => (
+          {navItems(statsOn).map((item) => (
             <li key={item.href}>
               <Link href={item.href} className="menu-link" aria-current={current === item.href ? "page" : undefined} onNavigate={close}>
                 {item.label}

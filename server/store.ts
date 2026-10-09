@@ -76,6 +76,11 @@ export interface OrderRecord {
   screening: ScreeningRecord;
   /** The provider's signed quote, kept as the record of this transaction. */
   quoteResponse: unknown;
+  /**
+   * True once this order has been added to the site's totals (server/stats.ts). It is kept here, with
+   * the order, so that the totals themselves hold nothing about any one order; it goes when the order goes.
+   */
+  statsCounted?: boolean;
   state: OrderState;
 }
 
@@ -119,6 +124,12 @@ export interface OrderStore {
   findByDeposit(address: string): OrderRecord | null;
   /** The ID of every order on disk. For work that must look at each of them once (the points record, at start). */
   ids(): string[];
+  /**
+   * Marks an order as added to the site's totals. True only the first time, and by then the mark is
+   * on disk; false for an order already marked, or not there. So an order is counted at most once,
+   * across restarts too.
+   */
+  markCounted(id: string): boolean;
 }
 
 /** How a deposit address is compared: a hex address in any mix of capitals is the same address; every other kind is taken letter for letter. */
@@ -343,5 +354,13 @@ export function createOrderStore(dataDir: string, options: { onState?(record: Or
         .readdirSync(dir)
         .map((name) => (name.endsWith(".json") ? name.slice(0, -5) : ""))
         .filter(isOrderId),
+    markCounted(id) {
+      const existing = this.get(id);
+      if (existing === null || existing.statsCounted === true) return false;
+      const next: OrderRecord = { ...existing, statsCounted: true };
+      writeDurable(fileFor(id), JSON.stringify(next));
+      remember(next);
+      return true;
+    },
   };
 }

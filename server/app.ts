@@ -35,6 +35,7 @@ import { SAMPLE, type Samples } from "./sample.ts";
 import type { Sanctions } from "./sanctions.ts";
 import type { SessionIssuer } from "./session.ts";
 import type { StaticSite } from "./static.ts";
+import type { Stats } from "./stats.ts";
 import type { StubAction } from "./stub-provider.ts";
 import { hasProvenFunds, isOrderId, newOrderId, type OrderRecord, type OrderStore } from "./store.ts";
 import type { TokenService, TokenSnapshot } from "./tokens.ts";
@@ -57,6 +58,8 @@ export interface AppDeps {
   /** The record of points, and the sign-in of the Rewards page. */
   rewards: Rewards;
   signIn: SignIn;
+  /** The site's own totals, for the Stats page. */
+  stats: Stats;
   site: StaticSite | null;
   now: () => number;
   /**
@@ -177,7 +180,7 @@ export function signInHost(config: Pick<Config, "siteUrl" | "siteUrlSet">, hostH
 }
 
 export function createApp(deps: AppDeps): RequestListener {
-  const { config, log, accessLog, alerts, geo, sanctions, oneclick, tokens, store, poller, rpc, limiters, sessions, rewards, signIn, site, now } = deps;
+  const { config, log, accessLog, alerts, geo, sanctions, oneclick, tokens, store, poller, rpc, limiters, sessions, rewards, signIn, stats, site, now } = deps;
   const production = config.env === "production";
   // The provider answers private quotes only to a partner with a key. Two things are said in the log
   // once, as the server starts, so that neither is a puzzle later.
@@ -376,6 +379,19 @@ export function createApp(deps: AppDeps): RequestListener {
     return value;
   }
 
+  const statsRoute: Route = {
+    method: "GET",
+    pattern: /^\/api\/stats$/,
+    name: "stats",
+    cheapRead: true,
+    limit: "light",
+    handler: async () => {
+      // A practice server has made-up swaps to show, brought up to the present quarter of an hour.
+      deps.practice?.samples?.ensureStats(now());
+      return { status: 200, body: stats.view() };
+    },
+  };
+
   const routes: Route[] = [
     {
       method: "GET",
@@ -405,6 +421,7 @@ export function createApp(deps: AppDeps): RequestListener {
           // The site's own address, where it is known: the Terms and the Privacy Policy name the site by it.
           siteUrl: config.siteUrl,
           regionBlock: config.regionBlock,
+          statsPage: config.statsPage,
           termsVersion: TERMS_VERSION,
           session: session.token,
           sessionExpiresAt: new Date(session.expiresAt).toISOString(),
@@ -924,6 +941,10 @@ export function createApp(deps: AppDeps): RequestListener {
         return { status: 200, body: rewards.view(address, now()) };
       },
     },
+    // The site's own totals, and its list of recent swaps: sums and rounded rows, as server/stats.ts
+    // keeps them, and nothing of any one order. Where the Stats page is switched off this is no route
+    // at all, and its address is answered like any other that is none.
+    ...(config.statsPage ? [statsRoute] : []),
     {
       // Exists only with the practice provider: moves a practice order along.
       method: "POST",

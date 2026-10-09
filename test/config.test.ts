@@ -231,6 +231,20 @@ describe("configuration", () => {
     expect(loadConfig({ NODE_ENV: "development", SWAPS_PAUSED: "false" }).supportContact).toBeNull();
   });
 
+  it("STATS_PAGE is on unless it is set to off, in every place a server runs; STATS_FEED_MIN is ten unless it is set, from 1 to 10,000", () => {
+    for (const env of [production(), { NODE_ENV: "development" }, { NODE_ENV: "test" }]) {
+      expect(loadConfig(env)).toMatchObject({ statsPage: true, statsFeedMin: 10 });
+      expect(loadConfig({ ...env, STATS_PAGE: "on" }).statsPage).toBe(true);
+      expect(loadConfig({ ...env, STATS_PAGE: "off" }).statsPage).toBe(false);
+    }
+    for (const wrong of ["false", "0", "no", "OFF", "hide"]) expect(problem(production({ STATS_PAGE: wrong })), wrong).toBe('STATS_PAGE: must be "on" or "off"');
+    expect(loadConfig(production({ STATS_FEED_MIN: "1" })).statsFeedMin).toBe(1);
+    expect(loadConfig(production({ STATS_FEED_MIN: "10000" })).statsFeedMin).toBe(10_000);
+    for (const wrong of ["0", "10001"]) expect(problem(production({ STATS_FEED_MIN: wrong })), wrong).toBe("STATS_FEED_MIN: must be between 1 and 10000");
+    for (const wrong of ["ten", "-1", "2.5"]) expect(problem(production({ STATS_FEED_MIN: wrong })), wrong).toBe("STATS_FEED_MIN: must be a whole number");
+    expect(describeConfig(loadConfig(production({ STATS_PAGE: "off", STATS_FEED_MIN: "25" })))).toMatchObject({ statsPage: false, statsFeedMin: 25 });
+  });
+
   describe("REGION_BLOCK, whether visitors are refused by where they are", () => {
     const places: Array<[string, Record<string, string>]> = [["production", production()], ["development", { NODE_ENV: "development" }], ["test", { NODE_ENV: "test" }]];
 

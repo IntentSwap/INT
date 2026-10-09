@@ -27,6 +27,7 @@ import { createLimiters } from "../server/ratelimit.ts";
 import { createRpc } from "../server/rpc.ts";
 import { createStaticSanctions } from "../server/sanctions.ts";
 import { createSessionIssuer } from "../server/session.ts";
+import { createStats } from "../server/stats.ts";
 import { createOrderStore } from "../server/store.ts";
 import { createTokenService } from "../server/tokens.ts";
 import { createRewards, createSignIn } from "../server/rewards.ts";
@@ -69,6 +70,7 @@ const app = createApp({
   sessions: createSessionIssuer(),
   rewards: createRewards(dataDir),
   signIn: createSignIn(),
+  stats: createStats(dataDir, { feedMin: config.statsFeedMin }),
   site: null,
   now: Date.now,
   liveOrders: false,

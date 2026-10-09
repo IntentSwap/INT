@@ -187,10 +187,12 @@ describe("GET /api/config, /api/status, /api/tokens", () => {
       siteUrl: null,
       // Whether visitors are refused by where they are (the harness switches it on; a server told nothing has it off).
       regionBlock: true,
+      // The Stats page is there unless the server is told otherwise.
+      statsPage: true,
       termsVersion: TERMS_VERSION,
     });
     expect(Object.keys(body).sort()).toEqual(
-      ["dexscreenerUrl", "githubUrl", "paused", "practice", "privacyMode", "regionBlock", "reownProjectId", "reserveAddress", "sampleOrders", "serverNow", "session", "sessionExpiresAt", "siteUrl", "supportContact", "termsVersion", "testPages", "tokenAddress", "tokenPairAddress", "xUrl"].sort(),
+      ["dexscreenerUrl", "githubUrl", "paused", "practice", "privacyMode", "regionBlock", "reownProjectId", "reserveAddress", "sampleOrders", "serverNow", "session", "sessionExpiresAt", "siteUrl", "statsPage", "supportContact", "termsVersion", "testPages", "tokenAddress", "tokenPairAddress", "xUrl"].sort(),
     );
     // Neither the fee setting nor where the fee is paid is among them. The fee a person is shown comes
     // from a quote, because the setting alone does not say what is charged.
