@@ -3,6 +3,7 @@
 // closing or reloading the page ends it, and it ends by itself after half an hour.
 
 import { create } from "zustand";
+import { partFailedToLoad } from "../lib/stale.ts";
 import { toChecksumAddress } from "../../../shared/addresses.ts";
 import { isSignInMessage, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
 import { api, ApiError } from "../api.ts";
@@ -60,7 +61,16 @@ export const useRewards = create<RewardsState>((set, get) => ({
       }
       set({ step: "signing" });
       // The only signature this site asks for. The module that asks is loaded here and nowhere else.
-      const { signPlainMessage } = await import("../wallet/sign-in.ts");
+      // If that module cannot be fetched (a page left open across a new version of the site), nothing is
+      // said of the sign-in, which was never tried: the page loads itself again, or asks to be reloaded.
+      let signPlainMessage: (message: string, address: string) => Promise<string>;
+      try {
+        ({ signPlainMessage } = await import("../wallet/sign-in.ts"));
+      } catch {
+        partFailedToLoad();
+        set({ step: "idle", error: null });
+        return;
+      }
       let signature: string;
       try {
         signature = await signPlainMessage(code.message, address);

@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useEffect, type ReactNode } from "react";
 import { SecondaryButton } from "./components/Button.tsx";
 import { Banner, Footer, Header, Notice, Toast } from "./components/Shell.tsx";
+import { isLoadFailure, partFailedToLoad, useSiteUpdated } from "./lib/stale.ts";
 import { SwapPage } from "./pages/SwapPage.tsx";
 import { docExists } from "./lib/docs-logic.ts";
 import { isPrivateMode } from "./lib/site-logic.ts";
@@ -29,10 +30,23 @@ const RewardsPage = lazy(() => import("./pages/RewardsPage.tsx"));
  * The page says what happened and offers to reload, which is also what puts it right; going to
  * another page clears it.
  */
-class PageBoundary extends Component<{ resetKey: string; children: ReactNode }, { failed: boolean }> {
+/** What stands in a page's place once a new version of the site is out and this page could not fetch its parts even after loading itself again. */
+function SiteUpdated() {
+  return (
+    <Notice title="The site was updated." action={<SecondaryButton onClick={() => window.location.reload()}>Reload</SecondaryButton>}>
+      <p>Reload the page to continue.</p>
+    </Notice>
+  );
+}
+
+class PageBoundary extends Component<{ resetKey: string; updated: boolean; children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
+  }
+  override componentDidCatch(error: unknown): void {
+    // A page whose file is gone because a new version is out: the page is loaded again, once (lib/stale.ts).
+    if (isLoadFailure(error)) partFailedToLoad();
   }
   override componentDidUpdate(previous: { resetKey: string }): void {
     if (previous.resetKey !== this.props.resetKey && this.state.failed) this.setState({ failed: false });
@@ -42,9 +56,13 @@ class PageBoundary extends Component<{ resetKey: string; children: ReactNode }, 
     return (
       <>
         <main className="main" id="main">
-          <Notice title="This page could not be loaded." action={<SecondaryButton onClick={() => window.location.reload()}>Reload</SecondaryButton>}>
-            <p>Check your connection, then reload.</p>
-          </Notice>
+          {this.props.updated ? (
+            <SiteUpdated />
+          ) : (
+            <Notice title="This page could not be loaded." action={<SecondaryButton onClick={() => window.location.reload()}>Reload</SecondaryButton>}>
+              <p>Check your connection, then reload.</p>
+            </Notice>
+          )}
         </main>
         <Footer />
       </>
@@ -54,6 +72,7 @@ class PageBoundary extends Component<{ resetKey: string; children: ReactNode }, 
 
 export function App() {
   const path = usePath();
+  const updated = useSiteUpdated();
   const boot = useApp((state) => state.boot);
   // One page of the documentation exists only where swaps are routed privately. Anywhere else its
   // address is no page at all, like any other address the site does not know.
@@ -87,9 +106,11 @@ export function App() {
   }
 
   let page;
+  // A part of the site could not be fetched even after the page loaded itself again: say so, whatever the page.
+  if (updated) page = <SiteUpdated />;
   // Where the site cannot be used, the Terms and the Privacy page can still be read: they are what
   // says who may use it and what is kept, and their links are the only ones the footer offers there.
-  if (boot === "region" && route.page !== "terms" && route.page !== "privacy") {
+  else if (boot === "region" && route.page !== "terms" && route.page !== "privacy") {
     page = (
       <Notice title="Not available in your region.">
         <p>IntentSwap can't be used from where you are.</p>
@@ -151,7 +172,7 @@ export function App() {
       <Header />
       {/* A page that is still being fetched has no footer under it yet: the footer arrives with the
           page, in its place, and is never seen to jump down from under "Loading…". */}
-      <PageBoundary resetKey={path}>
+      <PageBoundary resetKey={path} updated={updated}>
         <Suspense
           fallback={
             <main className="main" id="main">
