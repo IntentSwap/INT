@@ -664,15 +664,7 @@ export default function StatesPage() {
             </span>
           </div>
         </Case>
-        <Case label="The card's row above the fields: private routing in force">
-          <div className="card-tools">
-            <span className="chip routing-tag card-routing" data-tone="private">
-              Private
-            </span>
-            {CARD_TOOLS}
-          </div>
-        </Case>
-        <Case label="The same row after choosing public routing for this swap: the way back">
+        <Case label="The card's row above the fields after choosing public routing for this swap: the way back">
           <div className="card-tools">
             <button type="button" className="routing-switch card-routing">
               Use private routing

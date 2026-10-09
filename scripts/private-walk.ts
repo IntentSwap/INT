@@ -117,9 +117,8 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
       // ---- The card: a private quote ----
       quotes.length = 0;
       await visit(page, new URL("/?amount=0.5", privateUrl).toString());
-      const tag = page.locator(".card-tools .routing-tag");
-      await tag.waitFor({ timeout: 20_000 });
-      say((await tag.innerText()).trim() === "Private", `the card's tag reads "${(await tag.innerText()).trim()}"`);
+      await page.locator(".card-tools").waitFor({ timeout: 20_000 });
+      say((await page.locator(".card-tools .routing-tag").count()) === 0, "the card carries a Private tag");
       await page.locator(".quote-rate").first().waitFor({ timeout: 30_000 });
       say(quotes.length > 0 && quotes.every((body) => !("withoutPrivate" in body) && !("confidentiality" in body) && !("routing" in body)), `the page sent something about routing with an ordinary quote: ${JSON.stringify(quotes.at(-1))}`);
       await page.locator("button.quote-summary").click();
@@ -231,7 +230,7 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
         // Taking the choice back brings private routing, and its refusal, back.
         await visit(page, new URL("/?to=zec:ZEC&amount=0.5", privateUrl).toString());
         await page.locator(".card-submit .button-primary", { hasText: "Swap without private routing" }).waitFor({ timeout: 30_000 });
-        say((await page.locator(".card-tools .routing-tag").count()) === 1, "a new swap does not start out private again after one was made in public");
+        say((await page.locator(".card-tools .routing-switch").count()) === 0, "a new swap does not start out private again after one was made in public");
       }
 
       // ---- The browser cannot name the level ----

@@ -199,15 +199,16 @@ describe("the swap card", () => {
   const button = (html: string) => read(/<div class="card-submit"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? "");
   const message = (html: string) => read(/<p class="card-message" role="status">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "");
 
-  it("where private routing is in force: the small tag at the left end of the row of tools, before the two tools", () => {
+  it("where private routing is in force: the row of tools holds the two tools and no tag", () => {
     serverRoutes("basic");
     const row = tools(card());
-    expect(row).toMatch(/^<span class="chip routing-tag card-routing" data-tone="private">Private<\/span><button type="button" class="tool"/);
+    expect(row).toMatch(/^<button type="button" class="tool"/);
     expect(row.match(/class="tool"/g)).toHaveLength(2);
     expect(row).not.toContain("routing-switch");
+    expect(row).not.toContain("routing-tag");
   });
 
-  it("after choosing public routing for this swap: a quiet word-button in the tag's place, and no tag", () => {
+  it("after choosing public routing for this swap: a quiet word-button at the left end of the row, and no tag", () => {
     serverRoutes("basic");
     held = { withoutPrivate: true, quote: PUBLIC_QUOTE };
     const row = tools(card());
@@ -236,8 +237,7 @@ describe("the swap card", () => {
     expect(message(html)).toBe(PRIVATE_UNAVAILABLE);
     expect(button(html)).toBe("Swap without private routing");
     expect(html).toMatch(/<div class="card-submit"><button type="button" class="button-primary">Swap without private routing<\/button>/);
-    // Nothing has switched: the swap is still set to private routing, and the card still says so.
-    expect(tools(html)).toContain("routing-tag");
+    // Nothing has switched: the swap is still set to private routing, so the way back to it is not offered.
     expect(tools(html)).not.toContain("routing-switch");
   });
 
@@ -388,12 +388,11 @@ describe("the page of component states", () => {
     const group = /<h2 class="states-title">Private routing<\/h2>([\s\S]*?)<h2 class="states-title">/.exec(html)?.[1] ?? "";
     // The tag by itself.
     expect(group).toMatch(/<div class="states-row"><span class="chip routing-tag" data-tone="private">Private<\/span><\/div>/);
-    // The card's row above the fields in its three states: the tag, the way back, and its left end empty.
+    // The card's row above the fields in its two states: the way back, and its left end empty. It never carries the tag.
     const toolRows = [...group.matchAll(/<div class="card-tools">([\s\S]*?)<\/div>/g)].map((match) => match[1] ?? "");
-    expect(toolRows).toHaveLength(3);
-    expect(toolRows[0]).toMatch(/^<span class="chip routing-tag card-routing" data-tone="private">Private<\/span><button type="button" class="tool"/);
-    expect(toolRows[1]).toMatch(/^<button type="button" class="routing-switch card-routing">Use private routing<\/button><button type="button" class="tool"/);
-    expect(toolRows[2]).toMatch(/^<button type="button" class="tool"/);
+    expect(toolRows).toHaveLength(2);
+    expect(toolRows[0]).toMatch(/^<button type="button" class="routing-switch card-routing">Use private routing<\/button><button type="button" class="tool"/);
+    expect(toolRows[1]).toMatch(/^<button type="button" class="tool"/);
     for (const row of toolRows) expect(row.match(/class="tool"/g)).toHaveLength(2);
     // A private quote's breakdown, and a public one by choice.
     expect(group).toMatch(/data-row="routing"><dt class="muted">Routing<\/dt><dd>Private<\/dd>/);

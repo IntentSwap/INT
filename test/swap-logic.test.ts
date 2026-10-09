@@ -1422,7 +1422,8 @@ describe("private routing: what is shown, and when", () => {
     // And the components draw the new parts only from those rules.
     const read = (file: string) => fs.readFileSync(path.resolve("web", "src", file), "utf8");
     const card = read("components/SwapCard.tsx");
-    expect(card).toMatch(/routing === "private" \? \(\s*<span className="chip routing-tag card-routing" data-tone="private">\s*Private\s*<\/span>/);
+    // The card itself carries no tag: the quote's rows and the review say how a swap is routed.
+    expect(card).not.toContain("routing-tag");
     expect(card).toMatch(/routing === "public-by-choice" \? \(\s*<button type="button" className="routing-switch card-routing" onClick=\{\(\) => swap\.setWithoutPrivate\(false\)\}>\s*Use private routing\s*<\/button>\s*\) : null\}/);
     expect(card).toContain("const routing = cardRouting(privacyMode, swap.withoutPrivate);");
     // The one press that sets the choice is the button of its own kind. Nothing else on the card, and no effect, sets it.

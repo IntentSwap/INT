@@ -269,14 +269,11 @@ export function SwapCard() {
 
       {/* The swap itself. While the picker has the card, nothing in here can be reached or is read out. */}
       <div className="card-view card-swap" inert={pickerSide !== null}>
-        {/* Above the fields, to the right: the slippage limit and a fresh quote. To the left, only where the
-            server routes swaps privately: the small tag, or the way back to private routing after choosing public. */}
+        {/* Above the fields, to the right: the slippage limit and a fresh quote. To the left, only after
+            choosing public routing for this swap: the way back to private routing. The card carries no tag;
+            the quote's own rows and the review say how a swap is routed. */}
         <div className="card-tools">
-          {routing === "private" ? (
-            <span className="chip routing-tag card-routing" data-tone="private">
-              Private
-            </span>
-          ) : routing === "public-by-choice" ? (
+          {routing === "public-by-choice" ? (
             <button type="button" className="routing-switch card-routing" onClick={() => swap.setWithoutPrivate(false)}>
               Use private routing
             </button>
