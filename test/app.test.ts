@@ -1536,11 +1536,12 @@ describe("rate limits", () => {
     expect((await h.post("/api/rpc/base", own, who)).status).toBe(200);
     expect((await h.post("/api/rpc/base", other, who)).status).toBe(429);
     // So does a call that only begins like a balance read: another function, more after the address, a gas figure, another block.
-    const lookalike = await start({ limits: { rpc: { max: 4, windowMs: 60_000 }, rpcBalances: { max: 50, windowMs: 60_000 } } });
+    const lookalike = await start({ limits: { rpc: { max: 5, windowMs: 60_000 }, rpcBalances: { max: 50, windowMs: 60_000 } } });
     const again = { ip: "203.0.113.78", session: await lookalike.session() };
     const call = (first: Record<string, unknown>, block: string = "latest") => [{ jsonrpc: "2.0", id: 1, method: "eth_call", params: [first, block] }];
     const data = token.params[0] as { to: string; data: string };
-    const tries = [call({ to: data.to, data: "0x313ce567" }), call({ to: data.to, data: `${data.data}${"00".repeat(32)}` }), call({ ...data, gas: "0x2faf080" }), call(data, "0x1")];
+    // The last carries a third part behind the block, by which a caller could hand the node code of its own to run.
+    const tries = [call({ to: data.to, data: "0x313ce567" }), call({ to: data.to, data: `${data.data}${"00".repeat(32)}` }), call({ ...data, gas: "0x2faf080" }), call(data, "0x1"), [{ jsonrpc: "2.0", id: 1, method: "eth_call", params: [data, "latest", { [data.to]: { code: "0x5b600056" } }] }]];
     for (const batch of tries) expect((await lookalike.post("/api/rpc/base", batch, again)).status).toBe(200);
     expect((await lookalike.post("/api/rpc/base", call(data), again)).status).toBe(200);
     expect((await lookalike.post("/api/rpc/base", other, again)).status).toBe(429);

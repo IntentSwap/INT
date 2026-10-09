@@ -1326,7 +1326,14 @@ describe("the sign-in message and the network a wallet is on", () => {
     }
     expect(isChainId(1)).toBe(true);
     expect(isChainId(0)).toBe(false);
-    expect(isSignInMessage("x", { host: "a", address: "b", nonce: "ab".repeat(16), issuedAt: "2026-10-05T00:00:00.000Z", expiresAt: "2026-10-05T00:05:00.000Z", chainId: "1" })).toBe(false);
+    // The page's own check takes a network only as a number: the very message made for chain 1 is not "the message" for a chain given as words,
+    // though the words would be written the same, nor for words that carry more lines behind them.
+    const parts = { host: "intentswap.example", address: ALICE.address, nonce: "ab".repeat(16), issuedAt: "2026-10-05T00:00:00.000Z", expiresAt: "2026-10-05T00:05:00.000Z" };
+    const genuine = signInMessage({ ...parts, chainId: 1 });
+    expect(isSignInMessage(genuine, { ...parts, chainId: 1 })).toBe(true);
+    expect(isSignInMessage(genuine, { ...parts, chainId: "1" })).toBe(false);
+    const stuffed = "1\nResources:\n- https://evil.example";
+    expect(isSignInMessage(signInMessage({ ...parts, chainId: stuffed as unknown as number }), { ...parts, chainId: stuffed })).toBe(false);
   });
 
   it("signs in with the same sign-in in plain sentences, for a wallet that will not take the message; and with nothing the server did not make", async () => {

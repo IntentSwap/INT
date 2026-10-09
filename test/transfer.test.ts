@@ -226,7 +226,12 @@ describe("the way from the gate to the wallet", () => {
     expect(signIn.match(/\.request\(/g)).toHaveLength(1);
     expect(signIn).toContain("await provider.request({ method: SIGN_IN_METHOD, params: [stringToHex(message), address] });");
     expect(signIn).not.toMatch(/\b(sendTransaction|sendCalls|writeContract|signTypedData|signTransaction|switchChain|wallet_switchEthereumChain|wallet_addEthereumChain|eth_sendTransaction)\b/);
-    // The steps it follows ask a wallet nothing themselves: they are handed the two ways of asking.
+    // The store hands it two texts and no others: the message it has checked, and the same sign-in in plain sentences, checked the same way.
+    const store = read("stores/rewards.ts");
+    expect(store).toContain('const plain = typeof code.plain === "string" && isPlainSignInMessage(code.plain, parts) ? code.plain : null;');
+    expect(store).toContain("signature = await signPlainMessage(code.message, address, plain);");
+    expect(store).toMatch(/if \(\(network !== null && code\.chainId !== network\) \|\| !isSignInMessage\(code\.message, \{ \.\.\.parts, /);
+    // The steps it follows ask a wallet nothing themselves: they are handed the ways of asking.
     const steps = read("lib/sign-in-logic.ts");
     expect(steps).not.toMatch(/^import /m);
     expect(steps).not.toMatch(/\.request\(|signMessage|personal_sign|switchChain|sendTransaction/);
