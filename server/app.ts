@@ -29,7 +29,7 @@ import type { OneClick } from "./oneclick.ts";
 import { EXPIRE_AFTER_DEADLINE_MS, type Poller } from "./poller.ts";
 import { buildSentQuote, enforceUsdCap, mapRejection, parseSwapInput, privateUnavailable, refusesPrivate, toQuoteView, type QuoteInput } from "./quotes.ts";
 import { MAX_HASH_SUBMISSIONS, MAX_UNPAID_PER_CLIENT, MAX_UNPAID_PER_NETWORK, openOrderCap, type LimitName, type Limiters } from "./ratelimit.ts";
-import { decodeErc20Transfer, decodeTransferLog, hexToBigInt, parseProxyBody, SELECTOR_DECIMALS, type Rpc, type RpcCall } from "./rpc.ts";
+import { decodeErc20Transfer, decodeTransferLog, hexToBigInt, isBalanceBatch, parseProxyBody, SELECTOR_DECIMALS, type Rpc, type RpcCall } from "./rpc.ts";
 import { rewardsAddressOf, type Rewards, type SignIn } from "./rewards.ts";
 import { SAMPLE, type Samples } from "./sample.ts";
 import type { Sanctions } from "./sanctions.ts";
@@ -1037,8 +1037,9 @@ export function createApp(deps: AppDeps): RequestListener {
         if (!(WALLET_CHAINS as readonly string[]).includes(chain)) throw NOT_FOUND;
         const parsed = parseProxyBody(body);
         if (parsed === null) throw new HttpError(400, "bad_request", "That request is not supported.");
-        limited("rpc", ctx.ipKey, parsed.requests.length);
-        limited("rpcGlobal", "all", parsed.requests.length);
+        const balances = isBalanceBatch(parsed);
+        limited(balances ? "rpcBalances" : "rpc", ctx.ipKey, parsed.requests.length);
+        limited(balances ? "rpcBalancesGlobal" : "rpcGlobal", "all", parsed.requests.length);
         const results = await rpc.batch(chain as WalletChain, parsed.requests.map((r) => r.call));
         const replies = parsed.requests.map((request, i) => {
           const result = results[i];

@@ -128,7 +128,25 @@ export function parseProxyBody(body: unknown): { requests: ProxyRequest[]; batch
   return { requests, batch };
 }
 
+/**
+ * True for a batch that only reads balances: a chain's own coin (`eth_getBalance`) or a token's
+ * `balanceOf`. The page reads many of these at once for a connected wallet, so they are counted
+ * apart from every other read: however many coins are listed, reading what a wallet holds can never
+ * use up the allowance that a payment and the check of a recipient's address draw on.
+ */
+export function isBalanceBatch(parsed: { requests: ProxyRequest[]; batch: boolean }): boolean {
+  if (!parsed.batch) return false;
+  return parsed.requests.every(({ call }) => {
+    if (call.method === "eth_getBalance") return true;
+    if (call.method !== "eth_call") return false;
+    const first: unknown = call.params[0];
+    return isRecord(first) && typeof first.data === "string" && first.data.toLowerCase().startsWith(SELECTOR_BALANCE_OF);
+  });
+}
+
 // ---- Small ABI helpers ----
+
+export const SELECTOR_BALANCE_OF = "0x70a08231";
 
 export const SELECTOR_DECIMALS = "0x313ce567";
 export const SELECTOR_TRANSFER = "0xa9059cbb";

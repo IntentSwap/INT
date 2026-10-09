@@ -1096,6 +1096,8 @@ describe("GET /api/orders/:id", () => {
       deposit: { max: 20, windowMs: MINUTE },
       rpc: { max: 120, windowMs: MINUTE },
       rpcGlobal: { max: 3000, windowMs: MINUTE },
+      rpcBalances: { max: 240, windowMs: MINUTE },
+      rpcBalancesGlobal: { max: 3000, windowMs: MINUTE },
       light: { max: 60, windowMs: MINUTE },
     });
     // The caps that are not rates.
@@ -1494,6 +1496,24 @@ describe("rate limits", () => {
     expect((await rpc.post("/api/rpc/base", Array.from({ length: 10 }, () => call), { ip: ip(), session })).status).toBe(200);
     expect((await rpc.post("/api/rpc/base", [call, call], { ip: ip(), session })).status).toBe(200);
     expect((await rpc.post("/api/rpc/base", call, { ip: ip(), session })).status).toBe(429);
+  });
+
+  it("counts reads of what a wallet holds apart from every other read of a chain", async () => {
+    const h = await start({ limits: { rpc: { max: 2, windowMs: 60_000 }, rpcBalances: { max: 3, windowMs: 60_000 } } });
+    const session = await h.session();
+    const who = { ip: "203.0.113.77", session };
+    const holder = `0x${"11".repeat(20)}`;
+    const own = { jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [holder, "latest"] };
+    const token = { jsonrpc: "2.0", id: 2, method: "eth_call", params: [{ to: `0x${"22".repeat(20)}`, data: `0x70a08231${holder.slice(2).padStart(64, "0")}` }, "latest"] };
+    const other = { jsonrpc: "2.0", id: 3, method: "eth_chainId", params: [] };
+    // Three balance reads use up the balance allowance and none of the other.
+    expect((await h.post("/api/rpc/base", [own, token, token], who)).status).toBe(200);
+    expect((await h.post("/api/rpc/base", [own], who)).status).toBe(429);
+    expect((await h.post("/api/rpc/base", other, who)).status).toBe(200);
+    // A batch with anything else in it, and a balance read sent alone, count as ordinary reads.
+    expect((await h.post("/api/rpc/base", [own, other], who)).status).toBe(429);
+    expect((await h.post("/api/rpc/base", own, who)).status).toBe(200);
+    expect((await h.post("/api/rpc/base", other, who)).status).toBe(429);
   });
 
   it("counts an IPv6 /64 as one client", async () => {

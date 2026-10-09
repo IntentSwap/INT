@@ -168,6 +168,9 @@ export const LIMITS = {
   deposit: { max: 20, windowMs: MINUTE },
   rpc: { max: 120, windowMs: MINUTE },
   rpcGlobal: { max: 3000, windowMs: MINUTE },
+  /** Reads of what a connected wallet holds, counted apart from every other read of a chain (see isBalanceBatch). */
+  rpcBalances: { max: 240, windowMs: MINUTE },
+  rpcBalancesGlobal: { max: 3000, windowMs: MINUTE },
   light: { max: 60, windowMs: MINUTE },
 } as const satisfies Record<string, Limit>;
 
