@@ -199,6 +199,8 @@ export function ReviewSheet() {
       swap.orderMade();
       navigate(`/order/${order.id}`);
     } catch (err) {
+      // The review is gone (the person left the swap page before the answer came): the card it was of is gone too, and takes no numbers.
+      if (useSheet.getState().current !== "review") return;
       if (err instanceof ApiError && err.code === "price_moved" && err.quote !== null) {
         // No order was made. The new numbers take the place of the old ones and need a fresh yes.
         // So does a new route: the server makes no order by another route than the one reviewed, and says which it would be.

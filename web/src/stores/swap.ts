@@ -8,6 +8,12 @@
 // Routing is the server's setting. The one thing kept here about it is the
 // person's choice to route this one swap in public (`withoutPrivate`), which is
 // sent only where the server routes privately and only when it was chosen.
+//
+// The card always starts fresh. Whenever the swap page comes onto the screen the
+// card is as a first visit finds it, and whenever the page is left the card is
+// cleared (see visitSwap). Nothing typed into it is written to the browser's
+// storage: it lives in this page's memory, and only for as long as the swap page is shown.
+// (An order, once made, is another matter: it is noted in the list of this browser's orders. See stores/orders.ts.)
 
 import { create } from "zustand";
 import { checkAddress } from "../../../shared/addresses.ts";
@@ -61,12 +67,40 @@ interface SwapState {
   /** The server would not make an order with private routing: the card says so and offers the choice, as it does for a quote. */
   privateRefused(): void;
   refreshNow(): void;
+  /** Puts the card back as a first visit finds it, before any coin is chosen for it. Whatever was on its way to the old card is dropped. */
+  reset(): void;
 }
+
+/** What the card holds before anything is typed or chosen, and before the coin list has given it its usual pair. */
+const FRESH = {
+  fromId: null,
+  toId: null,
+  amountText: "",
+  pay: "wallet",
+  recipient: "",
+  refundTo: "",
+  impactConfirmed: false,
+  slippageBps: SLIPPAGE.default,
+  withoutPrivate: false,
+  quote: null,
+  fetchedAt: 0,
+  loading: false,
+  dirty: false,
+  problem: null,
+} satisfies Partial<SwapState>;
 
 let debounce: ReturnType<typeof setTimeout> | undefined;
 let typing = false;
 let controller: AbortController | null = null;
 let started = false;
+
+/** Ends what is on its way to the card: the wait after a keystroke, and a request in flight, whose answer is then not shown (see fetchQuote). */
+function dropPending(): void {
+  typing = false;
+  if (debounce !== undefined) clearTimeout(debounce);
+  controller?.abort();
+  controller = null;
+}
 
 function coin(id: string | null): TokenView | null {
   return id === null ? null : (useTokens.getState().byId.get(id) ?? null);
@@ -212,20 +246,7 @@ function start(): void {
 }
 
 export const useSwap = create<SwapState>((set, get) => ({
-  fromId: null,
-  toId: null,
-  amountText: "",
-  pay: "wallet",
-  recipient: "",
-  refundTo: "",
-  impactConfirmed: false,
-  slippageBps: SLIPPAGE.default,
-  withoutPrivate: false,
-  quote: null,
-  fetchedAt: 0,
-  loading: false,
-  dirty: false,
-  problem: null,
+  ...FRESH,
 
   init(search) {
     start();
@@ -338,7 +359,32 @@ export const useSwap = create<SwapState>((set, get) => ({
     if (debounce !== undefined) clearTimeout(debounce);
     void fetchQuote();
   },
+
+  reset() {
+    dropPending();
+    set(FRESH);
+  },
 }));
+
+/** Clears the card, and closes the two sheets that are the card's own. The menu is the site's, and is left as it is. */
+function clearCard(): void {
+  useSwap.getState().reset();
+  const sheet = useSheet.getState();
+  if (sheet.current === "review" || sheet.current === "slippage") sheet.close();
+}
+
+/**
+ * The swap page always starts fresh. Called as the swap page comes onto the screen, however the
+ * person came to it: a first visit, a reload, a link or the logo from another page, "Swap again"
+ * on an order, the browser's Back or Forward. The card is cleared, and then given its usual pair,
+ * or what the address says (a link's pair and amount: once, on arrival). Returns what to call as
+ * the page is left: the card is cleared then too, so nothing typed outlives the page it was typed on.
+ */
+export function visitSwap(): () => void {
+  clearCard();
+  useSwap.getState().init(window.location.search);
+  return clearCard;
+}
 
 /** Whether the quote on screen is too old to review without refreshing. */
 export function quoteAge(state: Pick<SwapState, "quote" | "fetchedAt" | "loading" | "dirty">, now: number): "none" | "loading" | "ready" | "expired" {

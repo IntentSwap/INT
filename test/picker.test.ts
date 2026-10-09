@@ -355,18 +355,51 @@ describe("the picker in the browser's history", () => {
     expect(tab.at()).toBe(0);
   });
 
-  it("arriving on a page of history that is a picker opens it, and the swap card leaving the page closes it and listens no more", async () => {
+  it("a card that comes onto the page on a picker's page of history (a reload there, Back from another page) starts closed, and the browser is taken back off that page, once", async () => {
     const tab = browser();
+    // Another page, then the swap page, then the picker opened on it.
+    tab.window.history.pushState(null, "", "/");
     tab.window.history.pushState({ picker: "to" }, "");
     stop = watchPickerHistory();
+    // Closed from the first moment, not opened and then closed.
+    expect(usePicker.getState().side).toBeNull();
+    // The card being drawn a second time before the browser has gone back (as a development build does) goes back no further.
+    stop();
+    stop = watchPickerHistory();
+    expect(usePicker.getState().side).toBeNull();
+    await settled();
+    // On the swap page's own page of history, one step back and no more: the next Back is the browser's own.
+    expect(tab.at()).toBe(1);
+    expect(tab.pages()).toBe(3);
+    expect(usePicker.getState().side).toBeNull();
+    // From here it is the picker's page as ever: Forward opens it, and it closes over its page.
+    tab.window.history.forward();
+    await settled();
+    expect(usePicker.getState().side).toBe("to");
+    closePicker();
+    await settled();
+    expect(tab.at()).toBe(1);
+    // A coin selector opens it as before, on one page of history.
+    openPicker("from");
+    expect(usePicker.getState().side).toBe("from");
+    expect(tab.at()).toBe(2);
+    expect(tab.pages()).toBe(3);
+  });
+
+  it("the swap card leaving the page closes the picker and listens no more, and a page of history that is something else's opens nothing", async () => {
+    const tab = browser();
+    stop = watchPickerHistory();
+    openPicker("to");
     expect(usePicker.getState().side).toBe("to");
     stop();
     stop = () => undefined;
     expect(usePicker.getState().side).toBeNull();
     expect(tab.listeners()).toBe(0);
-    // A page of history that is something else's opens nothing.
     tab.window.history.pushState({ something: "else" }, "", "/docs");
     stop = watchPickerHistory();
     expect(usePicker.getState().side).toBeNull();
+    await settled();
+    // Nothing was a picker's page there: the browser was taken nowhere.
+    expect(tab.at()).toBe(2);
   });
 });

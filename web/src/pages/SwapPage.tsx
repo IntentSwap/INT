@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { SecondaryButton } from "../components/Button.tsx";
 import { Notice } from "../components/Shell.tsx";
 import { Faq } from "../components/Faq.tsx";
@@ -8,7 +8,7 @@ import { SlippageSheet } from "../components/SlippageSheet.tsx";
 import { SwapCard } from "../components/SwapCard.tsx";
 import { useApp } from "../stores/app.ts";
 import { useSheet } from "../stores/sheet.ts";
-import { useSwap } from "../stores/swap.ts";
+import { useSwap, visitSwap } from "../stores/swap.ts";
 import { useTokens } from "../stores/tokens.ts";
 
 export function SwapPage() {
@@ -20,6 +20,10 @@ export function SwapPage() {
   const paused = useApp((state) => state.config?.paused ?? false);
   const reload = useApp((state) => state.load);
 
+  // The card starts fresh each time this page comes onto the screen, and is cleared as the page is left.
+  // Before the first paint, so the card is never seen without its coins on the way back from another page.
+  useLayoutEffect(() => visitSwap(), []);
+  // The coin list arriving after the page: the card is given its coins then.
   useEffect(() => {
     if (count > 0) init(window.location.search);
   }, [count, init]);

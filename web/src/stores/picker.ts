@@ -4,6 +4,11 @@
 // sheets (the menu can still open over it). Opening it adds a page to the browser's history under
 // the same address: the Back button then returns to the swap, and the next Back leaves the site as
 // it would have before. Forward opens the picker again.
+//
+// A card that has just come onto the page starts as the swap, with the picker closed, wherever the
+// browser stands. If that is on a picker's page of history (the page was loaded again there, or Back
+// led to it from another page), the browser is taken back off it, so no press of Back is spent on a
+// page that shows nothing new.
 
 import { create } from "zustand";
 import { pickerInHistory } from "../lib/swap-logic.ts";
@@ -18,6 +23,19 @@ export const usePicker = create<PickerState>(() => ({ side: null }));
 
 /** True from the moment the picker's page of history is being left until the browser says it has been. */
 let leaving = false;
+
+/** Goes back over the picker's page of history. The browser arrives a moment later and says so, whether or not the card is still on the page to hear it. */
+function stepBack(): void {
+  leaving = true;
+  window.addEventListener(
+    "popstate",
+    () => {
+      leaving = false;
+    },
+    { once: true },
+  );
+  window.history.back();
+}
 
 /** Opens the picker for one side of the swap. */
 export function openPicker(side: PickerSide): void {
@@ -35,24 +53,21 @@ export function openPicker(side: PickerSide): void {
 export function closePicker(): void {
   usePicker.setState({ side: null });
   if (pickerInHistory(window.history.state) === null || leaving) return;
-  leaving = true;
-  window.history.back();
+  stepBack();
 }
 
 /**
  * Keeps the picker in step with the browser's history for as long as the swap card is on the page.
- * Arriving on a page of history that is a picker (Forward, or a reload) opens it; leaving one closes it.
+ * The card starts with the picker closed. From then on, the browser's Forward onto a page of
+ * history that is a picker opens it, and leaving one closes it.
  */
 export function watchPickerHistory(): () => void {
-  const sync = () => {
-    leaving = false;
-    usePicker.setState({ side: pickerInHistory(window.history.state) });
-  };
-  sync();
+  // On the way back off the picker's page, the picker stays closed whatever page the browser is still on.
+  const sync = () => usePicker.setState({ side: leaving ? null : pickerInHistory(window.history.state) });
+  closePicker();
   window.addEventListener("popstate", sync);
   return () => {
     window.removeEventListener("popstate", sync);
-    leaving = false;
     usePicker.setState({ side: null });
   };
 }
