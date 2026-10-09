@@ -2,7 +2,7 @@
 // coins and chains with the most volume sent, and a list of the latest swaps. Everything is counted
 // on the server from swaps this site saw delivered, and from what they sent: nothing on this page
 // says what any swap received, or where. The list gives of a swap the coin and the amount that were
-// sent, when it was delivered, and a link to its deposit on the chain it was sent from.
+// sent, the minute it began, and a link to its deposit on the chain it was sent from.
 
 import { ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
@@ -16,7 +16,7 @@ import { Reveal } from "../components/Reveal.tsx";
 import { chainIconUrl } from "../lib/icons.ts";
 import { useCountUp, useSeen } from "../lib/reveal.ts";
 import { chainsOnList } from "../lib/site-logic.ts";
-import { chainGrid, chainLine, coinText, deliveredText, durationText, shortTx, usdText, wholeText, type GridChain } from "../lib/stats-logic.ts";
+import { chainGrid, chainLine, coinText, whenText, durationText, shortTx, usdText, wholeText, type GridChain } from "../lib/stats-logic.ts";
 import { useTokens } from "../stores/tokens.ts";
 import "../styles/home.css";
 import "../styles/stats.css";
@@ -228,7 +228,7 @@ export function StatsContent({ stats, chains }: { stats: StatsResponse | null; c
                   <Amount raw={row.amount} decimals={row.coin.decimals} symbol={row.coin.symbol} /> <span className="muted">on {chainName(row.coin.chain)}</span>
                 </span>
                 <time className="stats-swap-when muted" dateTime={row.at}>
-                  {deliveredText(row.at)}
+                  {whenText(row.at)}
                 </time>
                 <Deposit chain={row.coin.chain} tx={row.tx} />
               </li>

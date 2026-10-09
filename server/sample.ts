@@ -200,7 +200,9 @@ export function sampleDeliveries(fromQuarter: number, toQuarter: number): Delive
       const [floor, span] = at[1]! < 120 ? [8, 90] : at[1]! < 205 ? [100, 900] : at[1]! < 249 ? [1_000, 7_000] : [10_000, 24_000];
       const usdMicro = BigInt(floor) * 1_000_000n + (BigInt(at.readUInt32BE(2)) * BigInt(span) * 1_000_000n) / 0x1_0000_0000n;
       const amount = (usdMicro * 10n ** BigInt(decimals)) / (price * 1_000_000n);
-      out.push({ coin: { symbol, chain, decimals }, amount: amount.toString(), usdMicro, tx: sampleTx(chain, at[7]!), seconds: 22 + (at[6]! % 55), at: quarter * QUARTER_MS + (at.readUInt16BE(6) % 900) * 1000 });
+      const delivered = quarter * QUARTER_MS + (at.readUInt16BE(6) % 900) * 1000;
+      const seconds = 22 + (at[6]! % 55);
+      out.push({ coin: { symbol, chain, decimals }, amount: amount.toString(), usdMicro, tx: sampleTx(chain, at[7]!), seconds, at: delivered, began: delivered - seconds * 1000 });
     }
   }
   return out;

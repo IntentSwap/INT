@@ -20,7 +20,7 @@ import { createOrderStore, type OrderRecord, type OrderState, type OrderStore } 
 import { formatExact } from "../shared/amounts.ts";
 import type { CoinRef, Confidentiality, OrderStatus, StatsResponse } from "../shared/api.ts";
 import { chainInfo, chainName } from "../shared/chains.ts";
-import { chainGrid, deliveredText, shortTx, statsPageOn } from "../web/src/lib/stats-logic.ts";
+import { chainGrid, whenText, shortTx, statsPageOn } from "../web/src/lib/stats-logic.ts";
 import { ChainGrid, StatsContent } from "../web/src/pages/StatsPage.tsx";
 import { navItems } from "../web/src/router.ts";
 import { FIXTURE_TOKENS, harness, type Harness } from "./helpers.ts";
@@ -96,6 +96,9 @@ function order(n: number, createdAt: number, swap: Swap = {}): OrderRecord {
 /** The transaction that paid an order's deposit, on the chain it was sent from; and the one that delivered it, on the chain it was received on. */
 const depositOf = (record: OrderRecord) => txOn(record.from.chain, `paid ${record.id}`);
 const deliveryOf = (record: OrderRecord) => txOn(record.to.chain, `delivery ${record.id}`);
+
+/** The time a row carries: the minute the swap began on the sending side (here, the order being made). Never the moment of delivery. */
+const begunText = (record: OrderRecord): string => `${new Date(Math.floor(Math.max(record.state.anchor, Date.parse(record.createdAt)) / 60_000) * 60_000).toISOString().slice(0, 19)}Z`;
 
 /** The same order's state once it has ended, as the poller writes it. */
 function ended(record: OrderRecord, at: number, status: OrderStatus = "delivered"): OrderState {
@@ -392,7 +395,7 @@ describe("the Stats page, its route and its file know nothing of the receiving s
       const kept = fs.readFileSync(statsFile, "utf8");
       // The check has something to check: every swap is counted and listed, the newest first, by what it sent.
       expect(reply.body.totals.swaps).toBe(4);
-      const rows = [...records].reverse().map((record) => ({ coin: { symbol: record.from.symbol, chain: record.from.chain, decimals: record.from.decimals }, amount: record.amountIn, at: `${record.state.finishedAt!.slice(0, 19)}Z`, tx: depositOf(record) }));
+      const rows = [...records].reverse().map((record) => ({ coin: { symbol: record.from.symbol, chain: record.from.chain, decimals: record.from.decimals }, amount: record.amountIn, at: begunText(record), tx: depositOf(record) }));
       expect(reply.body.feed).toEqual(rows);
       expect((JSON.parse(kept) as StatsFile).rows).toEqual([...rows].reverse());
       // An order's two hashes differ, and it is the deposit's that a row holds.
@@ -503,7 +506,7 @@ describe("recent swaps", () => {
     }
     const shown = s.stats.view();
     expect(shown.totals).toEqual({ swaps: 1, volumeUsd: 150, volume24hUsd: 150, chains: 1, deliverySeconds: 40 });
-    expect(shown.feed).toEqual([{ coin: { symbol: "ETH", chain: "base", decimals: 18 }, amount: delivered.amountIn, at: "2026-10-08T12:00:00Z", tx: depositOf(delivered) }]);
+    expect(shown.feed).toEqual([{ coin: { symbol: "ETH", chain: "base", decimals: 18 }, amount: delivered.amountIn, at: begunText(delivered), tx: depositOf(delivered) }]);
     expect(s.file().rows).toEqual(shown.feed);
     // Only the delivered order's record is marked as counted.
     expect(s.store.ids().filter((id) => s.store.get(id)!.statsCounted === true)).toEqual([delivered.id]);
@@ -515,25 +518,29 @@ describe("recent swaps", () => {
     expect(s.stats.view().totals.swaps).toBe(2);
   });
 
-  it("a row is there at once and from the first swap, the newest first: the coin and the amount sent, the second it was delivered and its deposit's hash, and nothing else", () => {
+  it("a row is there at once and from the first swap, the newest first: the coin and the amount sent, the minute the swap began and its deposit's hash, and nothing else; the moment of delivery is in no row", () => {
     const s = site();
     expect(s.stats.view().feed).toEqual([]);
-    // Delivered at a moment that is no round one.
+    // Delivered at a moment that is no round one, forty seconds after the order was made (12:02:37).
     s.clock.t = NOON + 3 * MINUTE + 17_123;
     const first = s.end(1, { usd: "150", amountIn: "1000000000000000000" });
     // The same moment: one swap, and its row.
-    const row = { coin: { symbol: "ETH", chain: "base", decimals: 18 }, amount: "1000000000000000000", at: "2026-10-08T12:03:17Z", tx: depositOf(first) };
+    const row = { coin: { symbol: "ETH", chain: "base", decimals: 18 }, amount: "1000000000000000000", at: "2026-10-08T12:02:00Z", tx: depositOf(first) };
     expect(s.stats.view().feed).toEqual([row]);
     expect(s.file().rows).toEqual([row]);
+    // When it was delivered is a fact about the receiving side: neither the answer nor the file holds it.
+    expect(first.state.finishedAt).toContain("12:03:17");
+    expect(JSON.stringify(s.stats.view())).not.toContain("12:03");
+    expect(JSON.stringify(s.file())).not.toContain("12:03");
     expect(Object.keys(s.stats.view().feed[0]!).sort()).toEqual(["amount", "at", "coin", "tx"]);
     expect(Object.keys(s.stats.view().feed[0]!.coin).sort()).toEqual(["chain", "decimals", "symbol"]);
     // A second, five seconds later, stands above it.
     s.clock.t += 5000;
     const second = s.end(2, { usd: "20", from: USDC, to: BTC, amountIn: "20000000" });
-    expect(s.stats.view().feed).toEqual([{ coin: { symbol: "USDC", chain: "arb", decimals: 6 }, amount: "20000000", at: "2026-10-08T12:03:22Z", tx: depositOf(second) }, row]);
+    expect(s.stats.view().feed).toEqual([{ coin: { symbol: "USDC", chain: "arb", decimals: 6 }, amount: "20000000", at: "2026-10-08T12:02:00Z", tx: depositOf(second) }, row]);
 
     // Many more: the page is sent the newest twenty, and the file keeps the newest 300.
-    const many: Delivery[] = Array.from({ length: 320 }, (_, index) => ({ coin: { symbol: "ETH", chain: "base", decimals: 18 }, amount: String(index + 1), usdMicro: 1_000_000n, tx: null, seconds: 30, at: s.clock.t + (index + 1) * 1000 }));
+    const many: Delivery[] = Array.from({ length: 320 }, (_, index) => ({ coin: { symbol: "ETH", chain: "base", decimals: 18 }, amount: String(index + 1), usdMicro: 1_000_000n, tx: null, seconds: 30, at: s.clock.t + (index + 1) * 1000, began: s.clock.t + (index + 1) * 1000 - 30_000 }));
     s.clock.t += 321_000;
     s.stats.seed(many);
     expect(s.stats.view().feed.map((item) => item.amount)).toEqual(Array.from({ length: 20 }, (_, index) => String(320 - index)));
@@ -605,9 +612,9 @@ describe("recent swaps", () => {
     // The heading, and under it the one line that says what a row is and is not.
     expect(words(markup)).toContain("Recent swaps Each row links to the deposit on its own chain. Where it was delivered is never shown.");
     // What was sent, and when, on the clock of whoever reads it.
-    expect(words(rows[0]!)).toContain(`0.5 ETH on Base ${deliveredText("2026-10-08T12:03:17Z")} `);
+    expect(words(rows[0]!)).toContain(`0.5 ETH on Base ${whenText("2026-10-08T12:03:17Z")} `);
     expect(rows[0]).toContain('<time class="stats-swap-when muted" dateTime="2026-10-08T12:03:17Z">');
-    expect(deliveredText("2026-10-08T12:03:17Z")).toMatch(/^2026-10-0[89], \d{2}:\d{2}$/);
+    expect(whenText("2026-10-08T12:03:17Z")).toMatch(/^2026-10-0[89], \d{2}:\d{2}$/);
     // The deposit: a shortened hash that leads to the transaction on its own chain's explorer, in a new tab.
     expect(shortTx(base)).toBe(`${base.slice(0, 6)}…${base.slice(-4)}`);
     expect(shortTx(base)).toHaveLength(11);

@@ -33,6 +33,7 @@ import { chainName } from "../shared/chains.ts";
 import { MICRO, usdToMicro } from "../shared/rewards.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
 
+const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 
 /** How many hours are kept by the hour, and how long a row is kept. */
@@ -79,8 +80,10 @@ export interface Delivery {
   tx: string | null;
   /** How long delivery took, in whole seconds, or null when that cannot be told. */
   seconds: number | null;
-  /** When it was delivered. */
+  /** When it was delivered. Used for the sums by hour; never shown or kept with a row. */
   at: number;
+  /** When the swap began on the sending side: the last step this server saw before the end, or the order being made. */
+  began: number;
 }
 
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -128,16 +131,17 @@ function deliveryOf(record: OrderRecord): Delivery | null {
   const sent = record.from;
   const coin = { ...coinOf(sent), decimals: isDecimals(sent.decimals) ? sent.decimals : 0 };
   const paid = record.state.details?.originTxs[0]?.hash ?? (record.state.depositVerified === true ? record.state.depositTxHash : null);
-  return { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), tx: isValidTxHash(coin.chain, paid) ? paid : null, seconds, at };
+  return { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), tx: isValidTxHash(coin.chain, paid) ? paid : null, seconds, at, began: began > 0 && began <= at ? began : at };
 }
 
 /**
- * The row a delivery adds to the list: the coin sent, the amount sent, the second it was delivered
- * and the deposit's hash. A delivery whose amount cannot be read adds no row.
+ * The row a delivery adds to the list: the coin sent, the amount sent, the minute the swap began on
+ * the sending side and the deposit's hash. The moment of delivery is a fact about the receiving
+ * side, so a row does not carry it. A delivery whose amount cannot be read adds no row.
  */
 function rowFor(delivery: Delivery): StoredRow | null {
   if (!isAmount(delivery.amount)) return null;
-  return { coin: { symbol: delivery.coin.symbol, chain: delivery.coin.chain, decimals: delivery.coin.decimals }, amount: delivery.amount, at: momentOf(delivery.at), tx: delivery.tx };
+  return { coin: { symbol: delivery.coin.symbol, chain: delivery.coin.chain, decimals: delivery.coin.decimals }, amount: delivery.amount, at: momentOf(Math.floor(delivery.began / MINUTE_MS) * MINUTE_MS), tx: delivery.tx };
 }
 
 /** The same sums, as they are held while the server runs. */

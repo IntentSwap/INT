@@ -133,7 +133,7 @@ export interface StatsFeedRow {
   coin: StatsCoin & { decimals: number };
   /** The amount sent, in the coin's smallest unit. */
   amount: string;
-  /** When the swap was delivered, by the server's clock, to the second: "2026-10-08T12:03:17Z". */
+  /** When the swap began on the sending side, by the server's clock, to the minute: "2026-10-08T12:03:00Z". Never the moment of delivery. */
   at: string;
   /** The hash of the transaction that paid the deposit, on the chain the coin was sent from. Null when it is not known. */
   tx: string | null;

@@ -16,11 +16,11 @@ export function statsPageOn(config: { statsPage?: unknown } | null | undefined):
 }
 
 /**
- * When a swap was delivered, as "Recent swaps" writes it, on this device's clock: the date in
+ * When a swap began on the sending side, as "Recent swaps" writes it, on this device's clock: the date in
  * numbers, so it reads the same everywhere, then the time of day as an order's page writes one.
  * "2026-10-08, 14:05".
  */
-export function deliveredText(iso: string): string {
+export function whenText(iso: string): string {
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return "";
   const date = new Date(at);
