@@ -1,7 +1,8 @@
 import { ArrowDownUp, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { displayBps } from "../../../shared/amounts.ts";
-import { chainInfo, chainName } from "../../../shared/chains.ts";
+import type { TokenView } from "../../../shared/api.ts";
+import { chainInfo, chainName, isWalletChain } from "../../../shared/chains.ts";
 import { NATIVE_RESERVE } from "../config.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { asksForRefund, cardRouting, estimateUsd, maxSpendable, minimumNote, pointsByDefault, primaryAction, PRIVATE_UNAVAILABLE, quoteAnnouncement, refundFor, routedPrivately, routingNote, shouldAnnounce, walletAddressFor, type Announced } from "../lib/swap-logic.ts";
@@ -11,7 +12,7 @@ import { closePicker, openPicker, usePicker, watchPickerHistory, type PickerSide
 import { useSheet } from "../stores/sheet.ts";
 import { quoteAge, useSwap } from "../stores/swap.ts";
 import { useTokens } from "../stores/tokens.ts";
-import { useWallet } from "../stores/wallet.ts";
+import { LIST_FRESH_MS, useWallet } from "../stores/wallet.ts";
 import { AddressField, AddressFieldPlaceholder } from "./AddressField.tsx";
 import { Amount } from "./Amount.tsx";
 import { AmountInput, AmountOutput, UsdValue } from "./AmountField.tsx";
@@ -82,6 +83,31 @@ function useCardViews(side: PickerSide | null) {
   return { card, shown, moving };
 }
 
+/** What the connected wallet holds of a coin: the figure, "reading" until it has been read, and null where nothing is to be shown. */
+type Held = bigint | "reading" | null;
+
+/**
+ * What the connected wallet holds of a field's coin, at the right of the field's label. A quiet
+ * block stands there while it is read, and nothing at all where it could not be read: the line
+ * keeps its room either way, so the field never changes height. "Max" comes with the coin paid.
+ */
+function Balance({ token, held, onMax }: { token: TokenView; held: Held; onMax?: () => void }) {
+  if (held === null) return null;
+  if (held === "reading") return <span className="skeleton skeleton-balance" aria-hidden="true" />;
+  return (
+    <span className="balance">
+      <span className="balance-figure">
+        Balance: <Amount raw={held} decimals={token.decimals} /> {token.symbol}
+      </span>
+      {onMax !== undefined ? (
+        <button type="button" className="balance-max" onClick={onMax}>
+          Max
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 /**
  * The swap card is the page: two small tools, the coins and the amount, the receiving address, the live quote in one line, and one button.
  * Where the server routes swaps privately, the row of tools also says so at its left end; where it does not, nothing here speaks of routing.
@@ -124,8 +150,13 @@ export function SwapCard() {
   const quote = swap.quote;
   const age = quoteAge(swap, now);
   const connected = wallet.status === "connected" && wallet.address !== null;
-  const walletOnOrigin = connected && from !== null && wallet.chain === from.chain;
-  const balance = walletOnOrigin && from !== null ? (wallet.balances.get(from.id) ?? null) : null;
+  // What the connected address holds of a coin, for a coin on a network a wallet can pay on. It is read
+  // from the coin's own chain, so the network the wallet is on at the moment makes no difference.
+  // Nothing is shown with no wallet, for a coin on any other chain, or after a read that failed.
+  const held = (coin: TokenView | null): Held => (!connected || coin === null || !isWalletChain(coin.chain) || wallet.unreadable.has(coin.id) ? null : (wallet.balances.get(coin.id) ?? "reading"));
+  const fromHeld = held(from);
+  const toHeld = held(to);
+  const balance = typeof fromHeld === "bigint" ? fromHeld : null;
   const impact = quote?.priceImpactBps ?? null;
 
   // The connected wallet's address is offered where it is known to be the person's: see walletAddressFor.
@@ -196,19 +227,31 @@ export function SwapCard() {
 
   const canPayByWallet = from !== null && from.wallet;
 
-  // The balance of the coin being paid, once the wallet is on its network.
-  const refreshBalance = wallet.refreshBalance;
-  const fromId = from?.id ?? null;
-  useEffect(() => {
-    if (walletOnOrigin && from !== null) void refreshBalance(from);
-  }, [walletOnOrigin, wallet.address, fromId, refreshBalance]);
-
-  // What the wallet holds on the chains it can pay from is read as soon as it connects, so the coin
-  // picker opens with its rows already in order and nothing moves under a finger.
+  // What the wallet holds of the two coins on the card is read as it connects, when either coin or the
+  // address changes, and again each time the person comes back to the page: it may have changed while
+  // they were away. A coin that was read a moment ago is not read again (see loadBalances).
   const loadBalances = wallet.loadBalances;
+  const fromId = from?.id ?? null;
+  const toId = to?.id ?? null;
+  useEffect(() => {
+    if (!connected) return;
+    const read = () => {
+      if (!document.hidden) void loadBalances([from, to].filter((coin) => coin !== null));
+    };
+    read();
+    document.addEventListener("visibilitychange", read);
+    window.addEventListener("focus", read);
+    return () => {
+      document.removeEventListener("visibilitychange", read);
+      window.removeEventListener("focus", read);
+    };
+  }, [connected, wallet.address, fromId, toId, loadBalances]);
+
+  // What it holds of every other coin on the chains it can pay from is read as soon as it connects too,
+  // so the coin picker opens with its rows already in order and nothing moves under a finger.
   const coinList = tokens.tokens;
   useEffect(() => {
-    if (connected && coinList.length > 0) void loadBalances(coinList);
+    if (connected && coinList.length > 0) void loadBalances(coinList, LIST_FRESH_MS);
   }, [connected, wallet.address, coinList, loadBalances]);
 
   // When a wallet is connected and its address is known to be the person's on the receiving chain,
@@ -252,16 +295,7 @@ export function SwapCard() {
             <label className="field-label" htmlFor="amount-in">
               You pay
             </label>
-            {from !== null && balance !== null ? (
-              <span className="balance">
-                <span>
-                  Balance: <Amount raw={balance} decimals={from.decimals} /> {from.symbol}
-                </span>
-                <button type="button" className="balance-max" onClick={max}>
-                  Max
-                </button>
-              </span>
-            ) : null}
+            {from !== null ? <Balance token={from} held={fromHeld} onMax={max} /> : null}
           </div>
           <div className="field-row">
             <CoinButton ref={fromButton} token={from} label="You pay" onClick={() => openPicker("from")} />
@@ -294,6 +328,7 @@ export function SwapCard() {
             <label className="field-label" htmlFor="amount-out">
               You receive
             </label>
+            {to !== null ? <Balance token={to} held={toHeld} /> : null}
           </div>
           <div className="field-row">
             <CoinButton ref={toButton} token={to} label="You receive" onClick={() => openPicker("to")} />

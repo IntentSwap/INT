@@ -24,6 +24,7 @@ import { aboutMinutes, appFeeWords, routingNote, type PrivacyMode } from "../lib
 import { navigate } from "../router.ts";
 import { serverNow, useApp } from "../stores/app.ts";
 import { useOrders } from "../stores/orders.ts";
+import { useWallet } from "../stores/wallet.ts";
 import "../styles/order.css";
 
 const STEP_WORD = { done: "Done", current: "Now", stopped: "Stopped", pending: "Next" } as const;
@@ -439,6 +440,8 @@ export default function OrderPage({ id }: { id: string }) {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
+    // What the order was when this page last looked.
+    let seen: OrderView["status"] | null = null;
     setOrder(null);
     setMissing(false);
     failures.current = 0;
@@ -456,6 +459,9 @@ export default function OrderPage({ id }: { id: string }) {
         failures.current = 0;
         setReconnecting(false);
         setOrder(fresh);
+        // An order seen to be delivered has changed what a connected wallet holds of its two coins: both are read afresh.
+        if (fresh.status === "delivered" && seen !== null && seen !== "delivered") void useWallet.getState().loadBalances([fresh.from, fresh.to], 0);
+        seen = fresh.status;
         useApp.setState({ clockOffset: Date.parse(fresh.serverNow) - Date.now() });
         next = pollDelay(fresh.status, 0);
       } catch (err) {

@@ -175,6 +175,7 @@
   font-weight: var(--weight-500);
 }
 
+/* What the connected wallet holds of the field's coin, set to the right of the label. */
 .balance {
   display: inline-flex;
   align-items: center;
@@ -182,6 +183,20 @@
   min-width: 0;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* A figure too long for a narrow card is cut short at its end: the label and "Max" keep their places. */
+.balance-figure {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* While the balance is being read: a quiet block as high as the line and about as wide as a figure. */
+.skeleton-balance {
+  flex: none;
+  width: var(--space-96);
+  height: var(--line-12);
 }
 
 .balance-max {

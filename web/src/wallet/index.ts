@@ -11,15 +11,14 @@ import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { EventsController, TelemetryController } from "@reown/appkit-controllers";
 import UniversalProvider from "@walletconnect/universal-provider";
 import { arbitrum, base, bsc, mainnet, type AppKitNetwork } from "@reown/appkit/networks";
-import { disconnect as wagmiDisconnect, getAccount, getBalance, readContract, sendTransaction, switchChain, watchAccount, type Config } from "@wagmi/core";
-import { erc20Abi, http } from "viem";
+import { disconnect as wagmiDisconnect, getAccount, sendTransaction, switchChain, watchAccount, type Config } from "@wagmi/core";
+import { http } from "viem";
 import { toChecksumAddress } from "../../../shared/addresses.ts";
-import type { TokenView } from "../../../shared/api.ts";
 import { chainInfo, isWalletChain, WALLET_CHAIN_NODE, WALLET_CHAINS } from "../../../shared/chains.ts";
 import { api } from "../api.ts";
 import { isContractCode } from "../lib/swap-logic.ts";
 import { useApp } from "../stores/app.ts";
-import { useWallet } from "../stores/wallet.ts";
+import { noBalances, useWallet } from "../stores/wallet.ts";
 import { getTheme, onThemeChange } from "../theme.ts";
 import { checkedTransfer, type PayableOrder } from "./transfer.ts";
 import { sessionRights, WINDOW_FEATURES } from "./session.ts";
@@ -147,10 +146,11 @@ async function create(): Promise<{ kit: AppKit; wagmi: Config }> {
       const chain = chainKeyOf(account.chainId);
       const before = useWallet.getState();
       const changed = before.address !== address || before.chain !== chain;
-      useWallet.setState({ status: "connected", address, chain, error: null, ...(changed ? { plain: null, balances: new Map() } : {}) });
+      // What an address holds does not turn on the network its wallet is on: only another address empties the balances.
+      useWallet.setState({ status: "connected", address, chain, error: null, ...(changed ? { plain: null } : {}), ...(before.address !== address ? noBalances() : {}) });
       if (changed && chain !== null) void checkPlain(chain, address);
     } else if (account.status === "disconnected") {
-      useWallet.setState({ status: "disconnected", address: null, chain: null, plain: null, balances: new Map() });
+      useWallet.setState({ status: "disconnected", address: null, chain: null, plain: null, ...noBalances() });
     }
   };
   watchAccount(wagmi, { onChange: sync });
@@ -210,18 +210,6 @@ export async function switchTo(chain: string): Promise<void> {
   if (chainId === undefined || !isWalletChain(chain)) throw new Error("not a wallet network");
   // A wallet that does not know the network is told the chain's own public node, never one that carries a project's ID.
   await switchChain(config, { chainId, addEthereumChainParameter: { rpcUrls: [WALLET_CHAIN_NODE[chain]] } });
-}
-
-/** The connected address's balance of a coin, in raw units. Kept in the wallet store under the coin's ID. */
-export async function refreshBalance(token: Pick<TokenView, "id" | "chain" | "contract">): Promise<void> {
-  const { wagmi: config } = await setUp();
-  const { address } = useWallet.getState();
-  const chainId = chainInfo(token.chain).evmChainId;
-  if (address === null || chainId === undefined) return;
-  const owner = address as `0x${string}`;
-  const raw = token.contract === null ? (await getBalance(config, { address: owner, chainId })).value : await readContract(config, { abi: erc20Abi, address: token.contract as `0x${string}`, functionName: "balanceOf", args: [owner], chainId });
-  if (useWallet.getState().address !== address) return;
-  useWallet.setState({ balances: new Map(useWallet.getState().balances).set(token.id, raw) });
 }
 
 /**

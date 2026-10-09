@@ -313,8 +313,25 @@ describe("the coin picker, one chain at a time", () => {
   it("with nothing typed, shows the chosen chain's coins and no other chain's", () => {
     expect(shown("", "base")).toBe("here: ETH@base usdt@base USDC@base DAI@base BRETT@base cbBTC@base sUSDC@base WETH@base");
     expect(shown("  ", "arb")).toBe("here: ETH@arb USDC@arb USDT0@arb");
-    // What the wallet holds is shown beside a coin; it does not move the coin.
-    expect(shown("", "base", new Map([["base:WETH", 5n]]))).toBe(shown("", "base"));
+  });
+
+  it("puts the coins a wallet holds at the top of their chain's list, the one worth most in dollars first, and leaves the rest in the chain's own order", () => {
+    // 5 USDC is worth more than 2 Wrapped Ether at a dollar each, though it is the smaller number (six decimals against eighteen).
+    const held = new Map([["base:WETH", 2n * 10n ** 18n], ["base:USDC", 5_000_000n]]);
+    expect(shown("", "base", held)).toBe("here: USDC@base WETH@base ETH@base usdt@base DAI@base BRETT@base cbBTC@base sUSDC@base");
+    // It is the dollars that count: at its real price the Wrapped Ether comes first.
+    const priced = tokens.map((token) => (token.id === "base:WETH" ? { ...token, price: "3000.5" } : token));
+    expect(symbols(chainCoins(priced, "base", held)).slice(0, 3)).toEqual(["WETH", "USDC", "ETH"]);
+    // A held coin with no price comes after the held coins that have one, and before every coin that is not held.
+    const unpriced = tokens.map((token) => (token.id === "base:WETH" ? { ...token, price: null } : token));
+    expect(symbols(chainCoins(unpriced, "base", new Map([...held, ["base:BRETT", 1n]]))).slice(0, 4)).toEqual(["USDC", "BRETT", "WETH", "ETH"]);
+    // Coins worth the same keep the chain's own order among themselves.
+    expect(symbols(chainCoins(tokens, "base", new Map([["base:WETH", 10n ** 18n], ["base:DAI", 10n ** 18n], ["base:ETH", 10n ** 18n]]))).slice(0, 4)).toEqual(["ETH", "DAI", "WETH", "usdt"]);
+    // Holding none of a coin, or holding a coin of another chain, moves nothing.
+    expect(shown("", "base", new Map([["base:WETH", 0n], ["arb:USDC", 9_000_000n]]))).toBe(shown("", "base"));
+    expect(shown("", "arb", new Map([["arb:USDC", 9_000_000n]]))).toBe("here: USDC@arb ETH@arb USDT0@arb");
+    // A search of the chain puts what is held first within each rank of match, and never above a better match.
+    expect(shown("usd", "base", new Map([["base:USDC", 1n], ["base:sUSDC", 10n ** 18n]]))).toBe("here: USDC@base usdt@base sUSDC@base");
   });
 
   it("searches the chosen chain by name and symbol, best matches first, in the chain's own order within each", () => {

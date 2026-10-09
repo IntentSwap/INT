@@ -218,16 +218,21 @@ describe("the picker's bottom half: coins of the chosen chain", () => {
     expect(fs.readFileSync(path.resolve("web", "src", "stores", "swap.ts"), "utf8")).toMatch(/if \(id === toId\) set\(\{ fromId: id, toId: fromId, refundTo: "", recipient: "" \}\);/);
   });
 
-  it("with a wallet connected, what it holds of a coin stands at the end of the coin's row", () => {
-    const held = rows(picker("from", { balances: new Map([[USDC.id, 1_250_500_000n], [BRETT.id, 0n]]) }));
-    expect(held[1]).toMatch(/<span role="gridcell" id="[^"]+" class="picker-row-end"><span class="picker-row-balance muted">/);
-    expect(read(held[1]!)).toMatch(/^USD Coin USDC 0x83…2913 1,250\.50 /);
-    // Nothing held, or nothing known: nothing shown.
-    expect(held[0]).not.toContain("picker-row-balance");
+  it("with a wallet connected, the coins it holds come first, and what it holds of a coin stands at the end of the coin's row", () => {
+    const html = picker("from", { balances: new Map([[USDC.id, 1_250_500_000n], [BRETT.id, 0n]]) });
+    // The one coin held is at the top; the rest keep the chain's own order.
+    expect(names(html)).toEqual(["USD Coin", "Ethereum", "Brett", "Wrapped Ether"]);
+    const held = rows(html);
+    expect(held[0]).toMatch(/<span role="gridcell" id="[^"]+" class="picker-row-end"><span class="picker-row-balance muted">/);
+    expect(read(held[0]!)).toMatch(/^USD Coin USDC 0x83…2913 1,250\.50 /);
+    // Nothing held, or nothing known: nothing shown, and nothing moved.
+    expect(held[1]).not.toContain("picker-row-balance");
     expect(held[2]).not.toContain("picker-row-balance");
     expect(rows(picker("from")).join("")).not.toContain("picker-row-balance");
-    // A balance moves no row.
-    expect(names(picker("from", { balances: new Map([[WETH.id, 5n]]) }))).toEqual(["Ethereum", "USD Coin", "Brett", "Wrapped Ether"]);
+    // Of two coins held, the one worth more in dollars is first: 2 USDC before a sliver of Wrapped Ether, though that is the larger number.
+    expect(names(picker("from", { balances: new Map([[WETH.id, 5_000_000n], [USDC.id, 2_000_000n]]) }))).toEqual(["USD Coin", "Wrapped Ether", "Ethereum", "Brett"]);
+    // The order is settled once, as a chain's list is opened: what arrives later is written in its row and moves nothing.
+    expect(fs.readFileSync(path.resolve("web", "src", "components", "CoinPicker.tsx"), "utf8")).toMatch(/const \[opened, setOpened\] = useState\(\{ chain, balances \}\);\s*if \(opened\.chain !== chain\) setOpened\(\{ chain, balances \}\);\s*const order = opened\.chain === chain \? opened\.balances : balances;/);
   });
 
   it("while the coin list is on its way, shows placeholders in both halves and nothing that can be pressed there", () => {

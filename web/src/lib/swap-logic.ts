@@ -118,19 +118,26 @@ export function sortTokens(tokens: TokenView[], balances: ReadonlyMap<string, bi
 }
 
 /**
- * One chain's coins in the order the picker lists them: the chain's own coin, then the
- * stablecoins (in their set order), then the rest by name. A balance moves nothing: the list a
- * person opens is the list they press on.
+ * One chain's coins in the order the picker lists them. First the coins the connected wallet holds,
+ * the one worth most in dollars at the top (a held coin with no price comes after those that have
+ * one). Then the rest in the chain's own order, which also settles any tie: the chain's own coin,
+ * then the stablecoins (in their set order), then the others by name.
  */
-export function chainCoins(tokens: readonly TokenView[], chain: string): TokenView[] {
+export function chainCoins(tokens: readonly TokenView[], chain: string, balances: ReadonlyMap<string, bigint> = new Map()): TokenView[] {
   const stable = (symbol: string) => {
     const i = (STABLE_SYMBOLS as readonly string[]).findIndex((known) => known.toLowerCase() === symbol.toLowerCase());
     return i === -1 ? STABLE_SYMBOLS.length : i;
   };
   const group = (token: TokenView) => (token.contract === null ? 0 : stable(token.symbol) < STABLE_SYMBOLS.length ? 1 : 2);
+  // What is held of a coin, in dollars: nothing for a held coin with no price, and less than nothing for a coin that is not held.
+  const worth = (token: TokenView) => {
+    const held = balances.get(token.id) ?? 0n;
+    return held > 0n ? usdScaled(held, token.decimals, decimalToScaled(token.price, 18) ?? 0n) : -1n;
+  };
+  const byWorth = (a: TokenView, b: TokenView) => (worth(a) === worth(b) ? 0 : worth(a) > worth(b) ? -1 : 1);
   return tokens
     .filter((token) => token.chain === chain)
-    .sort((a, b) => group(a) - group(b) || (group(a) === 1 ? stable(a.symbol) - stable(b.symbol) : 0) || a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.symbol.localeCompare(b.symbol, "en", { sensitivity: "base" }));
+    .sort((a, b) => byWorth(a, b) || group(a) - group(b) || (group(a) === 1 ? stable(a.symbol) - stable(b.symbol) : 0) || a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.symbol.localeCompare(b.symbol, "en", { sensitivity: "base" }));
 }
 
 export type SearchResult = { kind: "list"; tokens: TokenView[] } | { kind: "unsupported" };
@@ -179,7 +186,7 @@ export function searchTokens(tokens: TokenView[], query: string, chain: string |
 export type PickerRows = { kind: "here"; tokens: TokenView[] } | { kind: "elsewhere"; tokens: TokenView[] } | { kind: "none" } | { kind: "unsupported" };
 
 export function pickerRows(tokens: readonly TokenView[], query: string, chain: string, balances: ReadonlyMap<string, bigint> = new Map()): PickerRows {
-  const onChain = chainCoins(tokens, chain);
+  const onChain = chainCoins(tokens, chain, balances);
   if (query.trim() === "") return { kind: "here", tokens: onChain };
   const everywhere = searchTokens(sortTokens([...tokens], balances), query, null);
   if (everywhere.kind === "unsupported") return { kind: "unsupported" };

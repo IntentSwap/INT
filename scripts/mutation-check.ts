@@ -371,6 +371,10 @@ const M: Mutation[] = [
   { file: "web/src/styles/base.css", find: ":root[data-keys] :focus-visible {\n  outline: var(--border-width) solid var(--focus-ring);", replace: ":focus-visible {\n  outline: var(--border-width) solid var(--focus-ring);", label: "the keyboard's quiet line is drawn only while the keyboard is moving about" },
   { file: "web/src/lib/keys.ts", find: "  const pointer = () => {\n    moving = false;\n    delete root.dataset.keys;", replace: "  const pointer = () => {\n    moving = false;", label: "any press of a pointer takes the keyboard's mark away" },
   { file: "web/src/styles/picker.css", find: ".picker-search:focus-within {\n  border-color: var(--border-strong);\n}", replace: ".picker-search:focus-within {\n  border-color: var(--border-strong);\n  box-shadow: 0 0 0 var(--border-width) var(--accent);\n}", label: "a text field being typed in shows its hairline and nothing else" },
+  // ---- what a connected wallet holds, on the swap card ----
+  { file: "web/src/stores/wallet.ts", find: "              balances.delete(token.id);\n", replace: "", label: "a balance that could not be read leaves no earlier figure on show" },
+  { file: "web/src/components/SwapCard.tsx", find: "(!connected || coin === null || !isWalletChain(coin.chain)", replace: "(coin === null || !isWalletChain(coin.chain)", label: "no balance is shown without a connected wallet" },
+
   // ---- the coin picker, inside the swap card ----
   { file: "web/src/components/SwapCard.tsx", find: "<div className=\"card-view card-swap\" inert={pickerSide !== null}>", replace: "<div className=\"card-view card-swap\">", label: "the swap cannot be reached while the coin picker has the card" },
   { file: "web/src/stores/picker.ts", find: "  if (pickerInHistory(window.history.state) === null || leaving) return;\n  stepBack();", replace: "  return;", label: "closing the coin picker goes back over the page of history it added" },

@@ -186,8 +186,9 @@ describe("the way from the gate to the wallet", () => {
     expect(pay).toContain(
       'const tx = checkedTransfer(fresh, shown); if (getAccount(config).chainId !== tx.chainId) throw new Error("wrong network"); return sendTransaction(config, { chainId: tx.chainId, to: tx.to as `0x${string}`, value: tx.value, ...(tx.data === "0x" ? {} : { data: tx.data as `0x${string}` }) }); }',
     );
-    // What the module takes from the wallet library: reading, connecting, changing network, and the one send. Nothing that signs.
-    expect(source).toContain('import { disconnect as wagmiDisconnect, getAccount, getBalance, readContract, sendTransaction, switchChain, watchAccount, type Config } from "@wagmi/core";');
+    // What the module takes from the wallet library: the account, connecting, changing network, and the one send. Nothing that signs,
+    // and nothing that reads a balance: balances are read through the site's own chain route, with no wallet code at all.
+    expect(source).toContain('import { disconnect as wagmiDisconnect, getAccount, sendTransaction, switchChain, watchAccount, type Config } from "@wagmi/core";');
   });
 
   it("is in one module: no other file of the site reaches a wallet library, or asks a wallet for anything, but for the one sign-in", () => {

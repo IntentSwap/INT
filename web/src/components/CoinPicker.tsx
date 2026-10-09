@@ -8,7 +8,7 @@ import { coinLabel, contractChain, gridMove, lookAlikes, pickerRows, searchChain
 import type { PickerSide } from "../stores/picker.ts";
 import { useSwap } from "../stores/swap.ts";
 import { useTokens } from "../stores/tokens.ts";
-import { useWallet } from "../stores/wallet.ts";
+import { LIST_FRESH_MS, useWallet } from "../stores/wallet.ts";
 import { Amount } from "./Amount.tsx";
 import { CoinIcon, NoArtwork } from "./CoinIcon.tsx";
 
@@ -241,11 +241,16 @@ export function CoinPicker({ side, leaving = false, onClose }: { side: PickerSid
   const loadBalances = useWallet((state) => state.loadBalances);
   // With a wallet connected, what it holds is read as the picker opens.
   useEffect(() => {
-    if (walletAddress !== null && tokens.length > 0) void loadBalances(tokens);
+    if (walletAddress !== null && tokens.length > 0) void loadBalances(tokens, LIST_FRESH_MS);
   }, [walletAddress, tokens, loadBalances]);
+  // The coins the wallet holds come first. Which those are is settled as a chain's list is opened, from
+  // what is known then: a balance that arrives while the list is on show is written in its row and moves nothing.
+  const [opened, setOpened] = useState({ chain, balances });
+  if (opened.chain !== chain) setOpened({ chain, balances });
+  const order = opened.chain === chain ? opened.balances : balances;
 
   const [query, setQuery] = useState("");
-  const result = useMemo<PickerRows>(() => (chain === null ? { kind: "here", tokens: [] } : pickerRows(tokens, query, chain, balances)), [tokens, query, chain, balances]);
+  const result = useMemo<PickerRows>(() => (chain === null ? { kind: "here", tokens: [] } : pickerRows(tokens, query, chain, order)), [tokens, query, chain, order]);
   const rows = result.kind === "here" || result.kind === "elsewhere" ? result.tokens : [];
   const elsewhere = result.kind === "elsewhere";
   // Two coins with the same symbol on the same chain are told apart by their contract.
