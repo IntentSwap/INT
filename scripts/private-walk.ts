@@ -171,7 +171,8 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
 
         // A private order is not found from its deposit address: that would publish the link between its two ends.
         await visit(page, new URL("/track", privateUrl).toString());
-        say((await page.locator(".focus-lead").innerText()).includes("A privately routed order opens from its link or ID only."), "the Track order page does not say that a private order opens from its link or ID only");
+        // (Where the Stats page lists deposits, the same is said of any order once it has been delivered.)
+        say(/A privately routed order(, and any order once it has been delivered,)? opens from its link or ID only\./.test(await page.locator(".focus-lead").innerText()), "the Track order page does not say that a private order opens from its link or ID only");
         await page.locator("#track-input").fill(order.depositAddress ?? "");
         await page.locator("#track-input").press("Enter");
         const answer = page.locator(".track-form [role=alert], .track-form [role=status], .track-message").first();
