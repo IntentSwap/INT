@@ -139,8 +139,11 @@ export function isBalanceBatch(parsed: { requests: ProxyRequest[]; batch: boolea
   return parsed.requests.every(({ call }) => {
     if (call.method === "eth_getBalance") return true;
     if (call.method !== "eth_call") return false;
-    const first: unknown = call.params[0];
-    return isRecord(first) && typeof first.data === "string" && first.data.toLowerCase().startsWith(SELECTOR_BALANCE_OF);
+    // The call a balance read is, and nothing more: a contract and `balanceOf` of one address, at the latest block.
+    const [first, block] = call.params as unknown[];
+    if (!isRecord(first) || Object.keys(first).some((key) => key !== "to" && key !== "data")) return false;
+    if (block !== undefined && block !== "latest") return false;
+    return typeof first.to === "string" && typeof first.data === "string" && new RegExp(`^${SELECTOR_BALANCE_OF}0{24}[0-9a-f]{40}$`).test(first.data.toLowerCase());
   });
 }
 

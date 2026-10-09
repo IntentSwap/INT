@@ -16,7 +16,7 @@
 //   - by the coin that was sent: the dollar value;
 //   - the dollar value by hour (with a count) for the last 48 hours;
 //   - for 48 hours, and never more than 300 of them, one row for each delivered swap: the coin
-//     sent, the amount sent, the second it was delivered, and the hash of its deposit transaction.
+//     sent, the amount sent, the minute the swap began, and the hash of its deposit transaction.
 //
 // Never an order's ID and never an address. (A deposit's transaction is public on its own chain,
 // and whoever opens it there sees the address that sent it.)

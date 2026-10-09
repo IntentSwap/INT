@@ -948,6 +948,27 @@ describe("GET /api/orders/:id", () => {
     expect((await h.post("/api/track", { depositAddress: ` ${order.depositAddress!.toLowerCase()} ` }, { session })).body).toEqual({ id: order.id });
   });
 
+  it("does not find a delivered order by its deposit address while the Stats page lists deposits: the address must not lead to the receiving side", async () => {
+    const h = await start();
+    const session = await h.session();
+    const order = asOrder(await h.order());
+    const unknown = await h.post("/api/track", { depositAddress: "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83" }, { session, ip: "198.51.100.40" });
+    // Still under way: found, as ever.
+    expect((await h.post("/api/track", { depositAddress: order.depositAddress }, { session, ip: "198.51.100.41" })).body).toEqual({ id: order.id });
+    // Delivered: answered exactly as an address that is no order's. Its own ID still opens it.
+    h.store.saveState(order.id, { ...h.store.get(order.id)!.state, status: "delivered" });
+    const after = await h.post("/api/track", { depositAddress: order.depositAddress }, { session, ip: "198.51.100.42" });
+    expect(after.status).toBe(404);
+    expect(after.text).toBe(unknown.text);
+    expect((await h.get(`/api/orders/${order.id}`)).status).toBe(200);
+    // With the Stats page off nothing lists the deposit, and a delivered order is found as before.
+    const off = await start({ env: { STATS_PAGE: "off" } });
+    const offSession = await off.session();
+    const other = asOrder(await off.order());
+    off.store.saveState(other.id, { ...off.store.get(other.id)!.state, status: "delivered" });
+    expect((await off.post("/api/track", { depositAddress: other.depositAddress }, { session: offSession })).body).toEqual({ id: other.id });
+  });
+
   it("answers an address that is no order's exactly as it answers an order ID that is no order's", async () => {
     const h = await start();
     const session = await h.session();
@@ -1514,6 +1535,15 @@ describe("rate limits", () => {
     expect((await h.post("/api/rpc/base", [own, other], who)).status).toBe(429);
     expect((await h.post("/api/rpc/base", own, who)).status).toBe(200);
     expect((await h.post("/api/rpc/base", other, who)).status).toBe(429);
+    // So does a call that only begins like a balance read: another function, more after the address, a gas figure, another block.
+    const lookalike = await start({ limits: { rpc: { max: 4, windowMs: 60_000 }, rpcBalances: { max: 50, windowMs: 60_000 } } });
+    const again = { ip: "203.0.113.78", session: await lookalike.session() };
+    const call = (first: Record<string, unknown>, block: string = "latest") => [{ jsonrpc: "2.0", id: 1, method: "eth_call", params: [first, block] }];
+    const data = token.params[0] as { to: string; data: string };
+    const tries = [call({ to: data.to, data: "0x313ce567" }), call({ to: data.to, data: `${data.data}${"00".repeat(32)}` }), call({ ...data, gas: "0x2faf080" }), call(data, "0x1")];
+    for (const batch of tries) expect((await lookalike.post("/api/rpc/base", batch, again)).status).toBe(200);
+    expect((await lookalike.post("/api/rpc/base", call(data), again)).status).toBe(200);
+    expect((await lookalike.post("/api/rpc/base", other, again)).status).toBe(429);
   });
 
   it("counts an IPv6 /64 as one client", async () => {

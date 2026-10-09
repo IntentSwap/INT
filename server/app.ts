@@ -403,7 +403,7 @@ export function createApp(deps: AppDeps): RequestListener {
     cheapRead: true,
     limit: "light",
     handler: async () => {
-      // A practice server has made-up swaps to show, brought up to the present quarter of an hour.
+      // A practice server has made-up swaps to show, brought up to the present.
       deps.practice?.samples?.ensureStats(now());
       return { status: 200, body: stats.view() };
     },
@@ -756,7 +756,12 @@ export function createApp(deps: AppDeps): RequestListener {
         // been paid, and its page shows both ends of the swap: finding the one from the other would
         // publish the very link that private routing keeps out of public records. Such an order opens
         // from its own link or ID only, and its address is answered exactly as an address that is no order's.
-        const record = found !== null && found.confidentiality !== "basic" ? found : null;
+        // Nor is an order the Stats page lists. A delivered swap's deposit transaction is linked there, and
+        // that transaction names the deposit address: finding the order from it would hand anyone the
+        // receiving side, which the Stats page keeps out. Once delivered, an order opens from its own
+        // link or ID only, while the Stats page is on.
+        const listed = found !== null && config.statsPage && found.state.status === "delivered";
+        const record = found !== null && found.confidentiality !== "basic" && !listed ? found : null;
         if (record === null) {
           limited("orderMiss", ctx.ipKey);
           throw NOT_FOUND;

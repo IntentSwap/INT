@@ -69,6 +69,7 @@ function PrivateRoutingLink() {
 
 function HowItWorks() {
   const privateOn = usePrivateRouting();
+  const statsOn = useApp((state) => statsPageOn(state.config));
   return (
     <DocsLayout href={docHref(null)} title="How it works" lead="IntentSwap swaps one coin for another, also when the two are on different chains. Swaps run on NEAR Intents. IntentSwap is the interface: it never holds your funds.">
       <DocSection title="Quote">
@@ -86,6 +87,7 @@ function HowItWorks() {
       <DocSection title="Track">
         <p>
           The order has its own page. It follows the deposit, the swap and the delivery, and links to the transactions. <Link href="/track">Track order</Link> finds that page again from the order's ID or its deposit address.{privateOn ? <> A privately routed order is found from its link or ID only, never from its deposit address: the address is public, and the order's page shows both ends of the swap.</> : null}
+          {statsOn ? <> Once any order has been delivered it is found from its link or ID only: its deposit is listed on the Stats page, and the order's page shows both ends of the swap.</> : null}
         </p>
       </DocSection>
       {privateOn ? (

@@ -4,6 +4,7 @@ import { PrimaryButton } from "../components/Button.tsx";
 import { RecentList } from "../components/RecentList.tsx";
 import { Reveal } from "../components/Reveal.tsx";
 import { isPrivateMode } from "../lib/site-logic.ts";
+import { statsPageOn } from "../lib/stats-logic.ts";
 import { findOrder, readTrackInput, TRACK_WORDS, type TrackOutcome } from "../lib/track-logic.ts";
 import { navigate } from "../router.ts";
 import { useApp } from "../stores/app.ts";
@@ -32,6 +33,8 @@ export default function TrackPage() {
   const area = useRef<HTMLTextAreaElement>(null);
   // Where swaps are routed privately, such an order is not found from its deposit address, and the page says so.
   const privateOn = useApp((state) => isPrivateMode(state.config));
+  // Where the Stats page lists deposits, a delivered order is not found from its deposit address either.
+  const statsOn = useApp((state) => statsPageOn(state.config));
   // Grow with the text, so that what was pasted wraps instead of running out of sight.
   useEffect(() => {
     const element = area.current;
@@ -72,7 +75,7 @@ export default function TrackPage() {
           Track an order
         </h1>
         <p className="focus-lead muted">
-          Paste the order's link or ID, or the deposit address you sent to. It opens that order's page.{privateOn ? <> A privately routed order opens from its link or ID only.</> : null}
+          Paste the order's link or ID, or the deposit address you sent to. It opens that order's page.{privateOn && statsOn ? <> A privately routed order, and any order once it has been delivered, opens from its link or ID only.</> : privateOn ? <> A privately routed order opens from its link or ID only.</> : statsOn ? <> Once an order has been delivered, it opens from its link or ID only.</> : null}
         </p>
       </Reveal>
       {/* The one thing on the page: a field, with a soft light behind it. */}
