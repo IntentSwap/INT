@@ -1,4 +1,4 @@
-// The Rewards page's own state: what anyone may see (the week, the reserve), and, after a sign-in,
+// The Rewards page's own state: what anyone may see (the week, its total of points, the pool), and, after a sign-in,
 // one address's own points. The sign-in is kept in this page's memory only, never written down:
 // closing or reloading the page ends it, and it ends by itself after half an hour.
 
@@ -83,6 +83,8 @@ export const useRewards = create<RewardsState>((set, get) => ({
       const mine = await api.rewardsMine(session.token);
       const lifetime = Date.parse(session.expiresAt) - Date.now() - get().clockOffset;
       set({ session: { address: session.address, token: session.token, expiresAt: Date.now() + (Number.isFinite(lifetime) && lifetime > 0 ? lifetime : 0) }, mine, step: "idle" });
+      // The share is this address's points out of the week's total: the total is read again now, so that the two are of the same moment.
+      void get().loadSummary();
     } catch (error) {
       const message = error instanceof ApiError && error.code === "rate_limited" ? "Too many tries. Wait a minute, then sign in again." : error instanceof ApiError && error.code === "network" ? "Can't reach the service. Check your connection, then sign in again." : "That sign-in did not work. Try again.";
       set({ step: "idle", error: message });

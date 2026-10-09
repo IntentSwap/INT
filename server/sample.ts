@@ -29,8 +29,8 @@ export const SAMPLE = {
   tokenAddress: address("token"),
   tokenPairAddress: address("pair"),
   reserveAddress: address("reserve"),
-  /** 1,250.5 of the payout coin. */
-  reserveBalance: (12_505n * 10n ** 17n).toString(),
+  /** What the sample reserve wallet holds: 4.25 BNB, 38.5 of the payout coin and 250,000 of the token. */
+  pool: { bnb: 425n * 10n ** 16n, payout: 385n * 10n ** 17n, token: 250_000n * 10n ** 18n },
 } as const;
 
 /** Where, inside a data folder, the note is kept that says the folder holds practice content. */
@@ -197,7 +197,10 @@ export interface Samples {
   ensureFor(address: string, now: number): void;
   /** Makes sure the Stats page has made-up swaps up to the last quarter of an hour that has ended. Each quarter is filled once. */
   ensureStats(now: number): void;
-  reserveBalance: string;
+  /** Makes sure this week has points in it before anyone signs in: three made-up addresses with a swap each. */
+  ensureWeek(now: number): void;
+  /** What the sample reserve wallet holds, in each coin's smallest unit. The chain is never asked about it. */
+  pool: { bnb: bigint; payout: bigint; token: bigint };
 }
 
 /**
@@ -256,8 +259,12 @@ export function seedSamples(options: { practice: boolean; dataDir: string; store
 
   return {
     orderIds: SAMPLES.map((sample) => sampleOrderId(sample.n)),
-    reserveBalance: SAMPLE.reserveBalance,
+    pool: SAMPLE.pool,
     ensureStats,
+    ensureWeek(at) {
+      // Swaps of $3,400, $1,820.50 and $760 this week, by three addresses that are nobody's.
+      [3_400_000_000n, 1_820_500_000n, 760_000_000n].forEach((volume, index) => addEntry(others[index]!, `this week ${thisWeek}`, Math.min(at, start + (4 + index) * HOUR), volume, [COIN.baseEth!, COIN.solUsdt!]));
+    },
     ensureFor(who, at) {
       // Points in this week and in the two before it.
       // Swaps of $1,240.82, $249.91 and $100 this week, of $2,605 and $560.25 last week, and of $1,650 the week before.

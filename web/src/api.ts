@@ -103,7 +103,7 @@ export const api = {
   practice: (id: string, action: string) => post<{ ok: true }>(`/api/practice/${encodeURIComponent(id)}`, { action }),
   /** The site's own totals and its rounded list of recent swaps, for the Stats page. */
   stats: () => send<StatsResponse>("GET", "/api/stats", undefined, AbortSignal.timeout(15_000)),
-  /** What anyone may see of the rewards: the week's dates, the weeks already paid, the reserve. */
+  /** What anyone may see of the rewards: the week's dates and its total of points, the weeks already paid, the current pool. */
   rewards: () => send<RewardsPublic>("GET", "/api/rewards"),
   /** The first half of the Rewards page's sign-in: the message to sign for an address, with its one-time code. */
   rewardsCode: (address: string) => post<{ message: string; nonce: string; issuedAt: string; expiresAt: string }>("/api/rewards/code", { address }, AbortSignal.timeout(15_000)),

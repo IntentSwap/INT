@@ -187,9 +187,20 @@ describe("start-up wiring", () => {
     for (const id of config.sampleOrders) statuses.push(String((await get(`/api/orders/${id}`)).status));
     expect(statuses).toEqual(["delivered", "delivered", "refunded", "refunded", "failed", "expired"]);
     expect(statuses.filter((status) => status === "delivered").length).toBeGreaterThanOrEqual(2);
-    // The reserve's balance is the sample one, and the chain is not asked for it.
-    const rewards = (await get("/api/rewards")) as { reserve: { address: string; balance: string }; weeks: unknown[] };
-    expect(rewards.reserve).toMatchObject({ address: SAMPLE.reserveAddress, balance: SAMPLE.reserveBalance });
+    // The pool is the sample one: 4.25 BNB, 38.5 of the payout coin and 250,000 of the token, valued at the coin list's
+    // prices ($750 and $1,200 here). The chain is not asked about it: no chain can be reached in this test, and the figures are there.
+    const rewards = (await get("/api/rewards")) as { pool: { address: string; totalUsdMicro: string; coins: { symbol: string; amount: string; usdMicro: string | null }[] }; weekPointsMicro: string; weeks: unknown[] };
+    expect(rewards.pool).toMatchObject({
+      address: SAMPLE.reserveAddress,
+      totalUsdMicro: "49387500000",
+      coins: [
+        { symbol: "BNB", amount: SAMPLE.pool.bnb.toString(), usdMicro: "3187500000" },
+        { symbol: "ZEC", amount: SAMPLE.pool.payout.toString(), usdMicro: "46200000000" },
+        { symbol: "$INT", amount: SAMPLE.pool.token.toString(), usdMicro: null },
+      ],
+    });
+    // And the week has sample points in it before anyone signs in: three made-up swaps of $3,400, $1,820.50 and $760.
+    expect(rewards.weekPointsMicro).toBe("59805000000");
     // Whoever signs in is given points over three weeks and two paid weeks.
     const account = privateKeyToAccount(`0x${"7".repeat(64)}`);
     const post = async (route: string, body: unknown) => (await fetch(`http://127.0.0.1:${at}${route}`, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${at}`, "x-session": config.session }, body: JSON.stringify(body) })).json() as Promise<Record<string, string>>;
@@ -228,7 +239,11 @@ describe("start-up wiring", () => {
       const { port: at } = await listen(b);
       const config = (await (await fetch(`http://127.0.0.1:${at}/api/config`)).json()) as Record<string, unknown>;
       // (A production server in this test has no location database, and answers every visitor "not available": it says nothing at all.)
-      if (env.NODE_ENV === "development") expect(config).toMatchObject({ practice: false, sampleOrders: [], tokenAddress: null, tokenPairAddress: null, reserveAddress: null });
+      if (env.NODE_ENV === "development") {
+        expect(config).toMatchObject({ practice: false, sampleOrders: [], tokenAddress: null, tokenPairAddress: null, reserveAddress: null });
+        // No sample pool and no sample points: with no reserve wallet set there is no pool at all, and the week's total is nothing.
+        expect(await (await fetch(`http://127.0.0.1:${at}/api/rewards`)).json()).toMatchObject({ pool: null, weekPointsMicro: "0" });
+      }
       else expect(JSON.stringify(config)).not.toMatch(/SampleOrder|sampleOrders":\["/);
       expect((await fetch(`http://127.0.0.1:${at}/api/orders/${sampleOrderId(1)}`)).status).not.toBe(200);
       await new Promise<void>((resolve) => b.stop(resolve));

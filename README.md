@@ -267,7 +267,7 @@ bad value stops the server with the variable's name in the log.
 | `REOWN_PROJECT_ID` | Wallet-connect project ID. Public by design | Already built in. Leave unset |
 | `TOKEN_ADDRESS` | The `$INT` contract on BNB Chain. Shows the `$INT` section when set | After the token launches |
 | `TOKEN_PAIR_ADDRESS` | The token's trading pair (liquidity pool) on BNB Chain, shown beside it | After the token launches |
-| `RESERVE_ADDRESS` | The wallet weekly payouts are sent from, on BNB Chain. Shows the reserve on the Rewards page when set | When payouts begin |
+| `RESERVE_ADDRESS` | The wallet weekly payouts are sent from, on BNB Chain. Shows the current pool on the Rewards page when set: what the wallet holds, in US dollars and coin by coin | When payouts begin |
 | `X_URL` | Where the X icon in the header and footer leads. Default `https://x.com/intentswap_`, the project's own account | Leave unset |
 | `GITHUB_URL` | Where the GitHub icon leads. Default `https://github.com/IntentSwap/INT`, the project's repository | Leave unset |
 | `DEXSCREENER_URL` | Where the DexScreener icon leads. Default `https://dexscreener.com/`, its front page, until the token has a page there | The token's own page, for example `https://dexscreener.com/bsc/0x...`, after the token launches |

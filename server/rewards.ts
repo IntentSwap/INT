@@ -443,8 +443,12 @@ export function createRewards(dataDir: string): Rewards {
         const inOrder = item.txs.map((tx) => tx.hash).filter((hash) => mine.has(hash));
         return [{ week: item.week, asset: item.asset, paid, txs: [...new Set([...inOrder, ...mine])] }];
       });
+      // This week's points as one number: every address's together, with what was carried in. No address goes with it.
+      let weekPoints = 0n;
+      for (const points of self.weekPoints(week).values()) weekPoints += points;
       return {
         week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString() },
+        weekPointsMicro: weekPoints.toString(),
         weeks: paidWeeks.map((item) => ({ week: item.week, asset: item.asset, paid: item.paid.toString(), txs: item.txs })).reverse(),
         totalPaid: paidWeeks.reduce((sum, item) => sum + item.paid, 0n).toString(),
         weeksPaid: paidWeeks.length,

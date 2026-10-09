@@ -47,6 +47,25 @@ export function pairText(from: { symbol: string; chain: string }, to: { symbol: 
   return `${from.symbol} on ${chainName(from.chain)} to ${to.symbol} on ${chainName(to.chain)}`;
 }
 
+/** Cents as US dollars: 1234n gives "$12.34", 123456789n gives "$1,234,567.89". */
+export function usdText(cents: bigint): string {
+  const whole = ((cents < 0n ? 0n : cents) / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `$${whole}.${((cents < 0n ? 0n : cents) % 100n).toString().padStart(2, "0")}`;
+}
+
+/** Millionths of a US dollar as dollars and cents, rounded down to the cent. */
+export function usdMicroText(micro: bigint): string {
+  return usdText(micro / 10_000n);
+}
+
+/** A share in hundredths of a percent, with two decimals: 100n gives "1.00%", 10000n gives "100.00%". */
+export function shareText(bps: bigint): string {
+  return `${bps / 100n}.${(bps % 100n).toString().padStart(2, "0")}%`;
+}
+
+/** Said under an address's share and its estimate, in these words. */
+export const ESTIMATE_NOTE = "An estimate. Your share changes as others swap, and the pool changes until the week closes.";
+
 /** The rules in short, each one a sentence, from the same numbers the server counts by. */
 export const RULES_IN_SHORT: readonly string[] = [
   `A delivered swap adds ${REWARDS.pointsPerUsd} points for each $1 swapped: one point for every 10 cents of its dollar value. A swap that is refunded, fails or runs out adds none.`,

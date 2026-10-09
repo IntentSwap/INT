@@ -1,22 +1,24 @@
-// Points and weekly rewards. One thing to look at: this week, with its dates, its countdown and,
-// after a sign-in, the points of the address that signed in. Under it: that address's swaps and
-// payouts, the rules in short, and the reserve wallet where one is set.
+// Points and weekly rewards. One thing to look at: this week, with its dates, its countdown, the
+// points of everyone together as one total and, after a sign-in, the points of the address that
+// signed in, with its share of that total. Under it: the current pool where a reserve wallet is
+// set, that address's swaps and payouts, and the rules in short.
 //
-// Nobody is shown another address's points. To see one's own, the wallet is asked to sign one
-// plain message; the page says so before the wallet opens.
+// Nobody is shown another address's points: of everyone else there is the one total, and no list.
+// To see one's own, the wallet is asked to sign one plain message; the page says so before the
+// wallet opens.
 
 import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { displayExact } from "../../../shared/amounts.ts";
 import { explorerAddressUrl, explorerTxUrl } from "../../../shared/chains.ts";
-import { REWARDS, showPoints, type ReserveView, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
+import { poolShare, RESERVE_ASSET, REWARDS, showPoints, type PoolView, type RewardsPublic, type RewardsView } from "../../../shared/rewards.ts";
 import { Address } from "../components/Address.tsx";
 import { PrimaryButton, TextButton } from "../components/Button.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { TableFrame } from "../components/DocsLayout.tsx";
 import { Link } from "../components/Link.tsx";
 import { Reveal } from "../components/Reveal.tsx";
-import { countdownText, momentText, pairText, reasonWords, RULES_IN_SHORT, weekDates, weekName } from "../lib/rewards-logic.ts";
+import { countdownText, ESTIMATE_NOTE, momentText, pairText, reasonWords, RULES_IN_SHORT, shareText, usdMicroText, usdText, weekDates, weekName } from "../lib/rewards-logic.ts";
 import { shortAddress } from "../lib/swap-logic.ts";
 import { useRewards } from "../stores/rewards.ts";
 import { useWallet } from "../stores/wallet.ts";
@@ -51,7 +53,7 @@ function TxLinks({ hashes }: { hashes: readonly string[] }) {
   );
 }
 
-/** This week: its dates and the time left in it. */
+/** This week: its dates, the time left in it, and the points of everyone together as one total. */
 function Week({ summary, offset }: { summary: RewardsPublic | null; offset: number }) {
   const now = useSecond() + offset;
   if (summary === null) {
@@ -63,6 +65,7 @@ function Week({ summary, offset }: { summary: RewardsPublic | null; offset: numb
     );
   }
   const left = Date.parse(summary.week.end) - now;
+  const total = BigInt(summary.weekPointsMicro);
   return (
     <div className="rewards-clock">
       <p className="rewards-label mono">This week</p>
@@ -74,17 +77,37 @@ function Week({ summary, offset }: { summary: RewardsPublic | null; offset: numb
         {weekDates(summary.week.start, summary.week.end)}, by the clock in UTC. <span className="sr-only">The week closes at midnight on Sunday, UTC.</span>
         <span aria-hidden="true">Left until it closes.</span>
       </p>
+      {/* One total, and no list behind it: nobody's points but one's own are shown anywhere. */}
+      <div className="rewards-total">
+        <p className="rewards-label mono">This week's points</p>
+        {total > 0n ? (
+          <>
+            <p className="rewards-figure mono">{showPoints(total)}</p>
+            <p className="muted">Collected by everyone together.</p>
+          </>
+        ) : (
+          <p className="muted">No points have been collected yet this week.</p>
+        )}
+      </div>
     </div>
   );
 }
 
-/** Beside the week: an invitation to connect and sign in, or the signed-in address's points. */
-function Mine({ mine }: { mine: RewardsView | null }) {
+/**
+ * Beside the week: an invitation to connect and sign in, or the signed-in address's points, with
+ * its share of the week's total and what that share of the pool comes to. Both are worked out here,
+ * from this address's own points and the two figures anyone may see.
+ */
+function Mine({ mine, summary }: { mine: RewardsView | null; summary: RewardsPublic | null }) {
   const wallet = useWallet();
   const rewards = useRewards();
   const signedIn = rewards.session !== null && mine !== null;
   if (signedIn) {
     const carried = BigInt(mine.week.carriedInMicro);
+    const own = BigInt(mine.week.pointsMicro);
+    // The pool's dollars, where a reserve wallet is set and its balance has been read. Without them there is no estimate.
+    const poolUsd = summary?.pool?.totalUsdMicro ?? null;
+    const part = summary === null ? null : poolShare(own, BigInt(summary.weekPointsMicro), poolUsd === null ? null : BigInt(poolUsd));
     return (
       <div className="rewards-mine">
         <p className="rewards-label mono">Your points this week</p>
@@ -93,6 +116,28 @@ function Mine({ mine }: { mine: RewardsView | null }) {
           All time: <span className="mono">{showPoints(BigInt(mine.allTimeMicro))}</span>
         </p>
         {carried > 0n ? <p className="muted">Includes {showPoints(carried)} carried from last week, when no payout was sent for them.</p> : null}
+        {part !== null ? (
+          <>
+            <dl className="rewards-facts">
+              <div className="rewards-fact">
+                <dt className="rewards-label mono">Your share</dt>
+                <dd className="rewards-figure mono">{own > 0n ? shareText(part.shareBps) : "0%"}</dd>
+              </div>
+              {poolUsd !== null ? (
+                <div className="rewards-fact">
+                  <dt className="rewards-label mono">Estimated reward</dt>
+                  <dd className="rewards-figure mono">{usdText(part.estimateCents)}</dd>
+                </div>
+              ) : null}
+            </dl>
+            {poolUsd !== null ? <p className="muted">{ESTIMATE_NOTE}</p> : null}
+            {own > 0n ? null : (
+              <p className="muted">
+                <Link href="/">Make a swap to collect points.</Link>
+              </p>
+            )}
+          </>
+        ) : null}
         <p className="rewards-who muted">
           Signed in as <span className="mono">{shortAddress(mine.address)}</span>
           <TextButton onClick={rewards.signOut}>Sign out</TextButton>
@@ -196,66 +241,84 @@ function Payouts({ mine }: { mine: RewardsView }) {
   );
 }
 
-/** The reserve wallet payouts are sent from: its address, what it holds, and what has been paid from it. Not drawn at all while no reserve is set. */
-function Reserve({ reserve, summary }: { reserve: ReserveView; summary: RewardsPublic }) {
-  const url = explorerAddressUrl(REWARDS.chain, reserve.address);
+/**
+ * The current pool: what the reserve wallet holds on BNB Chain, as the server last read it, in US
+ * dollars and coin by coin, with a link to the wallet on the chain's own explorer so that anyone
+ * can check it; and what has been paid from it. Not drawn at all while no reserve wallet is set.
+ */
+function Pool({ pool, summary }: { pool: PoolView; summary: RewardsPublic }) {
+  const url = explorerAddressUrl(REWARDS.chain, pool.address);
   return (
-    <section className="rewards-part" aria-labelledby="rewards-reserve">
-      <h2 id="rewards-reserve" className="rewards-heading">
-        The reserve
+    <section className="rewards-part" aria-labelledby="rewards-pool">
+      <h2 id="rewards-pool" className="rewards-heading">
+        Current pool
       </h2>
-      <p className="muted">Payouts are sent from this wallet on BNB Chain, in {reserve.asset.name}. Its balance is read from the chain as this page opens.</p>
-      <dl className="rewards-facts">
-        <div className="rewards-fact">
-          <dt className="rewards-label mono">Holds now</dt>
-          <dd className="rewards-figure mono">{reserve.balance !== null ? `${displayExact(BigInt(reserve.balance), reserve.asset.decimals)} ${reserve.asset.symbol}` : "–"}</dd>
-        </div>
-        <div className="rewards-fact">
-          <dt className="rewards-label mono">Paid out so far</dt>
-          <dd className="rewards-figure mono">
-            {displayExact(BigInt(summary.totalPaid), reserve.asset.decimals)} {reserve.asset.symbol}
-          </dd>
-        </div>
-        <div className="rewards-fact">
-          <dt className="rewards-label mono">Weeks paid</dt>
-          <dd className="rewards-figure mono">{summary.weeksPaid}</dd>
-        </div>
-      </dl>
+      {pool.totalUsdMicro !== null ? (
+        <>
+          <p className="rewards-pool-total mono">{usdMicroText(BigInt(pool.totalUsdMicro))}</p>
+          <p className="muted">
+            What the rewards wallet holds on BNB Chain{pool.readAt !== null ? <>, read from the chain on {momentText(pool.readAt)} UTC</> : null}. Each week's payout is sent from it, shared out by points.
+          </p>
+          <dl className="rewards-facts">
+            {pool.coins.map((coin) => (
+              <div className="rewards-fact" key={coin.symbol}>
+                <dt className="rewards-label mono">{coin.name}</dt>
+                <dd className="rewards-figure mono">
+                  {displayExact(BigInt(coin.amount), coin.decimals)} {coin.symbol}
+                </dd>
+                {/* A coin with no price is listed all the same, and adds nothing to the total. */}
+                <dd className="muted">{coin.usdMicro !== null ? usdMicroText(BigInt(coin.usdMicro)) : "not counted in the total"}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      ) : (
+        <p className="muted">The balance could not be read just now.</p>
+      )}
       <p className="rewards-address">
         <span className="token-address">
-          <Address value={reserve.address} />
+          <Address value={pool.address} />
         </span>
-        <CopyButton value={reserve.address} what="the reserve wallet's address" />
+        <CopyButton value={pool.address} what="the rewards wallet's address" />
         {url !== null ? (
           <a href={url} target="_blank" rel="noopener noreferrer" className="outbound">
-            View the wallet
+            View the wallet on BscScan
             <ExternalLink size={16} strokeWidth={1.5} aria-hidden="true" />
-            <span className="sr-only">(opens the block explorer)</span>
+            <span className="sr-only">(opens in a new tab)</span>
           </a>
         ) : null}
       </p>
       {summary.weeks.length > 0 ? (
-        <TableFrame label="Weeks paid from the reserve">
-          <thead>
-            <tr>
-              <th scope="col">Week</th>
-              <th scope="col">Paid</th>
-              <th scope="col">Sent</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.weeks.map((week) => (
-              <tr key={week.week}>
-                <th scope="row">{weekName(week.week)}</th>
-                <td className="mono">
-                  {displayExact(BigInt(week.paid), reserve.asset.decimals)} {week.asset}
-                </td>
-                {/* One transfer to each address paid. A handful are linked; more than that are counted, and can be seen on the wallet's own page (the link above). */}
-                <td>{week.txs.length > 3 ? <span className="mono">{week.txs.length} transfers</span> : <TxLinks hashes={week.txs} />}</td>
+        <>
+          <p className="muted">
+            Paid out so far:{" "}
+            <span className="mono">
+              {displayExact(BigInt(summary.totalPaid), RESERVE_ASSET.decimals)} {RESERVE_ASSET.symbol}
+            </span>{" "}
+            over <span className="mono">{summary.weeksPaid}</span> {summary.weeksPaid === 1 ? "week" : "weeks"}.
+          </p>
+          <TableFrame label="Weeks paid from the pool">
+            <thead>
+              <tr>
+                <th scope="col">Week</th>
+                <th scope="col">Paid</th>
+                <th scope="col">Sent</th>
               </tr>
-            ))}
-          </tbody>
-        </TableFrame>
+            </thead>
+            <tbody>
+              {summary.weeks.map((week) => (
+                <tr key={week.week}>
+                  <th scope="row">{weekName(week.week)}</th>
+                  <td className="mono">
+                    {displayExact(BigInt(week.paid), RESERVE_ASSET.decimals)} {week.asset}
+                  </td>
+                  {/* One transfer to each address paid. A handful are linked; more than that are counted, and can be seen on the wallet's own page (the link above). */}
+                  <td>{week.txs.length > 3 ? <span className="mono">{week.txs.length} transfers</span> : <TxLinks hashes={week.txs} />}</td>
+                </tr>
+              ))}
+            </tbody>
+          </TableFrame>
+        </>
       ) : null}
     </section>
   );
@@ -283,7 +346,7 @@ export default function RewardsPage() {
   }, [wallet.address, signedAs, signOut]);
 
   const mine = rewards.session !== null ? rewards.mine : null;
-  const reserve = rewards.summary?.reserve ?? null;
+  const pool = rewards.summary?.pool ?? null;
   return (
     <section className="rewards" aria-labelledby="rewards-title">
       <Reveal as="header" className="focus-head">
@@ -297,8 +360,11 @@ export default function RewardsPage() {
       {/* The one thing on the page: this week, and beside it your part in it. */}
       <Reveal className="rewards-week">
         <Week summary={rewards.summary} offset={rewards.clockOffset} />
-        <Mine mine={mine} />
+        <Mine mine={mine} summary={rewards.summary} />
       </Reveal>
+
+      {/* Only where a reserve wallet is set. Where none is, there is no such part and nothing in its place. */}
+      {pool !== null && rewards.summary !== null ? <Pool pool={pool} summary={rewards.summary} /> : null}
 
       {mine !== null ? (
         <>
@@ -328,7 +394,6 @@ export default function RewardsPage() {
         </p>
       </section>
 
-      {reserve !== null && rewards.summary !== null ? <Reserve reserve={reserve} summary={rewards.summary} /> : null}
     </section>
   );
 }

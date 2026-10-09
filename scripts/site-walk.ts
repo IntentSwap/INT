@@ -313,7 +313,7 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     expectThat((await desk.locator(".rewards-rules li").count()) === 5, `the Rewards page gives ${await desk.locator(".rewards-rules li").count()} rules in short`);
     const rewards = await desk.locator("main#main").innerText();
     expectThat(!/0x[0-9a-fA-F]{6}/.test(rewards) && (await desk.locator(".rewards-points").count()) === 0, "the Rewards page shows an address or a number of points to someone who has not signed in");
-    expectThat((await desk.getByRole("heading", { name: "The reserve" }).count()) === 0, "the Rewards page shows a reserve although no reserve address is set");
+    expectThat((await desk.getByRole("heading", { name: "Current pool" }).count()) === 0, "the Rewards page shows a pool although no reserve address is set");
     await desk.goto(new URL("/", baseUrl).toString(), { waitUntil: "networkidle" });
     await desk.locator(".card").waitFor({ timeout: 15_000 });
 

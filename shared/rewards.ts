@@ -149,25 +149,62 @@ export interface RewardsView {
   payouts: { week: string; amount: string; asset: string; txs: string[] }[];
 }
 
-/** What anyone may see: this week's dates, and of the closed weeks only their totals. No address but the reserve's own. */
+/**
+ * What anyone may see: this week's dates, this week's points of every address together as one
+ * number, and of the closed weeks only their totals. No address, and no figure of any one address.
+ */
 export interface RewardsSummary {
   week: { id: string; start: string; end: string };
+  /** This week's points, everyone's together, in millionths of a point. A total only. */
+  weekPointsMicro: string;
   weeks: { week: string; asset: string; paid: string; txs: string[] }[];
   totalPaid: string;
   weeksPaid: number;
 }
 
-/** What the Rewards page is told about the reserve wallet: its address, the coin, and its balance as read from the chain (null when the chain could not be read). Absent while no reserve is set. */
-export interface ReserveView {
-  address: string;
-  asset: { symbol: string; name: string; decimals: number; contract: string };
-  balance: string | null;
+/** One coin the pool's wallet holds. It names no contract: the answer anyone gets holds no address but the wallet's own. */
+export interface PoolCoin {
+  symbol: string;
+  name: string;
+  decimals: number;
+  /** In the coin's smallest unit. */
+  amount: string;
+  /** Its value in millionths of a US dollar, rounded down. Null where there is no price for it: it is then not counted in the total. */
+  usdMicro: string | null;
 }
 
-/** The answer to "what may anyone see": the summary, and the reserve when one is set. */
+/**
+ * The current pool: what the reserve wallet holds on BNB Chain, as the server last read it. Absent
+ * while no reserve wallet is set. Before any read has worked there are no figures: the total and
+ * the time of reading are null and the list of coins is empty.
+ */
+export interface PoolView {
+  address: string;
+  /** The coins that could be priced, added up, in millionths of a US dollar. */
+  totalUsdMicro: string | null;
+  coins: PoolCoin[];
+  readAt: string | null;
+}
+
+/** The answer to "what may anyone see": the summary, and the pool when a reserve wallet is set. */
 export interface RewardsPublic extends RewardsSummary {
-  reserve: ReserveView | null;
+  pool: PoolView | null;
   serverNow: string;
+}
+
+/**
+ * One address's part in this week's pool, from three figures: its own points this week, the
+ * week's points of everyone together, and the pool's value in millionths of a dollar (null when
+ * it is not known). The share is in hundredths of a percent, rounded down, and never above 100%.
+ * The estimate is that part of the pool in cents, rounded down. Both are nothing while nobody has
+ * points, and the estimate is nothing while the pool is not known.
+ */
+export function poolShare(mineMicro: bigint, totalMicro: bigint, poolUsdMicro: bigint | null): { shareBps: bigint; estimateCents: bigint } {
+  if (totalMicro <= 0n || mineMicro <= 0n) return { shareBps: 0n, estimateCents: 0n };
+  // An address's own points and the week's total are read a moment apart: they never count for more than all of it.
+  const mine = mineMicro > totalMicro ? totalMicro : mineMicro;
+  const estimateCents = poolUsdMicro === null || poolUsdMicro <= 0n ? 0n : (poolUsdMicro * mine) / (totalMicro * 10_000n);
+  return { shareBps: (mine * 10_000n) / totalMicro, estimateCents };
 }
 
 /** What a sign-in message is made of: the site's host as the browser knows it, the address in its standard spelling, the one-time code and the two times. */

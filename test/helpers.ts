@@ -62,6 +62,10 @@ export interface FakeRpc extends Rpc {
   decimals: Map<string, number>;
   /** What balanceOf answers for a holder (lower-case address), whichever token is asked about. */
   balances: Map<string, bigint>;
+  /** What balanceOf answers for one token and one holder, keyed "token:holder" in lower case. Looked at before `balances`. */
+  tokenBalances: Map<string, bigint>;
+  /** What eth_getBalance answers for a holder (lower-case address). Anyone else holds one whole coin. */
+  native: Map<string, bigint>;
   down: boolean;
   calls: Array<{ chain: string; call: RpcCall }>;
 }
@@ -73,6 +77,8 @@ export function createFakeRpc(): FakeRpc {
     beforeBatch: null,
     decimals: new Map(),
     balances: new Map(),
+    tokenBalances: new Map(),
+    native: new Map(),
     down: false,
     calls: [],
     async batch(chain: WalletChain, calls: RpcCall[]): Promise<RpcResult[]> {
@@ -82,10 +88,10 @@ export function createFakeRpc(): FakeRpc {
         if (rpc.down) return { ok: false, code: -32603, message: "RPC unavailable" };
         if (call.method === "eth_call") {
           const data = String((call.params[0] as { data?: string }).data ?? "");
-          // balanceOf(holder)
-          const held = data.startsWith("0x70a08231") ? rpc.balances.get(`0x${data.slice(-40)}`) : undefined;
-          if (held !== undefined) return { ok: true, result: `0x${held.toString(16).padStart(64, "0")}` };
           const to = String((call.params[0] as { to?: string }).to).toLowerCase();
+          // balanceOf(holder)
+          const held = data.startsWith("0x70a08231") ? (rpc.tokenBalances.get(`${to}:0x${data.slice(-40)}`) ?? rpc.balances.get(`0x${data.slice(-40)}`)) : undefined;
+          if (held !== undefined) return { ok: true, result: `0x${held.toString(16).padStart(64, "0")}` };
           const known = rpc.decimals.get(to) ?? ALLOWLIST.find((c) => c.contractAddress === to)?.decimals;
           if (known === undefined) return { ok: false, code: 3, message: "execution reverted" };
           return { ok: true, result: `0x${known.toString(16).padStart(64, "0")}` };
@@ -93,7 +99,7 @@ export function createFakeRpc(): FakeRpc {
         if (call.method === "eth_getTransactionByHash") return { ok: true, result: rpc.txs.get(String(call.params[0])) ?? null };
         if (call.method === "eth_getTransactionReceipt") return { ok: true, result: rpc.receipts.get(String(call.params[0])) ?? null };
         if (call.method === "eth_chainId") return { ok: true, result: "0x1" };
-        if (call.method === "eth_getBalance") return { ok: true, result: "0xde0b6b3a7640000" };
+        if (call.method === "eth_getBalance") return { ok: true, result: `0x${(rpc.native.get(String(call.params[0]).toLowerCase()) ?? 10n ** 18n).toString(16)}` };
         return { ok: false, code: -32601, message: "method not found" };
       });
     },

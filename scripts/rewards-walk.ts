@@ -188,13 +188,17 @@ export async function rewardsWalk(browser: Browser, options: { practiceUrl: stri
       await page.getByRole("heading", { name: "Your payouts" }).waitFor({ timeout: 10_000 });
       const payouts = await page.getByRole("region", { name: "Payouts to your address" }).locator("tbody tr").count();
       expectThat(payouts === 2, `the signed-in address is shown ${payouts} payouts, not the two sample weeks`);
-      await page.getByRole("heading", { name: "The reserve" }).waitFor({ timeout: 10_000 });
-      expectThat(/^[\d,.]+ ZEC$/.test((await page.locator(".rewards-figure").first().innerText()).trim()), `the reserve's balance reads "${await page.locator(".rewards-figure").first().innerText()}"`);
+      await page.getByRole("heading", { name: "Current pool" }).waitFor({ timeout: 10_000 });
+      const pooled = (await page.locator(".rewards-pool-total").innerText()).trim();
+      expectThat(/^\$[\d,]+\.\d\d$/.test(pooled), `the current pool reads "${pooled}"`);
+      // Beside the address's own points: its share of the week's total, and what that share of the pool comes to.
+      const part = (await page.locator(".rewards-mine").innerText()).replace(/\s+/g, " ");
+      expectThat(/Your share [\d.]+% Estimated reward \$[\d,]+\.\d\d An estimate\. Your share changes as others swap, and the pool changes until the week closes\./i.test(part), `the signed-in address's share reads "${part}"`);
       // No address on the page but this one (in short) and the reserve's.
       const text = await page.locator("main#main").innerText();
       // (An address is 40 hex figures and no more: a transaction's hash, which is longer, is not one.)
       const shown = [...new Set((text.replace(/\s+/g, "").match(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g) ?? []).map((address) => address.toLowerCase()))];
-      const reserve = ((JSON.parse(answers.find((answer) => new URL(answer.url).pathname === "/api/rewards")?.body ?? "{}") as { reserve?: { address?: string } }).reserve?.address ?? "").toLowerCase();
+      const reserve = ((JSON.parse(answers.find((answer) => new URL(answer.url).pathname === "/api/rewards")?.body ?? "{}") as { pool?: { address?: string } | null }).pool?.address ?? "").toLowerCase();
       expectThat(shown.every((address) => address === reserve || address === ACCOUNT.address.toLowerCase()), `the page shows an address that is neither the signed-in one nor the reserve's: ${shown.join(", ")}`);
       // And what the server answered names no other address either.
       const mine = answers.find((answer) => new URL(answer.url).pathname === "/api/rewards/me")?.body ?? "";

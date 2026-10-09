@@ -46,9 +46,10 @@
   text-transform: uppercase;
 }
 
-/* The time left, and the points: the two large figures of the page. Fixed-width figures, so that a ticking clock moves nothing. */
+/* The time left, the points and the pool: the large figures of the page. Fixed-width figures, so that a ticking clock moves nothing. */
 .rewards-count,
-.rewards-points {
+.rewards-points,
+.rewards-pool-total {
   font-size: var(--text-32);
   line-height: var(--line-32);
   font-weight: var(--weight-500);
@@ -58,6 +59,13 @@
 
 .rewards-points {
   color: var(--accent);
+}
+
+/* Under the week's dates: everyone's points together, as one figure. */
+.rewards-total {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-16);
 }
 
 .rewards-waiting {
@@ -141,7 +149,7 @@
   line-height: var(--line-relaxed);
 }
 
-/* The reserve: three figures side by side with a thin rule between them, then the wallet's address. */
+/* A share and its estimate, and the pool's coins: figures side by side with a thin rule between them. Under the pool's, the wallet's address. */
 .rewards-facts {
   display: grid;
   margin: 0;
@@ -186,7 +194,8 @@
   }
 
   .rewards-count,
-  .rewards-points {
+  .rewards-points,
+  .rewards-pool-total {
     font-size: var(--text-48);
     line-height: var(--line-48);
     letter-spacing: var(--tracking-display);

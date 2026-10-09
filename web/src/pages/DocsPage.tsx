@@ -371,15 +371,21 @@ function Rewards() {
       </DocSection>
       <DocSection title="Seeing your points" id="signing-in">
         <p>
-          Nobody can look up another address's points: there is no ranking and no list. On <Link href="/rewards">Rewards</Link> you see your own, after showing that the address is yours.
+          Nobody can look up another address's points: there is no ranking and no list. On <Link href="/rewards">Rewards</Link> you see your own, after showing that the address is yours. Of everyone else's there is one figure only: the week's total.
         </p>
         <p>That takes one signature of a plain message: this site's name, your address, a code used once, and the time it runs out. It is not a transaction. It moves nothing, approves nothing and costs no network fee. The sign-in lasts {REWARDS.sessionMinutes} minutes.</p>
         <Callout tone="tip" title="Only the Rewards page asks for a signature.">
           <p>Paying for a swap never does.</p>
         </Callout>
       </DocSection>
+      <DocSection title="The pool" id="pool">
+        <p>
+          The pool is a wallet on BNB Chain. <Link href="/rewards">Rewards</Link> shows what it holds now, in US dollars and coin by coin, with a link to the wallet on BscScan so that anyone can check it. Each week it is shared out by points.
+        </p>
+        <p>Signed in, you also see your share, which is your points out of the week's total, and what that share of the pool comes to. Both are estimates: your share changes as others swap, and the pool changes until the week closes.</p>
+      </DocSection>
       <DocSection title="Payouts" id="payouts">
-        <p>After a week has closed, its payout is shared out by points: an address's share is its points divided by all the points of that week. It is sent by hand from the reserve wallet to each rewards address on BNB Chain. The Rewards page lists each payout with its transaction.</p>
+        <p>After a week has closed, its payout is shared out by points: an address's share is its points divided by all the points of that week. It is sent by hand from the pool's wallet to each rewards address on BNB Chain. The Rewards page lists each payout with its transaction.</p>
         <p>The addresses on a week's list are screened again as the list is made. One that is on a sanctions list is sent nothing.</p>
         <p>A share too small to send is not lost: its points are carried into the next week. So are every address's points in a week for which nothing is paid.</p>
         <Callout tone="warning" title="A payout is not owed.">
