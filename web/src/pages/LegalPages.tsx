@@ -14,10 +14,6 @@ import { Link } from "../components/Link.tsx";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { useApp } from "../stores/app.ts";
 
-/** The places the swap provider's own terms rule out, as of 8 October 2026. The server blocks these, and any others the operator adds. */
-const BLOCKED_PLACES =
-  "Afghanistan, Belarus, the Central African Republic, Cuba, the Democratic Republic of the Congo, Guinea-Bissau, Haiti, Iran, Libya, Mali, Myanmar, Nicaragua, North Korea, Russia, Somalia, South Sudan, Sudan, Syria, Venezuela, Yemen, Zimbabwe, and the Crimea, Donetsk, Luhansk, Zaporizhzhia and Kherson regions and the city of Sevastopol";
-
 /** Which version of the page this is. An order keeps the version of the Terms it was made under. */
 function Version() {
   return <p className="docs-version muted">Version {TERMS_VERSION}</p>;
@@ -55,11 +51,11 @@ export function TermsPage() {
         <p>You may use IntentSwap only if all of these are true:</p>
         <ul>
           <li>You are at least 18 years old.</li>
-          <li>You are not in, and not a resident of, a place where it is not available: {BLOCKED_PLACES}, or any other place where the site tells you so.</li>
+          <li>You are not in, and not a resident of, a country or territory that is under sanctions. IntentSwap is not for people or places under sanctions.</li>
           <li>You are not on a sanctions list, and you are not acting for anyone who is.</li>
-          <li>Using it is lawful where you are.</li>
+          <li>Using it is lawful where you are. You must not use it where that would be unlawful.</li>
         </ul>
-        <p>You must not use a VPN or any other means to get around the block on these places.</p>
+        <p>These are conditions on you. It is for you to know whether you meet them.</p>
       </Section>
 
       <Section title="3. How a swap works">
@@ -103,7 +99,7 @@ export function TermsPage() {
 
       <Section title="8. What you must not do">
         <ul>
-          <li>Use the site from a place where it is not available, or hide where you are.</li>
+          <li>Use the site from a place under sanctions, or where using it is unlawful.</li>
           <li>Use it with coins that come from crime, or to hide where coins came from.</li>
           <li>Use it for anyone who is on a sanctions list.</li>
           <li>Attack the site, overload it, or use its data routes from anything other than the site itself.</li>
@@ -150,7 +146,7 @@ export function TermsPage() {
           <p>IntentSwap asks the swap service to route each swap with its confidential routing. With it, the link between your deposit and your delivery is not in public records. The deposit and the delivery themselves are public transfers, each on its own blockchain.</p>
           <ul>
             <li>Private routing is not anonymity. The swap service's confidential system can see a swap, and so can IntentSwap for what is needed to run your order.</li>
-            <li>IntentSwap and the swap service screen addresses, and block prohibited regions and persons, on a privately routed swap as on any other.</li>
+            <li>Addresses are screened against the sanctions list, by IntentSwap and by the swap service, on a privately routed swap as on any other. The swap service applies its own rules on prohibited places and persons.</li>
             <li>You must not use IntentSwap to conceal the proceeds of crime, or to get round sanctions or any law.</li>
             <li>The swap service does not promise that confidentiality is complete, and it may be required to disclose what it holds. IntentSwap does not promise it either.</li>
             <li>When private routing cannot be had for a swap, the swap is not made unless you choose public routing for it. A swap made that way is an ordinary public swap.</li>
@@ -165,6 +161,8 @@ export function TermsPage() {
 export function PrivacyPage() {
   const privateOn = useApp((state) => isPrivateMode(state.config));
   const site = useSiteHost();
+  // Whether this server refuses visitors by where they are. Only then does it work out a visitor's country.
+  const regionBlock = useApp((state) => state.config?.regionBlock === true);
   return (
     <DocsLayout href="/privacy" title="Privacy Policy" lead="What IntentSwap keeps, for how long, and who else is involved in a swap.">
       <Version />
@@ -184,7 +182,7 @@ export function PrivacyPage() {
             <strong>Orders.</strong> When you confirm a swap, the server keeps the order: when it was made; the two coins; the amounts, the fees and the slippage limit; your receiving and refund addresses; the paying wallet's address if you connected one; the rewards address, if the order has one; the deposit address, and the memo where an order has one; the deadline; the provider's signed quote for the order, as it was given; the order's status and when it last changed; the transaction hashes of the deposit and of the delivery or refund, whether you gave them or the provider reported them, with the amounts that arrived, were delivered or were refunded and the reason for a refund; the version of the Terms you accepted; and the result of the sanctions check, with when it was made and which list it was made against. An order that was never paid is deleted 24 hours after its deadline. Other orders are deleted 30 days after they finish. An unfinished order that has coins in it is kept until it has been dealt with.
           </li>
           <li>
-            <strong>Access log.</strong> For each request to the site's data routes: the time, the route and the kind of request, the outcome, how long it took, a shortened network address (not the full one), the country, a one-way fingerprint of the order ID, the outcome of the sanctions check when an order is made, and the provider's reference number for the request when there is one. No wallet address and no order link is written to it. It is deleted after 14 days.
+            <strong>Access log.</strong> For each request to the site's data routes: the time, the route and the kind of request, the outcome, how long it took, a shortened network address (not the full one), {regionBlock ? <>the country, </> : null}a one-way fingerprint of the order ID, the outcome of the sanctions check when an order is made, and the provider's reference number for the request when there is one. No wallet address and no order link is written to it. It is deleted after 14 days.
           </li>
           <li>
             <strong>Running log.</strong> The server also writes a log of its own work, which the host keeps for the host's own period: when each order's status changed, naming the order by a one-way fingerprint; the alerts raised for the operator; and the provider's reference numbers. It holds no address and no order link.
@@ -199,7 +197,7 @@ export function PrivacyPage() {
             <strong>Track order.</strong> The order ID or deposit address you paste there is used to find the order, and is not written down.
           </li>
           <li>
-            <strong>Your network address.</strong> It is used in memory to work out your country and region and to apply rate limits. Only the shortened form is written down.
+            <strong>Your network address.</strong> It is used in memory to apply rate limits{regionBlock ? <>, and to work out your country and region</> : null}. Only the shortened form is written down.
           </li>
         </ul>
       </Section>
@@ -238,13 +236,16 @@ export function PrivacyPage() {
         </ul>
         <p>A payout is a transfer on BNB Chain from the reserve wallet to a rewards address. Like every transfer, it is public: anyone can see the address and the amount.</p>
         <p>Addresses are checked against the sanctions list published by the United States Treasury. The list is downloaded to the server and the check happens there; your addresses are not sent to anyone for it.</p>
-        <p>
-          Your country and region are worked out on the server from a database it holds.{" "}
-          <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">
-            IP geolocation by DB-IP
-          </a>
-          .
-        </p>
+        {/* Only where the server is set to refuse visitors by where they are: nowhere else is a country worked out at all. */}
+        {regionBlock ? (
+          <p>
+            Your country and region are worked out on the server from a database it holds.{" "}
+            <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">
+              IP geolocation by DB-IP
+            </a>
+            .
+          </p>
+        ) : null}
       </Section>
 
       <Section title="5. Asking for deletion">

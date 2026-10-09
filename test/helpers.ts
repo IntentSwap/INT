@@ -210,7 +210,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "intentswap-test-"));
   // Routing is public here unless a test's own settings say otherwise, so that tests written before
   // private routing still mean what they meant. Tests of private routing set PRIVACY_MODE to "basic".
-  const config = loadConfig({ NODE_ENV: "test", DATA_DIR: dataDir, TRUST_PROXY_HOPS: "1", PRIVACY_MODE: "public", ...options.env });
+  const config = loadConfig({ NODE_ENV: "test", DATA_DIR: dataDir, TRUST_PROXY_HOPS: "1", PRIVACY_MODE: "public", REGION_BLOCK: "on", ...options.env });
   const clock = { t: Date.parse("2026-10-08T12:00:00.000Z") };
   const now = () => clock.t;
   const logs: string[] = [];

@@ -485,7 +485,7 @@ describe("private wording is shown only where swaps are routed privately", () =>
         "It processes the swap and knows both ends of it.",
         // What it is not.
         "Private routing is not anonymity. No route guarantees it, and the provider does not promise that confidentiality is complete or without interruption.",
-        "Addresses are screened, and prohibited regions and persons are blocked, by IntentSwap and by the provider, on a privately routed swap as on any other.",
+        "Addresses are screened against the sanctions list, by IntentSwap and by the provider, on a privately routed swap as on any other.",
         "Amounts and timing can give hints.",
         "Private routing is not a mixer. There is no pool of other people's coins that yours are mixed with, and no waiting for a crowd.",
         "Only the link between them is kept out of public records.",
@@ -533,7 +533,7 @@ describe("private wording is shown only where swaps are routed privately", () =>
       const text = wordsOf(markup);
       for (const sentence of [
         "Private routing is not anonymity.",
-        "IntentSwap and the swap service screen addresses, and block prohibited regions and persons, on a privately routed swap as on any other.",
+        "Addresses are screened against the sanctions list, by IntentSwap and by the swap service, on a privately routed swap as on any other.",
         "You must not use IntentSwap to conceal the proceeds of crime, or to get round sanctions or any law.",
         "The swap service does not promise that confidentiality is complete, and it may be required to disclose what it holds. IntentSwap does not promise it either.",
         "When private routing cannot be had for a swap, the swap is not made unless you choose public routing for it.",
@@ -595,5 +595,49 @@ describe("the first words of the site, one set for each way of routing (shared/p
       expect(title, mode).toBe(`${line(false)} ${line(true)}`);
       expect(markup, mode).toContain(`<p class="headline-sub muted">${HEADLINE_SUB}</p>`);
     }
+  });
+});
+
+describe("the site does not say that it blocks places", () => {
+  // Refusing visitors by country or region is a switch on the server, off unless it is set. What the
+  // pages say follows it: off, nothing says that the site blocks a place or works out a country.
+  const BLOCKING = /\bblock(?:s|ed|ing)?\b[^.]{0,60}\b(?:region|countr|place|jurisdiction)|\b(?:region|countr|place)[^.]{0,40}\bblock(?:s|ed|ing)?\b|not available in your region|a place where it is not available|work out your country|country and region|\bVPN\b|DB-IP|geolocation/i;
+  const everyPage: (readonly [string, () => ReactElement])[] = [...PAGES, PRIVATE_PAGE, ["Terms", terms], ["Privacy", privacy]];
+
+  it.each([
+    ["a server told nothing of regions", { ...SETTINGS, privacyMode: "basic" }],
+    ["a server with the block switched off", { ...SETTINGS, privacyMode: "basic", regionBlock: false }],
+    ["a server that routes in public", { ...SETTINGS, privacyMode: "public", regionBlock: false }],
+  ] as const)("on %s, no page says so", (_when, config) => {
+    for (const [name, page] of everyPage) expect(wordsOf(drawnWith(config, page)), name).not.toMatch(BLOCKING);
+  });
+
+  it("the Terms keep who may use the site as a condition on the person, and claim no block", () => {
+    const text = wordsOf(drawnWith({ ...SETTINGS, regionBlock: false }, terms));
+    expect(text).toContain("You are not in, and not a resident of, a country or territory that is under sanctions. IntentSwap is not for people or places under sanctions.");
+    expect(text).toContain("You are not on a sanctions list, and you are not acting for anyone who is.");
+    expect(text).toContain("Using it is lawful where you are. You must not use it where that would be unlawful.");
+    expect(text).toContain("These are conditions on you. It is for you to know whether you meet them.");
+    expect(text).toContain("Use the site from a place under sanctions, or where using it is unlawful.");
+    // The same words whether the block is on or off: the Terms never describe one.
+    expect(wordsOf(drawnWith({ ...SETTINGS, regionBlock: true }, terms))).toBe(text);
+  });
+
+  it("the Privacy Policy says a country is worked out only where the block is switched on, and names the database it then uses", () => {
+    const off = wordsOf(drawnWith({ ...SETTINGS, regionBlock: false }, privacy));
+    expect(off).toContain("It is used in memory to apply rate limits. Only the shortened form is written down.");
+    expect(off).toContain("a shortened network address (not the full one), a one-way fingerprint of the order ID");
+    // Screening of addresses against the sanctions list is said either way: it does not depend on a country.
+    expect(off).toContain("Addresses are checked against the sanctions list published by the United States Treasury.");
+    const on = wordsOf(drawnWith({ ...SETTINGS, regionBlock: true }, privacy));
+    expect(on).toContain("It is used in memory to apply rate limits, and to work out your country and region. Only the shortened form is written down.");
+    expect(on).toContain("a shortened network address (not the full one), the country, a one-way fingerprint of the order ID");
+    expect(on).toContain("Your country and region are worked out on the server from a database it holds. IP geolocation by DB-IP .");
+    expect(on).toContain("Addresses are checked against the sanctions list published by the United States Treasury.");
+  });
+
+  it("is a check that can fail", () => {
+    for (const sentence of ["The server blocks these countries.", "Prohibited regions and persons are blocked.", "Not available in your region.", "You must not use a VPN.", "It is used to work out your country and region.", "IP geolocation by DB-IP"]) expect(BLOCKING.test(sentence), sentence).toBe(true);
+    for (const sentence of ["A listed address is blocked before an order is made.", "This swap can't be processed.", "IntentSwap is not for people or places under sanctions.", "Use the site from a place under sanctions, or where using it is unlawful."]) expect(BLOCKING.test(sentence), sentence).toBe(false);
   });
 });

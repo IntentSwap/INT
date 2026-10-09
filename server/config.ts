@@ -37,6 +37,11 @@ export interface Config {
    * Without it, development never creates a real order at the provider.
    */
   providerStub: boolean;
+  /**
+   * Whether visitors are refused by where they are (REGION_BLOCK=on). Off unless it is set: then
+   * no request is refused for its country or region, and the region database is never fetched.
+   */
+  regionBlock: boolean;
   blockedCountries: ReadonlySet<string>;
   rpcUrls: Readonly<Record<WalletChain | "sol", string>>;
   reownProjectId: string;
@@ -243,8 +248,14 @@ export function loadConfig(env: Env = process.env): Config {
   // The practice provider hands out pretend deposit addresses. It must never sit behind a public address.
   if (providerStub && trustProxyHops > 0) fail("PROVIDER_STUB", "cannot be used behind a proxy; it is for this machine only");
 
+  // Refusing visitors by country or region is a switch, and it is off unless set to "on". Off, nobody
+  // is refused for where they are, on any route, and BLOCKED_COUNTRIES is not read at all.
+  const regionAsked = read(env, "REGION_BLOCK");
+  if (regionAsked !== null && regionAsked !== "on" && regionAsked !== "off") fail("REGION_BLOCK", 'must be "on" or "off"');
+  const regionBlock = regionAsked === "on";
+
   const blocked = new Set(DEFAULT_BLOCKED_COUNTRIES);
-  const extra = read(env, "BLOCKED_COUNTRIES");
+  const extra = regionBlock ? read(env, "BLOCKED_COUNTRIES") : null;
   if (extra !== null) {
     for (const code of extra.split(",").map((c) => c.trim().toUpperCase())) {
       if (code === "") continue;
@@ -360,6 +371,7 @@ export function loadConfig(env: Env = process.env): Config {
     feeBpsPrivate,
     swapsPaused,
     providerStub,
+    regionBlock,
     blockedCountries: blocked,
     rpcUrls: Object.freeze(rpcUrls),
     reownProjectId,
@@ -392,7 +404,8 @@ export function describeConfig(config: Config): Record<string, unknown> {
     feeRecipientSet: config.feeRecipient !== DEV_FEE_RECIPIENT,
     swapsPaused: config.swapsPaused,
     providerStub: config.providerStub,
-    blockedCountries: config.blockedCountries.size,
+    regionBlock: config.regionBlock,
+    blockedCountries: config.regionBlock ? config.blockedCountries.size : 0,
     rpcHosts: Object.fromEntries(Object.entries(config.rpcUrls).map(([chain, url]) => [chain, new URL(url).host])),
     tokenPage: config.tokenAddress !== null,
     reserve: config.reserveAddress !== null,

@@ -97,6 +97,8 @@ export interface ConfigResponse {
   supportContact: string | null;
   /** The site's own address (scheme and host), or null where none is known. */
   siteUrl: string | null;
+  /** True where the server refuses visitors by where they are. The Privacy Policy says that a country is worked out only then. */
+  regionBlock: boolean;
   termsVersion: string;
   /** Short-lived token required by the quote and order routes. */
   session: string;

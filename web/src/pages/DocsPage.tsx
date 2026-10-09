@@ -454,7 +454,7 @@ function PrivateRouting() {
         </Callout>
         <ul>
           <li>
-            <strong>It is not a way round screening.</strong> Addresses are screened, and prohibited regions and persons are blocked, by IntentSwap and by the provider, on a privately routed swap as on any other.
+            <strong>It is not a way round screening.</strong> Addresses are screened against the sanctions list, by IntentSwap and by the provider, on a privately routed swap as on any other.
           </li>
           <li>
             <strong>It is not certain.</strong> Amounts and timing can give hints. Analysis of the public transfers, a failure in the systems that run it, or disclosure that a regulator requires of the provider can each weaken it.

@@ -248,7 +248,8 @@ bad value stops the server with the variable's name in the log.
 | `ONECLICK_API_KEY` | The provider's partner key. Server only: it is never sent to a browser, never logged, and never committed. Private routing needs it, and with it set private routing is on (see `PRIVACY_MODE`). Without it the site runs, with public swaps only | The provider's partner portal, `partners.near-intents.org`: a key is issued on registering. Paste it into the host's variable, or into a local `.env` for development |
 | `PRIVACY_MODE` | How swaps are routed at the provider. `basic` is its private routing: the deposit and the delivery are not tied to each other in public records. `public` is the ordinary kind. Left unset, it is `basic` when `ONECLICK_API_KEY` is set and `public` when it is not (the provider answers private quotes only to a partner with a key), and the log then says at start that private routing is waiting for a key. `basic` written out with no key stops the live server from starting. Any other value stops it too | Leave unset. Type `public` to keep private routing off even with a key |
 | `ONECLICK_MAX_PER_MIN` | Most provider calls per minute. Default `300` | Leave unset |
-| `BLOCKED_COUNTRIES` | Extra countries to block, two-letter codes, comma-separated. Adds to the built-in list | Your lawyer's advice, for example `US,GB` |
+| `REGION_BLOCK` | Whether visitors are refused by their country or region: `off` or `on`. Default `off`: nobody is refused for where they are, on any route, and the region database is never downloaded, loaded or kept on disk. `on` restores the block: the built-in list of countries and regions, checked for every request, with every visitor refused until the region database has loaded | Leave unset. Type `on` to switch the block back on |
+| `BLOCKED_COUNTRIES` | Read only while `REGION_BLOCK` is `on`: extra countries to block, two-letter codes, comma-separated. Adds to the built-in list | Leave unset |
 | `BSC_RPC_URL`, `ETH_RPC_URL`, `BASE_RPC_URL`, `ARBITRUM_RPC_URL` | Chain access, server only. Public endpoints are used when unset | An RPC provider's dashboard, when you want better reliability |
 | `SOLANA_RPC_URL` | Checked at start-up but not used yet (paying from a Solana wallet is not built) | Leave unset |
 | `REOWN_PROJECT_ID` | Wallet-connect project ID. Public by design | Already built in. Leave unset |
@@ -297,7 +298,7 @@ One click at a time. This creates a **preview** with swaps paused.
 2. Open the new service → **Settings** → **Build** → Custom Build Command: `npm install --global npm@11.6.2 && npm ci --ignore-scripts && npm run build` (the first part makes the host use the npm this project is pinned to, the same one as the developer's machine and the automatic check)
 3. Same page → **Deploy** → Custom Start Command: `npm start`
 4. Same page → Healthcheck Path: `/api/status`
-5. Service → **Volumes** → **New Volume** → Mount path: `/data`. Size: 1 GB or more (the region database takes about 130 MB, logs at most 700 MB, and each order a few kilobytes).
+5. Service → **Volumes** → **New Volume** → Mount path: `/data`. Size: 1 GB or more (logs take at most 700 MB and each order a few kilobytes; with `REGION_BLOCK=on` the region database takes about 130 MB more).
 6. Service → **Variables** → add, one by one:
    - `NODE_ENV` = `production`
    - `DATA_DIR` = `/data`
@@ -307,16 +308,18 @@ One click at a time. This creates a **preview** with swaps paused.
 7. Service → **Settings** → **Networking** → **Generate Domain**. That address is the preview link.
 8. Keep it to **one instance**. Orders live on the volume and rate limits live in memory.
 
-First start takes a minute or two: the server downloads the region database
-(a 60 MB download that unpacks to about 130 MB) and the sanctions list. Until
-the region database has loaded, every visitor is blocked.
+The server answers within a few seconds of starting; the health check waits
+for nothing else. It fetches the coin list and the sanctions list as it starts
+(no order can be made until the sanctions list has loaded). Only with
+`REGION_BLOCK=on` does the first start take a minute or two longer: the server
+then also downloads the region database (a 60 MB download that unpacks to
+about 130 MB), and until that has loaded every visitor is blocked.
 
 Check after the first deploy:
 
 - `https://<domain>/api/status` shows `{"status":"paused",…}`.
-- The site loads, with "Swaps are paused" in a banner at the top and in a notice where the swap card would be. (A visitor from a blocked country sees "Not available in your region." instead of the site.)
-- From a blocked country (use a testing tool, not a personal VPN account), `https://<domain>/api/tokens` answers "Not available in your region."
-- **The address check.** The region block and the rate limits depend on how Railway's edge reports each visitor's address. Run these three, once, from any computer:
+- The site loads, with "Swaps are paused" in a banner at the top and in a notice where the swap card would be.
+- **The address check.** The rate limits depend on how Railway's edge reports each visitor's address (and so does the region block, where it is on). Run these three, once, from any computer:
 
   `curl -s -H "X-Forwarded-For: 203.0.113.9" https://<domain>/api/status`
 
@@ -324,7 +327,8 @@ Check after the first deploy:
 
   `curl -s -6 https://<domain>/api/status`
 
-  Each should print the normal status. The third needs an IPv6 connection; if the computer has none, use a phone on mobile data and simply open the site. If any of them prints "Not available in your region" instead, Railway reports addresses differently than assumed: tell the developer, because `server/ip.ts` then needs a small change (`resolveClientIp` should then read `X-Real-IP` alone). Swaps must stay paused until this check has been done.
+  Each should print the normal status. The third needs an IPv6 connection; if the computer has none, use a phone on mobile data and simply open the site. If any of them is refused instead ("Too many requests" at once, or, with the region block on, "Not available in your region"), Railway reports addresses differently than assumed: tell the developer, because `server/ip.ts` then needs a small change (`resolveClientIp` should then read `X-Real-IP` alone). Swaps must stay paused until this check has been done.
+- Only with `REGION_BLOCK=on`: from a blocked country (use a testing tool, not a personal VPN account), `https://<domain>/api/tokens` answers "Not available in your region.", and a visitor from there sees that page instead of the site.
 
 ## Pause (kill switch)
 
@@ -392,7 +396,7 @@ Sent to `ALERT_WEBHOOK_URL` and written to the log:
 - a quote that failed verification (sent at once; a repeat for the same reason is held back for a minute)
 - a coin whose details differ from the reviewed allowlist (the coin is disabled)
 - an order swapping for more than three times its estimate
-- the sanctions list failing to refresh, or the region database failing to load or going out of date
+- the sanctions list failing to refresh, or (with `REGION_BLOCK=on`) the region database failing to load or going out of date
 - a deposit paid from a wallet on the sanctions list
 - a deposit we confirmed on-chain that the provider has not picked up 10 minutes after the deadline (the order stays open)
 - an order with funds in it that was still unfinished a week after its deadline (tracking stops; the record is kept for you to raise with the provider)

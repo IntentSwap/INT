@@ -177,10 +177,12 @@ describe("GET /api/config, /api/status, /api/tokens", () => {
       supportContact: "help@example.org",
       // The site's own address: none here, where none is set and the server is not the live one.
       siteUrl: null,
+      // Whether visitors are refused by where they are (the harness switches it on; a server told nothing has it off).
+      regionBlock: true,
       termsVersion: TERMS_VERSION,
     });
     expect(Object.keys(body).sort()).toEqual(
-      ["dexscreenerUrl", "githubUrl", "paused", "practice", "privacyMode", "reownProjectId", "reserveAddress", "sampleOrders", "serverNow", "session", "sessionExpiresAt", "siteUrl", "supportContact", "termsVersion", "testPages", "tokenAddress", "tokenPairAddress", "xUrl"].sort(),
+      ["dexscreenerUrl", "githubUrl", "paused", "practice", "privacyMode", "regionBlock", "reownProjectId", "reserveAddress", "sampleOrders", "serverNow", "session", "sessionExpiresAt", "siteUrl", "supportContact", "termsVersion", "testPages", "tokenAddress", "tokenPairAddress", "xUrl"].sort(),
     );
     // Neither the fee setting nor where the fee is paid is among them. The fee a person is shown comes
     // from a quote, because the setting alone does not say what is charged.
@@ -1238,6 +1240,56 @@ describe("POST /api/orders/:id/deposit", () => {
 describe("region block", () => {
   const blocked = { country: "IR", blocked: true, reason: "country" as const };
   const crimea = { country: "UA", blocked: true, reason: "region" as const };
+
+  // These tests run with the block switched on (the harness sets REGION_BLOCK=on): what it does when it is on is unchanged.
+  // The two below it are the setting itself: off unless set, and then nobody is refused for where they are.
+  it("switched off, serves a request from anywhere: a blocked country, a blocked region, an address that cannot be placed, or none at all", async () => {
+    // A region service that would refuse every one of them, and counts how often it is asked.
+    let asked = 0;
+    const refusing = createStaticGeo({ "198.51.100.66": blocked, "198.51.100.67": crimea }, { country: null, blocked: true, reason: "unknown" });
+    const counting = { check: (ip: string | null) => ((asked += 1), refusing.check(ip)), ready: () => false };
+    const settings: Record<string, string>[] = [{ REGION_BLOCK: "off" }, { REGION_BLOCK: "" }, { REGION_BLOCK: "off", BLOCKED_COUNTRIES: "US,GB,DE" }];
+    for (const env of settings) {
+      const h = await start({ geo: counting, env });
+      expect(h.config.regionBlock).toBe(false);
+      const session = await h.session();
+      for (const ip of ["198.51.100.66", "198.51.100.67", "203.0.113.5", "8.8.8.8"]) {
+        expect((await h.get("/api/config", { ip })).status, ip).toBe(200);
+        expect((await h.get("/api/status", { ip })).status, ip).toBe(200);
+        expect((await h.get("/api/tokens", { ip })).status, ip).toBe(200);
+        const quote = await h.post("/api/quote", QUOTE, { ip, session });
+        expect(quote.status, ip).toBe(200);
+        expect(JSON.stringify(quote.body), ip).not.toContain("region");
+        // Not blocked: an order that does not exist is simply not found.
+        expect((await h.get(`/api/orders/${"A".repeat(27)}`, { ip })).status, ip).toBe(404);
+      }
+      // A request whose address is not known at all (the proxy's headers are missing or disagree) is served too.
+      expect((await h.get("/api/tokens", { headers: { "x-forwarded-for": "not an address" } })).status).toBe(200);
+      // An order can be made from an address the block would have refused.
+      expect(asOrder(await h.order({}, { ip: "198.51.100.66" })).status).toBe("waiting");
+      // Nothing is ever said of a region, and the access log names no country.
+      expect(h.access.every((entry) => entry.country === null)).toBe(true);
+      expect(h.access.some((entry) => entry.status === 403)).toBe(false);
+    }
+    // The region service was never asked: nothing is looked up where nothing is blocked.
+    expect(asked).toBe(0);
+  });
+
+  it("switched off, still limits and still screens: neither depends on a country", async () => {
+    const h = await start({ env: { REGION_BLOCK: "off" }, limits: { api: { max: 3, windowMs: 60_000 } } });
+    const statuses: number[] = [];
+    for (let i = 0; i < 5; i++) statuses.push((await h.get("/api/tokens", { ip: "198.51.100.90" })).status);
+    expect(statuses).toEqual([200, 200, 200, 429, 429]);
+    // Another visitor is not touched by the first one's limit: the address is still what limits are kept by.
+    expect((await h.get("/api/tokens", { ip: "198.51.100.91" })).status).toBe(200);
+    // A wallet address on the sanctions list is refused before anything is created at the provider, as ever.
+    const screened = await start({ env: { REGION_BLOCK: "off" }, sanctions: createStaticSanctions([ADDR.evm2]) });
+    const reply = await screened.order();
+    expect(reply.status).toBe(403);
+    expect(reply.body.error).toEqual({ code: "blocked", message: "This swap can't be processed." });
+    expect(screened.stub.calls.liveQuotes).toBe(0);
+    expect(screened.access.at(-1)?.screening).toBe("listed");
+  });
 
   it("blocks every API route for a blocked country or region", async () => {
     const h = await start({ geo: createStaticGeo({ "198.51.100.66": blocked, "198.51.100.67": crimea }) });

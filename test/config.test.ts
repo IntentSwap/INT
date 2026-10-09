@@ -104,7 +104,7 @@ describe("configuration", () => {
     ["FEE_BPS too high", production({ FEE_BPS: "301" }), "FEE_BPS"],
     ["FEE_BPS decimal", production({ FEE_BPS: "40.5" }), "FEE_BPS"],
     ["SWAPS_PAUSED", production({ SWAPS_PAUSED: "yes" }), "SWAPS_PAUSED"],
-    ["BLOCKED_COUNTRIES", production({ BLOCKED_COUNTRIES: "US,Germany" }), "BLOCKED_COUNTRIES"],
+    ["BLOCKED_COUNTRIES", production({ REGION_BLOCK: "on", BLOCKED_COUNTRIES: "US,Germany" }), "BLOCKED_COUNTRIES"],
     ["BSC_RPC_URL", production({ BSC_RPC_URL: "not a url" }), "BSC_RPC_URL"],
     ["ETH_RPC_URL http", production({ ETH_RPC_URL: "http://rpc.example" }), "ETH_RPC_URL"],
     ["BASE_RPC_URL local http", production({ BASE_RPC_URL: "http://localhost:8545" }), "BASE_RPC_URL"],
@@ -168,6 +168,7 @@ describe("configuration", () => {
         ONECLICK_MAX_PER_MIN: "600",
         FEE_BPS: "60",
         SWAPS_PAUSED: "false",
+        REGION_BLOCK: "on",
         BLOCKED_COUNTRIES: "us, gb",
         BSC_RPC_URL: "https://bsc.example/v1/key123",
         TOKEN_ADDRESS: FEE.toLowerCase(),
@@ -206,6 +207,35 @@ describe("configuration", () => {
     expect(loadConfig(production({ SWAPS_PAUSED: "false", SUPPORT_CONTACT: "help@intentswap.example" })).swapsPaused).toBe(false);
     // Local development needs none.
     expect(loadConfig({ NODE_ENV: "development", SWAPS_PAUSED: "false" }).supportContact).toBeNull();
+  });
+
+  describe("REGION_BLOCK, whether visitors are refused by where they are", () => {
+    const places: Array<[string, Record<string, string>]> = [["production", production()], ["development", { NODE_ENV: "development" }], ["test", { NODE_ENV: "test" }]];
+
+    it("is off unless it is set to on, in every place a server runs, and says so in the summary that goes to the log", () => {
+      for (const [place, env] of places) {
+        expect(loadConfig(env).regionBlock, place).toBe(false);
+        for (const unset of ["", "  ", "off"]) expect(loadConfig({ ...env, REGION_BLOCK: unset }).regionBlock, place).toBe(false);
+        expect(loadConfig({ ...env, REGION_BLOCK: "on" }).regionBlock, place).toBe(true);
+      }
+      expect(describeConfig(loadConfig(production()))).toMatchObject({ regionBlock: false, blockedCountries: 0 });
+      expect(describeConfig(loadConfig(production({ REGION_BLOCK: "on" })))).toMatchObject({ regionBlock: true, blockedCountries: DEFAULT_BLOCKED_COUNTRIES.length });
+    });
+
+    it("takes the two words only", () => {
+      for (const wrong of ["true", "1", "yes", "ON", "Off", "block", "basic"]) expect(problem(production({ REGION_BLOCK: wrong })), wrong).toBe('REGION_BLOCK: must be "on" or "off"');
+    });
+
+    it("off, BLOCKED_COUNTRIES is not read at all: nothing in it is used, and nothing in it can stop the server", () => {
+      for (const list of ["US,GB", "us, gb", "US,Germany", "!!", "x"]) {
+        const config = loadConfig(production({ BLOCKED_COUNTRIES: list }));
+        expect([...config.blockedCountries].sort(), list).toEqual([...DEFAULT_BLOCKED_COUNTRIES].sort());
+      }
+      // On, it adds to the built-in list as it always did, and a bad entry stops the server.
+      const on = loadConfig(production({ REGION_BLOCK: "on", BLOCKED_COUNTRIES: "us, gb" }));
+      expect(on.blockedCountries.has("US") && on.blockedCountries.has("GB") && on.blockedCountries.has("IR")).toBe(true);
+      expect(problem(production({ REGION_BLOCK: "on", BLOCKED_COUNTRIES: "US,Germany" }))).toBe("BLOCKED_COUNTRIES: must be two-letter country codes separated by commas");
+    });
   });
 
   describe("FEE_BPS_PRIVATE, IntentSwap's fee on a privately routed swap", () => {
@@ -299,7 +329,8 @@ describe("configuration", () => {
   });
 
   it("lets BLOCKED_COUNTRIES add to the built-in list but never remove from it", () => {
-    const config = loadConfig(production({ BLOCKED_COUNTRIES: "US" }));
+    // (Read only where the region block is on.)
+    const config = loadConfig(production({ REGION_BLOCK: "on", BLOCKED_COUNTRIES: "US" }));
     for (const code of DEFAULT_BLOCKED_COUNTRIES) expect(config.blockedCountries.has(code)).toBe(true);
     expect(config.blockedCountries.size).toBe(DEFAULT_BLOCKED_COUNTRIES.length + 1);
   });

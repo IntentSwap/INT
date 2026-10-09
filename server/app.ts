@@ -404,6 +404,7 @@ export function createApp(deps: AppDeps): RequestListener {
           supportContact: config.supportContact,
           // The site's own address, where it is known: the Terms and the Privacy Policy name the site by it.
           siteUrl: config.siteUrl,
+          regionBlock: config.regionBlock,
           termsVersion: TERMS_VERSION,
           session: session.token,
           sessionExpiresAt: new Date(session.expiresAt).toISOString(),
@@ -1008,9 +1009,14 @@ export function createApp(deps: AppDeps): RequestListener {
         lastDisagreeLog = now();
         log.warn("proxy_headers_disagree");
       }
-      const verdict = geo.check(client.ip);
-      country = verdict.country;
-      if (verdict.blocked) throw new HttpError(403, "region", "Not available in your region.");
+      // Visitors are refused by where they are only where the server is set to (REGION_BLOCK=on).
+      // Otherwise nobody is refused for a country or a region, on any route, and nothing is looked up:
+      // an address that cannot be placed, or is not known at all, is no reason to refuse either.
+      if (config.regionBlock) {
+        const verdict = geo.check(client.ip);
+        country = verdict.country;
+        if (verdict.blocked) throw new HttpError(403, "region", "Not available in your region.");
+      }
 
       // The per-client limit comes first: a request it refuses must not use up the allowance everyone shares.
       limited("api", ctx.ipKey);

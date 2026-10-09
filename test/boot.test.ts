@@ -78,8 +78,32 @@ describe("the practice clock", () => {
 });
 
 describe("start-up wiring", () => {
-  it("production: real orders allowed, every interface, region block on and failing closed", () => {
-    const b = start(production());
+  it("production, told nothing of regions: no region service at all, nobody refused, and nothing to wait for", async () => {
+    for (const env of [production(), production({ REGION_BLOCK: "off" }), production({ REGION_BLOCK: "off", BLOCKED_COUNTRIES: "US,GB" })]) {
+      const b = start(env);
+      expect(b.config.regionBlock).toBe(false);
+      // Ready at once, and no address is refused: one it cannot place, a private one, or none.
+      expect(b.geo.ready()).toBe(true);
+      for (const ip of ["8.8.8.8", "5.255.255.5", "81.91.130.1", "10.0.0.1", null]) expect(b.geo.check(ip), String(ip)).toEqual({ country: null, blocked: false, reason: null });
+      expect(outbound).toEqual([]);
+    }
+    // Started, it listens and answers at once, and fetches the coin list and the sanctions list only:
+    // the region database is never asked for, and nothing is written to disk for it.
+    const b = start(production({ PORT: port() }));
+    const address = await listen(b);
+    const status = await fetch(`http://127.0.0.1:${address.port}/api/status`, { headers: { "x-forwarded-for": "81.91.130.1" } });
+    expect(status.status).toBe(200);
+    expect(((await status.json()) as { status: string }).status).toBe("paused");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(outbound.some((o) => o.startsWith("download.db-ip.com"))).toBe(false);
+    expect(outbound.some((o) => /db-ip|dbip/i.test(o))).toBe(false);
+    expect(fs.readdirSync(dir).some((name) => /geo|dbip|mmdb/i.test(name))).toBe(false);
+    expect(lines.some((line) => /"event":"geo_/.test(line))).toBe(false);
+  });
+
+  it("production with REGION_BLOCK=on: real orders allowed, every interface, region block on and failing closed", () => {
+    const b = start(production({ REGION_BLOCK: "on" }));
+    expect(b.config.regionBlock).toBe(true);
     expect(b.liveOrders).toBe(true);
     expect(b.practice).toBe(false);
     expect(b.listenHost).toBeUndefined();

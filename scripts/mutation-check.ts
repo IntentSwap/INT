@@ -79,6 +79,11 @@ const M: Mutation[] = [
 
   // ---- request handling ----
   { file: "server/app.ts", find: 'if (verdict.blocked) throw new HttpError(403, "region", "Not available in your region.");', replace: "", label: "the region block" },
+  { file: "server/app.ts", find: "      if (config.regionBlock) {\n        const verdict = geo.check(client.ip);", replace: "      {\n        const verdict = geo.check(client.ip);", label: "with the region block off, nobody is refused for where they are and nothing is looked up" },
+  { file: "server/boot.ts", find: "  if (production && config.regionBlock) {", replace: "  if (production) {", label: "with the region block off, there is no region service and nothing is fetched for one" },
+  { file: "server/config.ts", find: "  const regionBlock = regionAsked === \"on\";", replace: "  const regionBlock = regionAsked !== \"off\";", label: "the region block is off unless it is set to on" },
+  { file: "server/config.ts", find: "  const extra = regionBlock ? read(env, \"BLOCKED_COUNTRIES\") : null;", replace: "  const extra = read(env, \"BLOCKED_COUNTRIES\");", label: "with the region block off, BLOCKED_COUNTRIES is not read" },
+  { file: "web/src/pages/LegalPages.tsx", find: "  const regionBlock = useApp((state) => state.config?.regionBlock === true);", replace: "  const regionBlock = true;", label: "the Privacy Policy speaks of working out a country only where the region block is on" },
   { file: "server/app.ts", find: 'if (config.swapsPaused) throw new HttpError(503, "paused", "Swaps are paused. Existing orders are still tracked.");', replace: "", label: "the kill switch" },
   { file: "server/app.ts", find: "      limited(\"api\", ctx.ipKey);\n      if (ctx.wideKey !== null)", replace: "      limited(\"apiGlobal\", \"all\");\n      limited(\"api\", ctx.ipKey);\n      if (ctx.wideKey !== null)", label: "the per-client limit is charged before the shared one" },
   { file: "server/app.ts", find: "      if (ctx.wideKey !== null) limited(\"apiWide\", ctx.wideKey);", replace: "", label: "IPv6 is also counted by /48" },

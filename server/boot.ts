@@ -137,10 +137,13 @@ export function boot(options: {
   const poller = createPoller({ store, oneclick, alerts, log, now, unpaidCallsPerMin: idleBudget(config.oneClickMaxPerMin) });
   const sanctions = createSanctions({ dataDir: config.dataDir, log, alerts, now, ...net });
 
-  // Region blocking needs the location database. Local development runs without it.
+  // Region blocking needs the location database, and only region blocking does. Where it is off
+  // (REGION_BLOCK, off unless set) there is no region service at all: nothing is downloaded, loaded
+  // or refreshed, nothing is kept on disk for it, and the server answers as soon as it listens.
+  // Local development runs without it either way.
   let geoService: GeoService | null = null;
   let geo: Geo;
-  if (production) {
+  if (production && config.regionBlock) {
     geoService = createGeo({ dataDir: config.dataDir, blockedCountries: config.blockedCountries, production: true, log, alerts, now, ...net });
     geo = geoService;
   } else {
