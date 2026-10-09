@@ -358,7 +358,7 @@ function Rewards() {
         <p>Points have no money value. They cannot be bought, sold or moved to another address.</p>
       </DocSection>
       <DocSection title="The week" id="week">
-        <p>A week runs from Monday 00:00 to Sunday 23:59, by the clock in UTC. A swap belongs to the week in which it was delivered.</p>
+        <p>A week runs from Monday 00:00 to Sunday 23:59, UTC time. A swap belongs to the week in which it was delivered.</p>
       </DocSection>
       <DocSection title="Whose points" id="address">
         <p>Points belong to a rewards address: an address on BNB Chain.</p>
@@ -374,7 +374,7 @@ function Rewards() {
       </DocSection>
       <DocSection title="Seeing your points" id="signing-in">
         <p>
-          Nobody can look up another address's points: there is no ranking and no list. On <Link href="/rewards">Rewards</Link> you see your own, after showing that the address is yours. Of everyone else's there is one figure only: about how many points the week has in all, rounded, and brought up to date every quarter of an hour.
+          Nobody can look up another address's points: there is no ranking and no list. On <Link href="/rewards">Rewards</Link> you see your own, after showing that the address is yours. Of everyone else's there is one figure only: how many points the week has in all, brought up to date every 15 minutes.
         </p>
         <p>That takes one signature of a plain message: this site's name, your address, a code used once, and the time it runs out. It is not a transaction. It moves nothing, approves nothing and costs no network fee. The sign-in lasts {REWARDS.sessionMinutes} minutes.</p>
         <Callout tone="tip" title="Only the Rewards page asks for a signature.">
@@ -385,7 +385,7 @@ function Rewards() {
         <p>
           The pool is what one wallet on BNB Chain holds in NEAR, the coin rewards are paid in. <Link href="/rewards">Rewards</Link> shows that amount now, with its value in US dollars beneath and a link to the wallet on BscScan so that anyone can check it. Other coins the wallet holds are not part of the pool. Each week it is shared out by points.
         </p>
-        <p>Signed in, you also see your share, which is your points out of the week's points, and what that share of the pool comes to in NEAR. Both are estimates: your share changes as others swap, and the pool changes until the week closes. Your own new swap counts in your share at once; other people's swaps count from the next quarter of an hour.</p>
+        <p>Signed in, you also see your share, which is your points out of the week's points, and what that share of the pool comes to in NEAR. Both are estimates: your share changes as others swap, and the pool changes until the week closes. Your own new swap counts in your share at once; other people's swaps count within 15 minutes.</p>
       </DocSection>
       <DocSection title="Payouts" id="payouts">
         <p>Rewards are paid in NEAR on BNB Chain, to your rewards address: the address you sign in with on the Rewards page.</p>

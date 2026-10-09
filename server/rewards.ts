@@ -19,7 +19,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import fs from "node:fs";
 import path from "node:path";
 import { checkAddress, toChecksumAddress } from "../shared/addresses.ts";
-import { nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, roundedPoints, sharePool, plainSignInMessage, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
+import { nextWeek, pointsMicro, poolShare, RESERVE_ASSET, REWARDS, sharePool, plainSignInMessage, signInMessage, usdToMicro, weekBounds, weekOf, type PointsReason, type RewardsSummary, type RewardsView, type Share } from "../shared/rewards.ts";
 import type { Sanctions } from "./sanctions.ts";
 import { writeDurable, type OrderRecord } from "./store.ts";
 
@@ -506,7 +506,7 @@ export function createRewards(dataDir: string): Rewards {
         week: { id: week, start: new Date(bounds?.start ?? now).toISOString(), end: new Date(bounds?.end ?? now).toISOString() },
         // The week's points as one number, with no address to it: as they stood when this quarter of an
         // hour began, and rounded down to two significant figures. Nothing finer is told to anyone.
-        weekPointsMicro: roundedPoints(quarterOf(now).total).toString(),
+        weekPointsMicro: quarterOf(now).total.toString(),
         weeks: paidWeeks.map((item) => ({ week: item.week, asset: item.asset, decimals: item.decimals, paid: item.paid.toString(), txs: item.txs })).reverse(),
         // Added up in the coin rewards are paid in now. A week that was paid in another coin is on the list above, in its own.
         totalPaid: paidNow.reduce((sum, item) => sum + item.paid, 0n).toString(),

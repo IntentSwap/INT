@@ -216,10 +216,10 @@ describe("start-up wiring", () => {
     expect(SAMPLE.pool).toBe(24_805n * 10n ** 17n);
     // And the week has sample points in it before anyone signs in: three made-up swaps of $3,400, $1,820.50 and $760,
     // which are 59,805 points. In a week's own first quarter of an hour they are not counted yet: the total is the one
-    // from when the quarter began. From the next quarter on, anyone is told that as about 59,000.
+    // from when the quarter began. From the next quarter on, anyone is told the total as it is.
     expect(rewards.weekPointsMicro).toBe("0");
     clock = monday + 15 * 60_000;
-    expect(((await get("/api/rewards")) as { weekPointsMicro: string }).weekPointsMicro).toBe("59000000000");
+    expect(((await get("/api/rewards")) as { weekPointsMicro: string }).weekPointsMicro).toBe("59805000000");
     // Whoever signs in is given points over three weeks and two paid weeks.
     const account = privateKeyToAccount(`0x${"7".repeat(64)}`);
     const post = async (route: string, body: unknown) => (await fetch(`http://127.0.0.1:${at}${route}`, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${at}`, "x-session": config.session }, body: JSON.stringify(body) })).json() as Promise<Record<string, string>>;

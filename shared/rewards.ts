@@ -230,18 +230,6 @@ export function poolShare(mineMicro: bigint, totalMicro: bigint, pool: { amount:
   return { shareBps, estimate, estimateCents: pool === null || usd === null ? null : pool.amount <= 0n ? 0n : (usd * estimate) / (pool.amount * 10_000n) };
 }
 
-/**
- * A number of points as anyone is told it: rounded down to two significant figures, in millionths
- * of a point. 14,908.237 points are 14,000; 2,500 stay 2,500; under ten points it is the whole
- * number of points. A total that is told this coarsely, and only as it stood at the last quarter of
- * an hour, does not give away the size of any one swap.
- */
-export function roundedPoints(micro: bigint): bigint {
-  const whole = (micro < 0n ? 0n : micro) / MICRO;
-  const step = whole < 100n ? 1n : 10n ** BigInt(whole.toString().length - 2);
-  return (whole / step) * step * MICRO;
-}
-
 /** What a sign-in message is made of: the site's host as the browser knows it, the address in its standard spelling, the one-time code and the two times. */
 export interface SignInParts {
   host: string;

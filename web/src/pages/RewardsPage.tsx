@@ -1,10 +1,10 @@
-// Points and weekly rewards. One thing to look at: this week, with its dates, its countdown, about
-// how many points everyone has together and, after a sign-in, the points of the address that
+// Points and weekly rewards. One thing to look at: this week, with its dates, its countdown, how
+// many points everyone has together and, after a sign-in, the points of the address that
 // signed in, with its share of the week's points. Under it: the current pool where a reserve wallet
 // is set, that address's swaps and payouts, and the rules in short.
 //
-// Nobody is shown another address's points: of everyone else there is one rounded total, brought up
-// to date every quarter of an hour, and no list. An address's share and its estimate are worked out
+// Nobody is shown another address's points: of everyone else there is one total, brought up to
+// date every 15 minutes, and no list. An address's share and its estimate are worked out
 // by the server and read here as they come.
 // To see one's own, the wallet is asked to sign one plain message; the page says so before the
 // wallet opens.
@@ -22,7 +22,7 @@ import { CopyButton } from "../components/CopyButton.tsx";
 import { TableFrame } from "../components/DocsLayout.tsx";
 import { Link } from "../components/Link.tsx";
 import { Reveal } from "../components/Reveal.tsx";
-import { aboutPoints, countdownText, ESTIMATE_NOTE, momentText, pairText, reasonWords, RULES_IN_SHORT, shareText, usdMicroText, usdText, weekDates, weekName } from "../lib/rewards-logic.ts";
+import { countdownText, ESTIMATE_NOTE, momentText, pairText, reasonWords, RULES_IN_SHORT, shareText, totalPoints, usdMicroText, usdText, weekDates, weekName } from "../lib/rewards-logic.ts";
 import { shortAddress } from "../lib/swap-logic.ts";
 import { useRewards } from "../stores/rewards.ts";
 import { useWallet } from "../stores/wallet.ts";
@@ -77,7 +77,7 @@ function Week({ summary, offset }: { summary: RewardsPublic | null; offset: numb
         {end !== null ? countdownText(Date.parse(end) - now) : null}
       </p>
       <p className="muted rewards-dates">
-        {start !== null && end !== null ? <>{weekDates(start, end)}, by the clock in UTC. </> : null}
+        {start !== null && end !== null ? <>{weekDates(start, end)}, UTC time. </> : null}
         <span className="sr-only">The week closes at midnight on Sunday, UTC.</span>
         <span aria-hidden="true">Left until it closes.</span>
       </p>
@@ -87,9 +87,9 @@ function Week({ summary, offset }: { summary: RewardsPublic | null; offset: numb
         {total === null ? (
           <p className="skeleton rewards-total-waiting" aria-hidden="true" />
         ) : (
-          <p className="rewards-figure mono">{total > 0n ? aboutPoints(total) : "0 points"}</p>
+          <p className="rewards-figure mono">{total > 0n ? totalPoints(total) : "0 points"}</p>
         )}
-        <p className="muted rewards-total-note">{total !== null && total === 0n ? "No points have been collected yet this week." : "Collected by everyone together. Brought up to date every quarter of an hour."}</p>
+        <p className="muted rewards-total-note">{total !== null && total === 0n ? "No points have been collected yet this week." : "Collected by everyone together. Brought up to date every 15 minutes."}</p>
       </div>
     </div>
   );

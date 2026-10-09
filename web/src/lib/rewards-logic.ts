@@ -1,7 +1,7 @@
 // What the Rewards page says, kept apart from how it is drawn so that it can be tested.
 
 import { chainName } from "../../../shared/chains.ts";
-import { REWARDS, type PointsReason } from "../../../shared/rewards.ts";
+import { briefPoints, REWARDS, type PointsReason } from "../../../shared/rewards.ts";
 
 /** Time left as days and a clock: "3d 04:12:55". Nothing left reads "0d 00:00:00". */
 export function countdownText(msLeft: number): string {
@@ -63,9 +63,9 @@ export function shareText(bps: bigint): string {
   return `${bps / 100n}.${(bps % 100n).toString().padStart(2, "0")}%`;
 }
 
-/** The week's points as anyone is told them, a rounded figure in millionths of a point: "About 14,000 points". */
-export function aboutPoints(micro: bigint): string {
-  return `About ${((micro < 0n ? 0n : micro) / 1_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")} points`;
+/** The week's points as anyone is told them, from millionths of a point: "14,908.23 points", "2,200 points". */
+export function totalPoints(micro: bigint): string {
+  return `${briefPoints(micro)} points`;
 }
 
 /** Said under an address's share and its estimate, in these words. */

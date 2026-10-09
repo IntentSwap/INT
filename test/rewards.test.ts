@@ -10,7 +10,7 @@ import { getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
 import { toChecksumAddress } from "../shared/addresses.ts";
-import { briefPoints, isChainId, isPlainSignInMessage, isSignInMessage, MICRO, minPayoutFor, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, roundedPoints, plainSignInMessage, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
+import { briefPoints, isChainId, isPlainSignInMessage, isSignInMessage, MICRO, minPayoutFor, nextWeek, pointsMicro, poolShare, RESERVE_ASSET, plainSignInMessage, REWARDS, sharePool, showPoints, SIGN_IN_STATEMENT, signInMessage, swapPointsMicro, usdToMicro, weekBounds, weekOf, type RewardsPublic, type RewardsView } from "../shared/rewards.ts";
 import { silentLogger } from "../server/log.ts";
 import { createRewards, createSignIn, entryFor, orderHash, QUARTER_MS, rewardsAddressOf, type PointsEntry, type Rewards, type WeekRecord } from "../server/rewards.ts";
 import { checkPayoutTx, exportWeek, poolAmount, recordPayouts, reserveHolds, rewardTokenDecimals, weekCsv } from "../server/rewards-tools.ts";
@@ -1694,9 +1694,7 @@ describe("points over the wire", () => {
   /** A swap of so many dollars (in millionths), delivered at a moment, written straight into a server's record of points. */
   const swapped = (h: Harness, who: { address: string }, label: string, usdMicro: bigint, at: number) => h.rewards.record({ v: 2, order: orderHash(`test swap ${label}`), address: who.address, week: weekOf(at), at: new Date(at).toISOString(), volumeUsdMicro: usdMicro.toString(), reasons: [], from: { symbol: "ETH", chain: "base" }, to: { symbol: "USDT", chain: "sol" } });
 
-  it("tells anyone the week's points as they stood when the quarter of an hour began, rounded down to two figures: no reading gives away one swap", async () => {
-    // Rounded down to two significant figures, and to whole points under ten.
-    for (const [points, told] of [[14_908.237, 14_000], [2_500, 2_500], [105, 100], [99.9, 99], [10, 10], [9.7, 9], [0.99, 0], [0, 0], [1_234_567.89, 1_200_000]] as const) expect(roundedPoints(usd(points)), String(points)).toBe(usd(told));
+  it("tells anyone the week's points as they stood when the current 15 minutes began, to the point: no reading says when inside them a swap was delivered", async () => {
     const h = await start();
     const ask = async () => (await h.get("/api/rewards")).body as RewardsPublic;
     // Alice swapped $250 an hour ago: 2,500 points.
@@ -1709,16 +1707,13 @@ describe("points over the wire", () => {
       h.clock.t += later - (h.clock.t % QUARTER_MS);
       expect((await ask()).weekPointsMicro, String(later)).toBe(before.weekPointsMicro);
     }
-    // At the next quarter it moves: 14,908.237 points, told as 14,000. Nothing in the answer spells the swap's value, its points or the exact total.
+    // At the next quarter of an hour it moves, to the exact figure: 14,908.237 points.
     h.clock.t += 3_000;
     const after = await h.get("/api/rewards");
-    expect((after.body as RewardsPublic).weekPointsMicro).toBe("14000000000");
-    expect(after.text).not.toMatch(/1240\.?8237|12408\.?237|14908\.?237/);
-    // The difference between the two readings is the rounding's, not the swap's.
-    expect(BigInt((after.body as RewardsPublic).weekPointsMicro) - BigInt(before.weekPointsMicro)).toBe(11_500n * MICRO);
-    // A swap delivered in the quarter that has just begun waits for the next one in its turn.
+    expect((after.body as RewardsPublic).weekPointsMicro).toBe("14908237000");
+    // A swap delivered in the 15 minutes that have just begun waits for the next in its turn.
     swapped(h, ALICE, "newest", usd(5_000), h.clock.t);
-    expect((await ask()).weekPointsMicro).toBe("14000000000");
+    expect((await ask()).weekPointsMicro).toBe("14908237000");
   });
 
   it("gives a signed-in address its share and its estimate, worked out on the server: its own new points count at once, other people's from the next quarter, and the estimate comes from the rounded share", async () => {
@@ -1819,14 +1814,12 @@ describe("points over the wire", () => {
       for (const who of [ALICE.address, BOB.address]) expect(reply.text.toLowerCase(), route).not.toContain(who.toLowerCase().slice(2));
       for (const figure of [alice, bob]) expect(held, route).not.toContain(figure);
     }
-    // The one figure about points is about how many everyone has together: nothing while the quarter of an
-    // hour in which the two were delivered lasts, and from the next quarter the total rounded to two figures.
+    // The one figure about points is about how many everyone has together: nothing while the 15 minutes
+    // in which the two were delivered last, and from the next the total of them all.
     expect(((await h.get("/api/rewards")).body as RewardsPublic).weekPointsMicro).toBe("0");
     h.clock.t += QUARTER_MS;
     const anyone = (await h.get("/api/rewards")).body as RewardsPublic;
-    expect(anyone.weekPointsMicro).toBe(roundedPoints(BigInt(total)).toString());
-    expect(anyone.weekPointsMicro).not.toBe(total);
-    expect(values(anyone)).not.toContain(total);
+    expect(anyone.weekPointsMicro).toBe(total);
     // Signed in, Alice is shown her own points and nothing of Bob's: not his address, not his figure.
     const token = await signedIn(h, ALICE);
     const mine = await h.get("/api/rewards/me", { headers: { "x-rewards-session": token } });
@@ -1998,7 +1991,7 @@ describe("the Rewards page, as it is drawn", () => {
 
     // No wallet named: the week is whole (the page knows the calendar), the total's line waits in its room, and no pool is drawn.
     const bare = waiting(null);
-    expect(read(bare)).toMatch(/This week \d+d \d{2}:\d{2}:\d{2} \w{3} \d+ \w{3} to \w{3} \d+ \w{3}, by the clock in UTC\./);
+    expect(read(bare)).toMatch(/This week \d+d \d{2}:\d{2}:\d{2} \w{3} \d+ \w{3} to \w{3} \d+ \w{3}, UTC time\./);
     expect(bare).toContain('<p class="skeleton rewards-total-waiting" aria-hidden="true"></p>');
     expect(bare).not.toMatch(/Current pool|rewards-pool|bscscan/i);
 
@@ -2033,9 +2026,9 @@ describe("the Rewards page, as it is drawn", () => {
     expect(html).toContain(`<a href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" class="outbound">View the wallet on BscScan`);
     // Nothing else the wallet holds is listed, and nothing on the page names another coin for rewards.
     expect(text).not.toMatch(/\bZEC\b|Zcash|\$INT|\bBNB\b(?! Chain)|not counted in the total|Binance-Peg/);
-    // The week's points are told as a round figure, and said to be one.
-    expect(text).toContain("This week's points About 1,000 points Collected by everyone together. Brought up to date every quarter of an hour.");
-    expect(read(draw(summaryOf(POOL, 14_000n)))).toContain("This week's points About 14,000 points");
+    // The week's points are told as they are, with no "about" before them.
+    expect(text).toContain("This week's points 1,000 points Collected by everyone together. Brought up to date every 15 minutes.");
+    expect(read(draw(summaryOf(POOL, 14_000n)))).toContain("This week's points 14,000 points");
     // Nobody has signed in: no points of any one address, no share, and no address but the wallet's own.
     expect(html).not.toMatch(/rewards-points|Your share|Estimated reward/);
     // (An address is drawn in three parts, so that its two ends stand out: the parts are put together again before it is looked for.)
