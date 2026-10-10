@@ -2,7 +2,7 @@
 // to look again. No browser APIs here, so every rule is unit-tested.
 
 import { displayExact } from "../../../shared/amounts.ts";
-import { isEndState, type OrderStatus, type OrderView } from "../../../shared/api.ts";
+import { isEndState, type GasLine, type OrderStatus, type OrderView } from "../../../shared/api.ts";
 import { chainName, DEPOSIT_CLOSE_MS } from "../../../shared/chains.ts";
 import { fitLabel, PAY_BUTTON_ROOM, shortAddress } from "./swap-logic.ts";
 
@@ -293,6 +293,10 @@ export function payAction(input: {
   balance: bigint | null;
   /** Time left before the deadline, in ms. */
   left: number;
+  /** What the other of a swap's two orders still needs of the same coin, in its smallest unit (see gasDue). Nothing when left out. */
+  alsoDue?: bigint;
+  /** True for the second of two transfers while the first has not been sent (see firstSent). */
+  held?: boolean;
 }): PayAction {
   const coin = input.order.from.symbol;
   const network = chainName(input.order.from.chain);
@@ -301,11 +305,15 @@ export function payAction(input: {
   // Sending once more after a replacement is a separate, deliberate step (see paySecondary).
   if (input.phase === "replaced") return { kind: "none", label: "Transfer replaced", disabled: true, busy: false };
   if (input.phase === "unsure") return { kind: "none", label: "Check your wallet", disabled: true, busy: false };
+  // The second of two transfers is not asked for before the first was sent: until then this button opens no wallet.
+  if (input.held === true) return { kind: "none", label: "Send the swap first", disabled: true, busy: false };
   // Too close to the deadline for a transfer to be sure of arriving in time.
   if (input.left < 5 * 60_000) return { kind: "none", label: "Too close to the deadline", disabled: true, busy: false };
   if (!input.connected) return { kind: "connect", label: "Connect wallet", disabled: false, busy: false };
   if (input.walletChain !== input.order.from.chain) return { kind: "switch", label: `Switch to ${network}`, disabled: false, busy: false };
   if (input.balance !== null && input.balance < BigInt(input.order.amountIn)) return { kind: "none", label: `Not enough ${coin}`, disabled: true, busy: false };
+  // Two orders paid with one coin: while both are still to be paid, the wallet must hold enough for both.
+  if (input.balance !== null && input.balance < BigInt(input.order.amountIn) + (input.alsoDue ?? 0n)) return { kind: "none", label: fitLabel([`Not enough ${coin} for both`, "Not enough for both"], PAY_BUTTON_ROOM), disabled: true, busy: false };
   // The exact amount is in the row right above the button, and in the wallet's own prompt. The button
   // repeats it where it fits on one line; an 18-decimal amount does not, and is then left to those two.
   const amount = `${displayExact(BigInt(input.order.amountIn), input.order.from.decimals)} ${coin}`;
@@ -357,3 +365,178 @@ export const LOOK_FOR: Record<SaidEnding, string> = {
   expired: "It ran out without being paid.",
 };
 
+// ---- A swap with gas ----
+// Beside such a swap stands a second, small order that delivers a little of the receiving chain's
+// own coin to the same receiving address. It is an order in its own right: its own deposit address,
+// its own amount, its own deadline and its own end. The swap's page shows it as one compact line
+// beneath the four steps and lets it be paid beside the swap. The rules of that are below.
+
+/** The gas order itself, where the line carries one. Null where gas was not added, and where the order's record is gone. */
+export function gasOrderOf(gas: GasLine | null | undefined): OrderView | null {
+  return gas !== null && gas !== undefined && gas.made && gas.order !== null ? gas.order : null;
+}
+
+/** Whether an order is still to be paid: no deposit has been seen for it, or the one seen is not yet known to be in it. */
+export function awaitsDeposit(order: Pick<OrderView, "status" | "depositProven">): boolean {
+  return order.status === "waiting" || (order.status === "deposit_seen" && !order.depositProven);
+}
+
+/** The one line a swap's page says when gas was asked for and could not be added. */
+export const GAS_NOT_ADDED = "Gas was not added. Your swap is unaffected.";
+
+/** What stands above the two deposits, the swap's and the gas's, when both are on show. */
+export const TWO_TRANSFERS = "These are two separate transfers. Send each to its own address; do not combine them.";
+
+/** The title of an order's own page. A gas order opened by its own ID says that it is one. */
+export function pageTitle(order: Parameters<typeof orderTitle>[0] & Pick<OrderView, "gasOrder">): string {
+  return order.gasOrder === true ? `Gas: ${orderTitle(order)}` : orderTitle(order);
+}
+
+export interface GasWords {
+  /** How the line is marked, as a step is: still going, done, or stopped. */
+  mark: Exclude<StepState, "pending">;
+  /** Its state in a word or two. Null where the line is one plain sentence: gas was not added. */
+  state: string | null;
+  /** What that means, in a sentence or two. */
+  text: string;
+}
+
+/** The word for how a gas order ended, where one word is all that is left of it. */
+const GAS_ENDED: Record<SaidEnding, string> = { delivered: "Delivered", refunded: "Refunded", expired: "Ran out" };
+
+/**
+ * The gas line of a swap's page: the gas order's own state in plain words, whatever that state is.
+ * `now` is the server's clock. A gas order that ran out with nothing sent to it says so, and that
+ * nothing is lost: that is how it ends when only the swap was paid.
+ */
+export function gasWords(gas: GasLine, now: number, hasContact = true): GasWords {
+  if (!gas.made) return { mark: "stopped", state: null, text: GAS_NOT_ADDED };
+  // Made in Ghost mode and finished: one word is all the server still says of it.
+  if (gas.order === null) return { mark: gas.ended === "delivered" ? "done" : "stopped", state: GAS_ENDED[gas.ended], text: `${ENDED_AS[gas.ended]} It was made in Ghost mode, so its record was deleted when it finished.` };
+  const order = gas.order;
+  const from = order.from;
+  const paid = (raw: string) => displayExact(BigInt(raw), from.decimals);
+  const keep = `Keep this page's link and its deposit transaction hash${hasContact ? ", and contact support" : ""}.`;
+  switch (order.status) {
+    case "waiting":
+      // In the last two minutes nothing more should be sent to it: the line stops saying that it waits.
+      return { mark: "current", state: "Waiting", text: payWindow(order, now).open ? "Waiting for its deposit." : "Its deposit is closed. Checking whether one arrived." };
+    case "deposit_seen":
+      return { mark: "current", state: "Seen", text: "Its deposit was seen. Waiting for confirmations." };
+    case "swapping":
+      return { mark: "current", state: "Swapping", text: `Its deposit is confirmed. Swapping it for ${order.to.symbol}.` };
+    case "delivered":
+      // What really arrived, where the provider reports it: the same exact figure, written the same way, as the swap's own last step.
+      return { mark: "done", state: "Delivered", text: `${displayExact(BigInt(order.details?.amountOut ?? order.amountOut), order.to.decimals)} ${order.to.symbol} sent to ${shortAddress(order.recipient)}.` };
+    case "deposit_too_small": {
+      const arrived = order.details?.depositedAmount ?? null;
+      return { mark: "stopped", state: "Deposit too small", text: `${arrived !== null ? `${paid(arrived)} of ${paid(order.amountIn)} ${from.symbol} arrived` : `Less than ${paid(order.amountIn)} ${from.symbol} arrived`}. It is returned to your refund address by the deadline. Nothing more needs sending.` };
+    }
+    case "refunded": {
+      const reason = REFUND_REASONS[order.details?.refundReason ?? ""] ?? "The gas could not be delivered.";
+      const refunded = order.details?.refundedAmount ?? null;
+      return { mark: "stopped", state: "Refunded", text: `${reason} ${refunded !== null ? `${paid(refunded)} ${from.symbol} was` : `Your ${from.symbol} was`} returned to your refund address, ${shortAddress(order.refundTo)}, on ${chainName(from.chain)}.` };
+    }
+    case "failed":
+      return { mark: "stopped", state: "Failed", text: `The gas could not be delivered. ${keep}` };
+    case "expired":
+      // A transaction was named for it and never confirmed: coins may be in it, and the line does not say that nothing is lost.
+      return { mark: "stopped", state: "Ran out", text: order.depositTxHash !== null ? `No deposit was confirmed before its deadline. ${keep}` : "It ran out unpaid: nothing was sent to it and nothing is lost." };
+  }
+}
+
+/** When to look again for the gas order's sake. Null when there is none to follow: gas was not added, its record is gone, or it has ended. */
+export function gasPollDelay(gas: GasLine | null | undefined): number | null {
+  const order = gasOrderOf(gas);
+  return order === null ? null : pollDelay(order.status, 0);
+}
+
+/**
+ * When a swap's page looks again. A swap with gas is two orders, and the page goes on looking until
+ * both have ended. `swapWait` is what the swap alone asks for: null once it has ended and nothing
+ * more is to be learned of it. Null only when neither order asks for another look.
+ */
+export function lookAgain(swapWait: number | null, gas: GasLine | null | undefined): number | null {
+  const gasWait = gasPollDelay(gas);
+  return swapWait === null ? gasWait : gasWait === null ? swapWait : Math.min(swapWait, gasWait);
+}
+
+/**
+ * Once a swap's record is deleted (it was made in Ghost mode, and has finished), its page goes on
+ * looking for the sake of its gas order: as often as for any running order while that one runs, a
+ * few times more once it has ended, so as to learn that its record has gone too, and not at all
+ * once nothing is left of it but a word. `looksAfterEnd` is how many looks have been made since it ended.
+ */
+export function gasLookAgain(gas: GasLine | null | undefined, looksAfterEnd: number): number | null {
+  const order = gasOrderOf(gas);
+  if (order === null) return null;
+  return pollDelay(order.status, 0) ?? ghostLookAgain(looksAfterEnd);
+}
+
+/** What is known of the gas line after an answer: what the answer says of it or, where it says nothing, what was known before. */
+export function gasKept(before: GasLine | null, said: GasLine | null | undefined): GasLine | null {
+  return said ?? before;
+}
+
+/**
+ * A fresh view of the gas order, put into the line. Only a view of the very order the line already
+ * carries is taken; a view of any other order, the swap's own included, leaves the line as it was.
+ */
+export function gasPlaced(line: GasLine | null, view: OrderView): GasLine | null {
+  return gasOrderOf(line)?.id === view.id ? { made: true, order: view } : line;
+}
+
+/**
+ * Whether the first of the two transfers, the swap's own, has been sent. The second, the gas
+ * order's, is asked of a wallet only after it. `sentHere` is the hash of a transfer this browser
+ * sent for the swap, when it sent one. With no transfer on record the swap's own state decides: one
+ * that still waits has not been paid, and one that ran out never was.
+ */
+export function firstSent(swap: Pick<OrderView, "status" | "depositTxHash">, sentHere: string | null): boolean {
+  if (sentHere !== null || swap.depositTxHash !== null) return true;
+  return swap.status !== "waiting" && swap.status !== "expired";
+}
+
+/**
+ * What the gas order beside a swap still needs of the coin the swap is paid with, in the coin's
+ * smallest unit: its whole amount while it waits with nothing sent to it, and nothing otherwise.
+ * The pay button of the swap adds it to the swap's own amount when it checks the wallet's balance.
+ */
+export function gasDue(swap: Pick<OrderView, "from">, gas: GasLine | null | undefined): bigint {
+  const order = gasOrderOf(gas);
+  if (order === null || order.from.id !== swap.from.id) return 0n;
+  return order.status === "waiting" && order.depositsOpen && order.depositTxHash === null ? BigInt(order.amountIn) : 0n;
+}
+
+/** Which of a swap's two transfers a pay step is for: the swap's, with the gas's to follow, or the gas's. Null for an order paid alone. */
+export type PayPart = "first" | "second";
+
+/** The heading of a pay step and its opening lines. The wallet is asked for one plain transfer each time, whichever it is. */
+export function payWords(part: PayPart | null): { title: string; lead: string } {
+  const check = "Before you confirm, check that it shows this address and this amount.";
+  if (part === "first") return { title: "Send the swap: 1 of 2", lead: `There are two transfers, each confirmed in your wallet: this one for the swap, then one for the gas. Your wallet is asked for nothing else. ${check}` };
+  if (part === "second") return { title: "Now send the gas: 2 of 2", lead: `The second transfer is for the gas, and goes to an address of its own. Your wallet will ask you to confirm it and nothing else. ${check}` };
+  return { title: "Pay from your wallet", lead: `Your wallet will ask you to confirm one transfer and nothing else. ${check}` };
+}
+
+/**
+ * What is said beneath the pay button of the first transfer: what any pay step says and, once it
+ * was sent, that the gas is the next step. The second step appears on the page at that moment, and
+ * this line, which is read aloud as it changes, is what points to it.
+ */
+export function firstPayMessage(phase: PayPhase, network: string, pendingMs: number): { text: string; tone: "plain" | "attention" } | null {
+  const said = payMessage(phase, network, pendingMs);
+  return phase === "sent" && said !== null ? { text: `${said.text} Now send the gas, in the step below.`, tone: said.tone } : said;
+}
+
+/**
+ * What is said beneath the pay button of the second transfer. Saying no to it changes nothing for
+ * the swap, and the gas order can be paid until its own time to send by (`until`); left alone, it
+ * runs out by itself.
+ */
+export function gasPayMessage(phase: PayPhase, network: string, pendingMs: number, until: string): { text: string; tone: "plain" | "attention" } | null {
+  const left = `You can send the gas until ${until}. Left unpaid, the gas order runs out by itself and nothing is lost.`;
+  if (phase === "idle") return { text: `Your swap goes on either way. ${left}`, tone: "plain" };
+  if (phase === "rejected") return { text: `You cancelled in your wallet. Nothing was sent for the gas, and your swap is unaffected. ${left}`, tone: "plain" };
+  return payMessage(phase, network, pendingMs);
+}

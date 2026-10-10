@@ -6,17 +6,23 @@
 // happened the server answers "deleted". A page that was showing the order keeps what it last
 // showed, and says that this is all that is left; a fresh load of the link gets one plain notice
 // and nothing of the order.
+//
+// A swap that gas was added to is two orders on one page, reached by the swap's link. The swap's
+// four steps are as ever; beneath them one compact line tells of the gas order, and while that
+// order waits for its deposit it is paid here too, beside the swap and apart from it: its own
+// address, its own amount, its own time left. The page goes on looking until both have ended.
 
 import { Check, ChevronDown, Circle, CircleDot, ExternalLink, Ghost, Minus, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { isValidTxHash } from "../../../shared/addresses.ts";
 import { displayBps, displayExact } from "../../../shared/amounts.ts";
-import type { OrderView, TxRef } from "../../../shared/api.ts";
+import type { GasLine, OrderView, TxRef } from "../../../shared/api.ts";
 import { chainName, isWalletChain } from "../../../shared/chains.ts";
 import { POSITIONING } from "../../../shared/positioning.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { api, ApiError } from "../api.ts";
 import { Address } from "../components/Address.tsx";
+import { Amount } from "../components/Amount.tsx";
 import { PrimaryButton, SecondaryButton } from "../components/Button.tsx";
 import { CoinIcon } from "../components/CoinIcon.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
@@ -24,13 +30,14 @@ import { PracticeLine } from "../components/PracticeLine.tsx";
 import { Notice } from "../components/Shell.tsx";
 import { QrCode } from "../components/QrCode.tsx";
 import { WalletPay } from "../components/WalletPay.tsx";
-import { clockSpan, clockTime, ending, ENDED_AS, LOOK_FOR, endingSaid, ghostLookAgain, payWindow, pollDelay, sendBy, tabTitle, orderTitle, timeline, type SaidEnding, type Step } from "../lib/order-logic.ts";
+import { awaitsDeposit, clockSpan, clockTime, ending, ENDED_AS, LOOK_FOR, endingSaid, firstSent, gasDue, gasKept, gasLookAgain, gasOrderOf, gasPlaced, gasPollDelay, gasWords, ghostLookAgain, lookAgain, pageTitle, payWindow, pollDelay, sendBy, tabTitle, timeline, TWO_TRANSFERS, type SaidEnding, type Step } from "../lib/order-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { aboutMinutes, appFeeWords, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
 import { navigate } from "../router.ts";
 import { serverNow, useApp } from "../stores/app.ts";
 import { ghostOn, useGhost } from "../stores/ghost.ts";
 import { useOrders } from "../stores/orders.ts";
+import { sentFor } from "../stores/sent.ts";
 import { useWallet } from "../stores/wallet.ts";
 import "../styles/order.css";
 import { OutboundLink } from "../components/OutboundLink.tsx";
@@ -74,30 +81,39 @@ function TxLinks({ label, txs }: { label: string; txs: TxRef[] }) {
   );
 }
 
+/** Which of a swap's two deposits a block is: the swap's own, or the gas order's. Left out for an order that stands alone. */
+type Part = "swap" | "gas";
+
 /** What stands where the deposit details were, once nothing more should be sent. */
-function DepositsClosed() {
+function DepositsClosed({ part }: { part?: Part }) {
   return (
     <div className="notice notice-warning" role="note">
       <TriangleAlert size={16} strokeWidth={1.5} aria-hidden="true" />
-      <span>Deposits for this order are closed. Do not send now: a payment sent after the deadline may be lost.</span>
+      <span>Deposits for {part === "gas" ? "the gas order" : "this order"} are closed. Do not send now: a payment sent after the deadline may be lost.</span>
     </div>
   );
 }
 
-/** What to send, where, and by when. Shown only while the order still accepts a deposit. */
-export function DepositDetails({ order, now, ticked = false }: { order: OrderView; now: number; ticked?: boolean }) {
+/**
+ * What to send, where, and by when. Shown only while the order still accepts a deposit.
+ * Where a swap has a gas order beside it there are two of these, one for each, and `part` names
+ * which is which: each is that order's own address, amount and time left, and closes by itself.
+ */
+export function DepositDetails({ order, now, ticked = false, part }: { order: OrderView; now: number; ticked?: boolean; part?: Part }) {
   const [sure, setSure] = useState(ticked);
   const network = chainName(order.from.chain);
   const amount = displayExact(BigInt(order.amountIn), order.from.decimals);
   const pay = payWindow(order, now);
+  // Two blocks can be on the page at once: each heading has a name of its own.
+  const titleId = part === "gas" ? "gas-deposit-title" : "deposit-title";
 
-  if (!pay.open || order.depositAddress === null) return <DepositsClosed />;
+  if (!pay.open || order.depositAddress === null) return <DepositsClosed part={part} />;
 
   return (
-    <section className="deposit" aria-labelledby="deposit-title">
+    <section className="deposit" aria-labelledby={titleId}>
       <div className="deposit-head">
-        <h2 id="deposit-title" className="order-subtitle">
-          Send your deposit
+        <h2 id={titleId} className="order-subtitle">
+          {part === "gas" ? "Gas deposit" : part === "swap" ? "Swap deposit" : "Send your deposit"}
         </h2>
         <p className="deposit-clock">
           <span className="mono">{clockSpan(pay.toSend)}</span> <span className="muted">left to send, until {clockTime(sendBy(order))}</span>
@@ -165,13 +181,18 @@ export function DepositDetails({ order, now, ticked = false }: { order: OrderVie
   );
 }
 
-/** An optional shortcut: telling us the transaction's hash lets the order be followed sooner. */
-function HashField({ order, onOrder }: { order: OrderView; onOrder(order: OrderView): void }) {
+/**
+ * An optional shortcut: telling us the transaction's hash lets the order be followed sooner.
+ * A swap with gas has one of these for each of its two orders. Each sends the hash to the order it
+ * was given, by that order's own ID, and hands back that order's own answer.
+ */
+function HashField({ order, onOrder, part }: { order: OrderView; onOrder(order: OrderView): void; part?: Part }) {
   const [hash, setHash] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const text = hash.trim();
   const looksRight = isValidTxHash(order.from.chain, text);
+  const fieldId = part === "gas" ? "gas-tx-hash" : "tx-hash";
 
   const send = async () => {
     setBusy(true);
@@ -190,15 +211,15 @@ function HashField({ order, onOrder }: { order: OrderView; onOrder(order: OrderV
   return (
     <details className="order-fold">
       <summary>
-        Already sent? Add the transaction hash
+        {part === "gas" ? "Already sent the gas? Add its transaction hash" : part === "swap" ? "Already sent the swap? Add its transaction hash" : "Already sent? Add the transaction hash"}
         <ChevronDown className="fold-chevron" size={16} strokeWidth={1.5} aria-hidden="true" />
       </summary>
       <div className="hash-field">
         <p className="muted">This is optional. Your deposit is found without it; the hash only lets this page follow it sooner.</p>
-        <label className="sr-only" htmlFor="tx-hash">
-          Transaction hash
+        <label className="sr-only" htmlFor={fieldId}>
+          {part === "gas" ? "Transaction hash of the gas deposit" : "Transaction hash"}
         </label>
-        <input id="tx-hash" className="hash-input mono" value={hash} onChange={(event) => setHash(event.target.value.replace(/\s+/g, "").slice(0, 130))} placeholder="Transaction hash" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
+        <input id={fieldId} className="hash-input mono" value={hash} onChange={(event) => setHash(event.target.value.replace(/\s+/g, "").slice(0, 130))} placeholder="Transaction hash" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
         <SecondaryButton onClick={() => void send()} disabled={busy || !looksRight} busy={busy}>
           {busy ? "Sending…" : text !== "" && !looksRight ? `Not a ${chainName(order.from.chain)} transaction hash` : "Add hash"}
         </SecondaryButton>
@@ -210,16 +231,23 @@ function HashField({ order, onOrder }: { order: OrderView; onOrder(order: OrderV
   );
 }
 
-function Summary({ order, privacyMode }: { order: OrderView; privacyMode: PrivacyMode }) {
+/**
+ * An order's own numbers and addresses, folded away. `gas`: the order is a gas order, shown on its
+ * own page or beneath the swap it was made with, and its details are named as the gas order's.
+ * `beside`: it is shown on the swap's page, whose foot names the swap's ID only, so the gas order's
+ * own ID is given here.
+ */
+function Summary({ order, privacyMode, gas = false, beside = false }: { order: OrderView; privacyMode: PrivacyMode; gas?: boolean; beside?: boolean }) {
   const from = order.from;
   const to = order.to;
+  const which = gas ? "This gas order" : "This swap";
   // How the order was routed, as it was made. A private order always says so; a public one only where the server routes privately.
   const routing = routingNote(privacyMode, order);
   const noFee = appFeeWords(order);
   return (
     <details className="order-fold">
       <summary>
-        Order details
+        {gas ? "Gas order details" : "Order details"}
         <ChevronDown className="fold-chevron" size={16} strokeWidth={1.5} aria-hidden="true" />
       </summary>
       <dl className="review-rows">
@@ -309,12 +337,17 @@ function Summary({ order, privacyMode }: { order: OrderView; privacyMode: Privac
             <p className="review-address-value">
               <Address value={order.rewardsAddress} />
             </p>
-            <p className="review-address-note muted">This swap's points go to this address when it is delivered.</p>
+            <p className="review-address-note muted">{which}'s points go to this address when it is delivered.</p>
           </>
         ) : (
-          <p className="review-address-note muted">This swap adds no points: it was made without a rewards address.</p>
+          <p className="review-address-note muted">{which} adds no points: it was made without a rewards address.</p>
         )}
       </div>
+      {beside ? (
+        <p className="order-foot muted">
+          Gas order <span className="mono">{order.id}</span>.
+        </p>
+      ) : null}
     </details>
   );
 }
@@ -367,6 +400,55 @@ function GhostNote({ link, gone, ended, how }: { link: string; gone: boolean; en
 }
 
 /**
+ * The compact second line of a swap with gas, beneath the swap's four steps: "Gas", about how much
+ * of the chain's own coin arrives while it may still arrive, and the gas order's own state in plain
+ * words. Where gas could not be added it is one sentence. Marked as a step is marked, so the two
+ * read alike. Once delivered, its delivery is linked as the swap's is.
+ */
+function GasRow({ gas, now, hasContact }: { gas: GasLine; now: number; hasContact: boolean }) {
+  const line = gasWords(gas, now, hasContact);
+  const order = gasOrderOf(gas);
+  return (
+    <div className="gas-line" data-state={line.mark}>
+      <StepMark state={line.mark} />
+      <div className="step-body">
+        {line.state !== null ? (
+          <p className="gas-line-head">
+            <span className="step-title">Gas</span>
+            {order !== null && line.mark === "current" ? (
+              <span className="muted">
+                about <Amount raw={order.amountOut} decimals={order.to.decimals} symbol={order.to.symbol} />
+              </span>
+            ) : null}
+            <span className="gas-line-state">{line.state}</span>
+          </p>
+        ) : null}
+        <p className={line.state !== null ? "step-text muted" : "step-text"}>{line.text}</p>
+        {order !== null && order.depositTxUrl !== null && order.depositTxHash !== null ? <TxLinks label="Gas deposit" txs={[{ hash: order.depositTxHash, url: order.depositTxUrl }]} /> : null}
+        {order !== null && order.details !== null ? <TxLinks label="Gas delivery" txs={order.details.destinationTxs} /> : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Paying the gas order, while it waits for its deposit: the same two ways as the swap, and the gas
+ * order's own address, amount and time left in either. From a connected wallet it is the second of
+ * two transfers: `held` while the swap's has not been sent, and then it is not on show. In Ghost
+ * mode there is no wallet, and it is paid by sending to its deposit address.
+ */
+function GasPay({ gasOrder, now, onGas, held }: { gasOrder: OrderView; now: number; onGas(order: OrderView): void; held: boolean }) {
+  const ghostTab = useGhost((state) => state.on);
+  const byHand = <DepositDetails order={gasOrder} now={now} part="gas" />;
+  if (ghostTab || gasOrder.pay !== "wallet" || !isWalletChain(gasOrder.from.chain)) return byHand;
+  return (
+    <WalletPay order={gasOrder} now={now} onOrder={onGas} part="second" held={held}>
+      {byHand}
+    </WalletPay>
+  );
+}
+
+/**
  * An order as it stands: how it ended (if it has), the four steps, what to send while a deposit
  * is awaited, and its details. Everything shown comes from the order the server holds.
  * `privacyMode` is how the server routes swaps now: with it "basic", a public order's details say
@@ -377,12 +459,48 @@ function GhostNote({ link, gone, ended, how }: { link: string; gone: boolean; en
  * `gone` is for such an order once the server has said its record was deleted: the page keeps what
  * it last showed and takes away everything that would ask for something more (the deposit details,
  * the steps of an order that was still running, the hash field, the buttons that copy the link).
+ *
+ * `gas` is what is known of the gas order asked for with this swap (as the swap's own answer says
+ * it, unless the page knows better), and `onGas` takes a fresh view of that order. The gas order is
+ * an order of its own and is shown as one: its line, its deposit and its hash field follow its own
+ * state, whatever the swap's is, and stay when the swap's record has gone and its own has not.
  */
-export function OrderContent({ order, now, reconnecting, contact, onOrder, privacyMode = null, gone = false, how = null, children }: { order: OrderView; now: number; reconnecting: boolean; contact: string | null; onOrder(order: OrderView): void; privacyMode?: PrivacyMode; gone?: boolean; how?: SaidEnding | null; children?: React.ReactNode }) {
+export function OrderContent({
+  order,
+  now,
+  reconnecting,
+  contact,
+  onOrder,
+  privacyMode = null,
+  gone = false,
+  how = null,
+  gas = order.gas ?? null,
+  onGas = () => undefined,
+  children,
+}: {
+  order: OrderView;
+  now: number;
+  reconnecting: boolean;
+  contact: string | null;
+  onOrder(order: OrderView): void;
+  privacyMode?: PrivacyMode;
+  gone?: boolean;
+  how?: SaidEnding | null;
+  gas?: GasLine | null;
+  onGas?(order: OrderView): void;
+  children?: React.ReactNode;
+}) {
   const steps = timeline(order, now);
   const end = ending(order, contact !== null, !gone);
-  const awaitingDeposit = order.status === "waiting" || (order.status === "deposit_seen" && !order.depositProven);
+  const awaitingDeposit = awaitsDeposit(order);
   const running = end === null;
+  // The gas order, where there is one, and whether it is still to be paid.
+  const gasOrder = gasOrderOf(gas);
+  const gasAwaits = gasOrder !== null && awaitsDeposit(gasOrder);
+  // The swap's deposit is named as the swap's wherever the gas order's stands beside it.
+  const part = gasAwaits ? "swap" : undefined;
+  // A transfer this browser sent for the swap: in this visit, or (by its own note) an earlier one. The gas order's is asked of a wallet only after it.
+  const [sentHere, setSentHere] = useState(() => sentFor(order.id)?.hash ?? null);
   // An order whose record is gone is a Ghost order, whether or not its last answer said so.
   const ghost = order.ghost === true || gone;
   // In Ghost mode no wallet is loaded: every order is paid by sending to its deposit address.
@@ -391,7 +509,7 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
   const contactHref = contact === null ? null : contact.startsWith("https://") ? contact : /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact) ? `mailto:${contact}` : null;
   const title = (
     <h1 id="order-title" className="order-title">
-      {orderTitle(order)}
+      {pageTitle(order)}
     </h1>
   );
 
@@ -460,12 +578,19 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
           <DepositsClosed />
         ) : null
       ) : awaitingDeposit && order.pay === "wallet" && isWalletChain(order.from.chain) && !ghostTab ? (
-        <WalletPay order={order} now={now} onOrder={onOrder}>
-          <DepositDetails order={order} now={now} />
+        // With a gas order still to be paid this is the first of two transfers, and the wallet must hold enough for both.
+        <WalletPay order={order} now={now} onOrder={onOrder} part={gasDue(order, gas) > 0n ? "first" : null} alsoDue={gasDue(order, gas)} onSent={setSentHere}>
+          <DepositDetails order={order} now={now} part={part} />
         </WalletPay>
       ) : awaitingDeposit ? (
-        <DepositDetails order={order} now={now} />
+        <>
+          {gasAwaits ? <p className="pay-pair">{TWO_TRANSFERS}</p> : null}
+          <DepositDetails order={order} now={now} part={part} />
+        </>
       ) : null}
+
+      {/* The gas order is paid beneath the swap, and apart from it. Its own record decides whether it still can be, not the swap's. */}
+      {gasOrder !== null && gasAwaits ? <GasPay gasOrder={gasOrder} now={now} onGas={onGas} held={!gone && !firstSent(order, sentHere)} /> : null}
 
       {/* The steps of an order that was still running when its record went are not kept: how it went on from there was never seen. */}
       {gone && running ? null : (
@@ -492,13 +617,18 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
       {order.details !== null && order.depositTxUrl === null ? <TxLinks label="Deposit" txs={order.details.originTxs} /> : null}
       {order.details !== null ? <TxLinks label="Delivery" txs={order.details.destinationTxs} /> : null}
 
-      {order.status === "waiting" && !gone ? <HashField order={order} onOrder={onOrder} /> : null}
+      {/* The gas order's line comes after everything of the swap's own progress, its transactions included: what is under the line is the gas order's. */}
+      {gas !== null ? <GasRow gas={gas} now={now} hasContact={contact !== null} /> : null}
 
-      <Summary order={order} privacyMode={privacyMode} />
+      {order.status === "waiting" && !gone ? <HashField order={order} onOrder={onOrder} part={gasOrder !== null ? "swap" : undefined} /> : null}
+      {gasOrder !== null && gasOrder.status === "waiting" ? <HashField order={gasOrder} onOrder={onGas} part="gas" /> : null}
+
+      <Summary order={order} privacyMode={privacyMode} gas={order.gasOrder === true} />
+      {gasOrder !== null ? <Summary order={gasOrder} privacyMode={privacyMode} gas beside /> : null}
 
       <p className="order-foot muted">
         {/* A Ghost order has said what its link is worth at the top of the page, and says it once. */}
-        Order <span className="mono">{order.id}</span>.{ghost ? null : <> Keep this page's link: it is the only way back to this order.</>}
+        {order.gasOrder === true ? "Gas order" : "Order"} <span className="mono">{order.id}</span>.{ghost ? null : <> Keep this page's link: it is the only way back to this order.</>}
       </p>
 
       {children}
@@ -522,8 +652,88 @@ export function OrderDeleted({ ended = null }: { ended?: SaidEnding | null }) {
   );
 }
 
+/**
+ * What a fresh load of a finished Ghost mode swap's link shows beneath the notice, while the gas
+ * order made with that swap is still known: the gas order, in the order page's own frame. Nothing of
+ * the swap is here, for nothing of it is kept. The link is still the one way back to the gas order,
+ * so its line is here, and its deposit and hash field while it waits to be paid.
+ */
+export function GasAlone({ gas, now, reconnecting, contact, onGas, children }: { gas: GasLine; now: number; reconnecting: boolean; contact: string | null; onGas(order: OrderView): void; children?: React.ReactNode }) {
+  const gasOrder = gasOrderOf(gas);
+  return (
+    <section className="order" aria-labelledby="gas-alone-title">
+      <header className="gas-alone-head">
+        <h2 id="gas-alone-title" className="order-subtitle">
+          Gas order
+        </h2>
+        <p className="muted">{gasOrder !== null ? "Made with the swap above, and an order of its own. This page's link is the only way back to it." : "Made with the swap above, and an order of its own."}</p>
+      </header>
+
+      <p className="order-reconnecting" role="status">
+        {reconnecting ? "Reconnecting… Showing what was last known." : " "}
+      </p>
+
+      {gasOrder !== null && awaitsDeposit(gasOrder) ? <GasPay gasOrder={gasOrder} now={now} onGas={onGas} held={false} /> : null}
+
+      <GasRow gas={gas} now={now} hasContact={contact !== null} />
+
+      {gasOrder !== null && gasOrder.status === "waiting" ? <HashField order={gasOrder} onOrder={onGas} part="gas" /> : null}
+      {gasOrder !== null ? <Summary order={gasOrder} privacyMode={null} gas beside /> : null}
+
+      {children}
+    </section>
+  );
+}
+
+/** What moves a practice order along, each with the word on its button. */
+const MOVES = [
+  ["deposit", "Pay in full"],
+  ["underpay", "Pay too little"],
+  ["refund", "Refund"],
+  ["fail", "Fail"],
+] as const;
+
+/**
+ * The operator's tool for moving a practice order along. It says nothing of itself and stays folded
+ * until asked for. A swap with gas is two orders, and each is moved by itself: the gas order has the
+ * same controls as the swap, and they act on the gas order's own ID.
+ */
+function TestControls({ swap, gasOrder }: { swap: OrderView | null; gasOrder: OrderView | null }) {
+  return (
+    <details className="order-practice">
+      <summary>Test controls</summary>
+      {swap !== null ? (
+        <div className="states-row" role="group" aria-label="Test controls">
+          {MOVES.map(([action, label]) => (
+            <button key={action} type="button" className="button-chip" onClick={() => void api.practice(swap.id, action).catch(() => undefined)}>
+              {label}
+            </button>
+          ))}
+          {/* These two move the practice server's own clock forward, for every practice order at once. */}
+          {(["late", "expire"] as const).map((action) => (
+            <button key={action} type="button" className="button-chip" onClick={() => void api.practice(swap.id, action).then(() => window.location.reload(), () => undefined)}>
+              {action === "late" ? "Skip to deposits closed" : "Skip to expired"}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {gasOrder !== null ? (
+        <div className="states-row" role="group" aria-label="Test controls for the gas order">
+          {MOVES.map(([action, label]) => (
+            <button key={action} type="button" className="button-chip" onClick={() => void api.practice(gasOrder.id, action).catch(() => undefined)}>
+              Gas: {label.toLowerCase()}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
 export default function OrderPage({ id }: { id: string }) {
   const [order, setOrder] = useState<OrderView | null>(null);
+  // What is known of the gas order asked for with the swap. It comes with the swap's own answers, and with the answer that the swap's record is deleted.
+  const [gas, setGas] = useState<GasLine | null>(null);
   const [missing, setMissing] = useState(false);
   // The server has said that the order's record was deleted: an order made in Ghost mode, once it has finished.
   const [deleted, setDeleted] = useState(false);
@@ -539,6 +749,8 @@ export default function OrderPage({ id }: { id: string }) {
   // Ask the server, then again after a pause that depends on what it said. Nothing is asked while
   // the tab is hidden, and nothing more once the order has ended. (An order made in Ghost mode is
   // looked at a few times more after it has ended, until the server says its record is deleted.)
+  // A swap with gas is two orders: the page goes on asking until both have ended, and, where the
+  // swap's record is deleted first, until the gas order's is gone too.
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -547,10 +759,13 @@ export default function OrderPage({ id }: { id: string }) {
     let seen: OrderView["status"] | null = null;
     // How many times an ended Ghost order has been looked at again.
     let looksAfterEnd = 0;
+    // The same for the gas order of a swap whose record is gone.
+    let gasLooksAfterEnd = 0;
     setOrder(null);
     setMissing(false);
     setDeleted(false);
     setEndedAs(null);
+    setGas(null);
     failures.current = 0;
 
     const look = async () => {
@@ -566,6 +781,8 @@ export default function OrderPage({ id }: { id: string }) {
         failures.current = 0;
         setReconnecting(false);
         setOrder(fresh);
+        // The gas line comes with the swap's answer. Where an answer says nothing of it, what was last known stays on the page.
+        setGas((before) => gasKept(before, fresh.gas));
         // An order seen to be delivered has changed what a connected wallet holds of its two coins: both are read afresh.
         // (Not in Ghost mode: there is no wallet there, and no balance is read.)
         if (fresh.status === "delivered" && seen !== null && seen !== "delivered" && !ghostOn()) void useWallet.getState().loadBalances([fresh.from, fresh.to], 0);
@@ -573,10 +790,24 @@ export default function OrderPage({ id }: { id: string }) {
         useApp.setState({ clockOffset: Date.parse(fresh.serverNow) - Date.now() });
         next = pollDelay(fresh.status, 0);
         if (next === null && fresh.ghost === true) next = ghostLookAgain(looksAfterEnd++);
+        // The gas order beside the swap is followed to its own end: the page stops only when both have ended.
+        next = lookAgain(next, fresh.gas);
       } catch (err) {
         if (stopped || (err instanceof DOMException && err.name === "AbortError")) return;
+        // The answer that a swap's record is deleted still tells of its gas order, while that is known. The gas line
+        // is kept on the page, and the page goes on looking, for the gas order's sake, until that is gone too.
+        const beside = err instanceof ApiError && err.code === "order_deleted" ? err.gas : null;
+        if (beside !== null) {
+          failures.current = 0;
+          setGas(beside);
+          const gasOrder = gasOrderOf(beside);
+          if (gasOrder !== null) useApp.setState({ clockOffset: Date.parse(gasOrder.serverNow) - Date.now() });
+          const again = gasLookAgain(beside, gasLooksAfterEnd);
+          if (gasPollDelay(beside) === null) gasLooksAfterEnd += 1;
+          if (again !== null) timer = setTimeout(() => void look(), again);
+        }
         if (err instanceof ApiError && err.code === "order_deleted") {
-          // An order made in Ghost mode has finished and its record is gone. There is nothing more to ask.
+          // An order made in Ghost mode has finished and its record is gone. Nothing more is asked of the swap itself.
           setReconnecting(false);
           setEndedAs(endingSaid(err.detail));
           setDeleted(true);
@@ -611,6 +842,15 @@ export default function OrderPage({ id }: { id: string }) {
     return () => clearInterval(timer);
   }, [deleted]);
 
+  // A gas order still running after its swap's record has gone has a time to send by of its own: the
+  // clock runs on for it, and stops when it has ended or is gone too.
+  const gasRunsOn = deleted && gasPollDelay(gas) !== null;
+  useEffect(() => {
+    if (!gasRunsOn) return;
+    const timer = setInterval(() => setNow(serverNow()), 1000);
+    return () => clearInterval(timer);
+  }, [gasRunsOn]);
+
   // The tab's title tells how the order ended, for anyone who left it open in the background.
   useEffect(() => {
     document.title = tabTitle(order);
@@ -625,6 +865,26 @@ export default function OrderPage({ id }: { id: string }) {
       <Notice title="Order not found." action={<SecondaryButton onClick={() => navigate("/")}>Go to the swap page</SecondaryButton>}>
         <p>This link doesn't match an order. An order that was never paid is removed a day after its deadline.</p>
       </Notice>
+    );
+  }
+
+  /** A fresh view of the gas order, from paying it or naming its transaction: it goes into the gas line, and nowhere else. */
+  const placeGas = (view: OrderView) => setGas((line) => gasPlaced(line, view));
+  const gasOrder = gasOrderOf(gas);
+  // The swap can be moved while its record is here and it has not ended; the gas order, the same, by itself.
+  const swapRuns = order !== null && !deleted && ending(order) === null;
+  const gasRuns = gasOrder !== null && ending(gasOrder) === null;
+  const controls = practice && (swapRuns || gasRuns) ? <TestControls swap={swapRuns ? order : null} gasOrder={gasRuns ? gasOrder : null} /> : null;
+
+  // The swap's record was already gone when this page first asked, and its gas order is still known: the notice, and beneath it the gas order.
+  if (deleted && order === null && gas !== null) {
+    return (
+      <>
+        <OrderDeleted ended={endedAs} />
+        <GasAlone gas={gas} now={now} reconnecting={reconnecting} contact={contact} onGas={placeGas}>
+          {controls}
+        </GasAlone>
+      </>
     );
   }
 
@@ -650,28 +910,9 @@ export default function OrderPage({ id }: { id: string }) {
     );
   }
 
-  const running = ending(order) === null;
   return (
-    <OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted} how={endedAs}>
-      {practice && running && !deleted ? (
-        <details className="order-practice">
-          {/* The operator's tool for moving a practice order along. It says nothing of itself and stays folded until asked for. */}
-          <summary>Test controls</summary>
-          <div className="states-row" role="group" aria-label="Test controls">
-            {(["deposit", "underpay", "refund", "fail"] as const).map((action) => (
-              <button key={action} type="button" className="button-chip" onClick={() => void api.practice(order.id, action).catch(() => undefined)}>
-                {action === "deposit" ? "Pay in full" : action === "underpay" ? "Pay too little" : action === "refund" ? "Refund" : "Fail"}
-              </button>
-            ))}
-            {/* These two move the practice server's own clock forward, for every practice order at once. */}
-            {(["late", "expire"] as const).map((action) => (
-              <button key={action} type="button" className="button-chip" onClick={() => void api.practice(order.id, action).then(() => window.location.reload(), () => undefined)}>
-                {action === "late" ? "Skip to deposits closed" : "Skip to expired"}
-              </button>
-            ))}
-          </div>
-        </details>
-      ) : null}
+    <OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted} how={endedAs} gas={gas} onGas={placeGas}>
+      {controls}
     </OrderContent>
   );
 }

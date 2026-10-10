@@ -492,7 +492,7 @@ describe("an order made in Ghost mode, on its own page", () => {
       // It comes before the look that would count as a failed try, so the page never says "Reconnecting" of an order that is gone.
       expect(code.indexOf('err.code === "order_deleted"')).toBeLessThan(code.indexOf("failures.current += 1;"));
       // The order the page was showing is kept as it was, and handed on as gone.
-      expect(code).toContain("<OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted} how={endedAs}>");
+      expect(code).toContain("<OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted} how={endedAs} gas={gas} onGas={placeGas}>");
       expect(code).toMatch(/useEffect\(\(\) => \{\s*if \(deleted\) return;\s*const timer = setInterval\(\(\) => setNow\(serverNow\(\)\), 1000\);/);
       // Another order opened in the same tab starts afresh.
       expect(code).toMatch(/setOrder\(null\);\s*setMissing\(false\);\s*setDeleted\(false\);/);

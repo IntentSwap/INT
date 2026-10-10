@@ -603,3 +603,56 @@
     text-wrap: balance;
   }
 }
+
+/* ---- Add gas: the order's page and the wallet ----
+   A swap with gas is two orders on one page. The gas order has one compact line beneath the swap's
+   four steps, marked as a step is and set apart from them by a rule: "Gas", about what arrives, and
+   on the right its own state. Its words wrap under that, and its links stand under its words. */
+.gas-line {
+  display: flex;
+  gap: var(--space-12);
+  padding-top: var(--space-16);
+  border-top: var(--border-width) solid var(--border);
+}
+
+/* Its words take the whole width beside the mark, so the state can keep to the right edge. */
+.gas-line .step-body {
+  flex: 1;
+}
+
+.gas-line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4) var(--space-8);
+}
+
+/* The state keeps to the right end of the line, also when the line is long enough to break. */
+.gas-line-state {
+  margin-left: auto;
+  font-weight: var(--weight-500);
+}
+
+.gas-line[data-state="stopped"] .gas-line-state {
+  color: var(--text-muted);
+}
+
+/* Above the two deposits, the swap's and the gas's: one plain sentence, in the weight of a heading. */
+.pay-pair {
+  font-weight: var(--weight-500);
+  text-wrap: pretty;
+}
+
+/* The gas order of a swap whose record is gone, in a frame of its own beneath the notice. */
+.gas-alone-head {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* The operator's controls for a swap with gas: one row for each of the two orders. */
+.order-practice .states-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+}

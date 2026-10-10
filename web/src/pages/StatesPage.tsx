@@ -4,7 +4,7 @@
 import { bech32 } from "@scure/base";
 import { ArrowDownUp, ArrowLeft, Moon, RefreshCw, Search, SlidersHorizontal, Sun, TriangleAlert, Wallet, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { routingOf, type OrderView, type QuoteView, type TokenView } from "../../../shared/api.ts";
+import { routingOf, type GasLine, type OrderView, type QuoteView, type TokenView } from "../../../shared/api.ts";
 import type { RecentOrder } from "../stores/orders.ts";
 import { chainName } from "../../../shared/chains.ts";
 import { Address } from "../components/Address.tsx";
@@ -22,10 +22,10 @@ import { Notice } from "../components/Shell.tsx";
 import { SOCIAL_MARKS } from "../components/Social.tsx";
 import { socialLinks } from "../lib/site-logic.ts";
 import { PayPanel } from "../components/WalletPay.tsx";
-import { payAction, payMessage, paySecondary, type PayAction, type PayPhase } from "../lib/order-logic.ts";
+import { clockTime, firstPayMessage, gasPayMessage, payAction, payMessage, paySecondary, sendBy, type PayAction, type PayPhase } from "../lib/order-logic.ts";
 import { COIN_ICONS, COIN_LOGOS } from "../lib/icons.ts";
 import { PRIVATE_UNAVAILABLE, primaryAction, reviewAction, reviewSentence, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
-import { DepositDetails, OrderContent } from "./OrderPage.tsx";
+import { DepositDetails, GasAlone, OrderContent, OrderDeleted } from "./OrderPage.tsx";
 import { setTheme, useTheme } from "../theme.ts";
 import "../styles/states.css";
 
@@ -178,6 +178,57 @@ const ORDERS: Array<{ label: string; order: OrderView; reconnecting?: boolean; p
   { label: "Expired", order: order({ status: "expired", depositAddress: null, depositsOpen: false, deadline: at(-20) }) },
   { label: "Connection lost: the last known state stays", order: order({ status: "swapping", depositProven: true, depositAddress: null, depositsOpen: false }), reconnecting: true },
 ];
+
+// ---- A swap with gas ----
+// The sample swap, and beside it the second, small order that delivers a little SOL to the same
+// Solana address. It is an order of its own: its own ID, its own amount and its own deposit address.
+const GAS_DEPOSIT = "0x5b548182C1DA2fCe1d778851E4EeA0D340c4D53c";
+const GAS_HASH = `0x${"a7".repeat(32)}`;
+const PAID = { depositProven: true, depositAddress: null, depositsOpen: false } as const;
+
+/** The gas order: about three dollars of ETH for SOL, always privately routed. */
+function gasOrder(overrides: Partial<OrderView> = {}): OrderView {
+  return order({
+    id: "Ex4mpleGasOrderForTheStates",
+    gasOrder: true,
+    to: { id: "sol:SOL", symbol: "SOL", name: "Solana", chain: "sol", decimals: 9, contract: null },
+    amountIn: "1185650000000000",
+    amountOut: "20145310",
+    minAmountOut: "19943856",
+    amountInUsd: "3.00",
+    amountOutUsd: "2.97",
+    fees: { appBps: 0, providerBps: 20, appAmount: "0", providerAmount: "2371300000000" },
+    withdrawFee: null,
+    routing: routingOf("basic"),
+    depositAddress: GAS_DEPOSIT,
+    ...overrides,
+  });
+}
+
+/** The sample swap as it is where gas was asked for with it: privately routed, and carrying what is known of the gas order. */
+const withGas = (gas: GasLine, overrides: Partial<OrderView> = {}): OrderView => order({ amountOut: PRIVATE_QUOTE.amountOut, minAmountOut: PRIVATE_QUOTE.minAmountOut, fees: PRIVATE_QUOTE.fees, routing: routingOf("basic"), gas, ...overrides });
+const SWAPPING = { status: "swapping", ...PAID, details: details({ originTxs: [DEPOSIT_TX] }) } as const;
+const GAS_DELIVERED = gasOrder({ status: "delivered", ...PAID, depositTxHash: GAS_HASH, depositTxUrl: `https://basescan.org/tx/${GAS_HASH}`, details: details({ destinationTxs: [{ hash: "3wZ1kq7dVhB5p2mXcJ8sYtQe9LfRuN4aG6oHbTiKxEyCvD2jWnUzMrPgS7FhA1qXk8tBoYc5eV9uKdJmR3iNwZs", url: null }], amountOut: "20151200" }) });
+
+const GAS_ORDERS: Array<{ label: string; order: OrderView; gone?: boolean }> = [
+  { label: "Both waiting, sent by hand: two deposits, each with its own address and amount (tick the boxes)", order: withGas({ made: true, order: gasOrder() }) },
+  { label: "Both waiting, from a wallet: the swap's transfer is the first of two", order: withGas({ made: true, order: gasOrder({ pay: "wallet" }) }, { pay: "wallet" }) },
+  { label: "The swap paid, the gas still waiting", order: withGas({ made: true, order: gasOrder() }, SWAPPING) },
+  { label: "The swap paid, the gas deposit seen", order: withGas({ made: true, order: gasOrder({ status: "deposit_seen", ...PAID, depositTxHash: GAS_HASH, depositTxUrl: `https://basescan.org/tx/${GAS_HASH}` }) }, SWAPPING) },
+  { label: "Swap delivered, gas delivered", order: withGas({ made: true, order: GAS_DELIVERED }, ORDERS.find((sample) => sample.label === "Delivered")?.order) },
+  { label: "Swap delivered, gas still being swapped", order: withGas({ made: true, order: gasOrder({ status: "swapping", ...PAID }) }, ORDERS.find((sample) => sample.label === "Delivered")?.order) },
+  { label: "Gas was not added", order: withGas({ made: false }) },
+  { label: "The gas ran out unpaid; the swap goes on", order: withGas({ made: true, order: gasOrder({ status: "expired", depositAddress: null, depositsOpen: false, deadline: at(-5) }) }, SWAPPING) },
+  { label: "The gas refunded", order: withGas({ made: true, order: gasOrder({ status: "refunded", ...PAID, details: details({ refundedAmount: "1183000000000000", refundReason: "SLIPPAGE_EXCEEDED" }) }) }, SWAPPING) },
+  { label: "The gas deposit too small", order: withGas({ made: true, order: gasOrder({ status: "deposit_too_small", ...PAID, details: details({ depositedAmount: "1000000000000000" }) }) }, SWAPPING) },
+  { label: "The gas failed", order: withGas({ made: true, order: gasOrder({ status: "failed", ...PAID, depositTxHash: GAS_HASH }) }, SWAPPING) },
+  { label: "Made in Ghost mode: the gas order finished first, and its record is deleted", order: withGas({ made: true, order: null, ended: "delivered" }, { ...SWAPPING, ghost: true }) },
+  { label: "Made in Ghost mode: the swap's record is deleted while the page shows it, the gas order still waiting", order: withGas({ made: true, order: gasOrder({ ghost: true }) }, { ...(ORDERS.find((sample) => sample.label === "Delivered")?.order ?? {}), ghost: true }), gone: true },
+  { label: "The gas order opened by its own ID", order: gasOrder() },
+];
+
+const GAS_WALLET_ORDER = gasOrder({ pay: "wallet", deadline: at(28) });
+const GAS_UNTIL = clockTime(sendBy(GAS_WALLET_ORDER));
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -745,6 +796,22 @@ export default function StatesPage() {
         ))}
       </Group>
 
+      <Group title="Orders with gas">
+        {GAS_ORDERS.map(({ label, order: example, gone }) => (
+          <Case key={label} label={label} wide>
+            <OrderContent order={example} now={NOW} reconnecting={false} contact="help@example.org" onOrder={never} privacyMode="basic" gone={gone ?? false} />
+          </Case>
+        ))}
+        <Case label="Made in Ghost mode, a fresh load after the swap's record is deleted: the notice, and beneath it the gas order still waiting" wide>
+          <OrderDeleted ended="delivered" />
+          <GasAlone gas={{ made: true, order: gasOrder({ ghost: true }) }} now={NOW} reconnecting={false} contact="help@example.org" onGas={never} />
+        </Case>
+        <Case label="The same once the gas order has finished too" wide>
+          <OrderDeleted ended="delivered" />
+          <GasAlone gas={{ made: true, order: null, ended: "delivered" }} now={NOW} reconnecting={false} contact="help@example.org" onGas={never} />
+        </Case>
+      </Group>
+
       <Group title="Recent orders">
         <Case label="Orders made in this browser, newest first" wide>
           <RecentList orders={RECENT} onOpen={never} onClear={never} />
@@ -768,6 +835,36 @@ export default function StatesPage() {
             </PayPanel>
           </Case>
         ))}
+        <Case label="From a wallet, a swap with gas: the first of two transfers" wide>
+          <PayPanel order={WALLET_ORDER} now={NOW} part="first" action={payAction({ ...payBase, phase: "idle", alsoDue: BigInt(GAS_WALLET_ORDER.amountIn) })} text={null} tone="plain" link={null} onAct={never}>
+            {null}
+          </PayPanel>
+        </Case>
+        <Case label="From a wallet, a swap with gas: enough for the swap, not for both" wide>
+          <PayPanel order={WALLET_ORDER} now={NOW} part="first" action={payAction({ ...payBase, phase: "idle", balance: BigInt(WALLET_ORDER.amountIn), alsoDue: BigInt(GAS_WALLET_ORDER.amountIn) })} text={null} tone="plain" link={null} onAct={never}>
+            {null}
+          </PayPanel>
+        </Case>
+        <Case label="From a wallet, a swap with gas: the first transfer sent, and where the second is" wide>
+          <PayPanel order={WALLET_ORDER} now={NOW} part="first" action={payAction({ ...payBase, phase: "sent" })} text={firstPayMessage("sent", "Base", 0)?.text ?? null} tone="plain" link={DEPOSIT_TX.url} onAct={never}>
+            {null}
+          </PayPanel>
+        </Case>
+        <Case label="From a wallet, a swap with gas: the second transfer, once the first was sent" wide>
+          <PayPanel order={GAS_WALLET_ORDER} now={NOW} part="second" action={payAction({ ...payBase, order: GAS_WALLET_ORDER, phase: "idle" })} text={gasPayMessage("idle", "Base", 0, GAS_UNTIL)?.text ?? null} tone="plain" link={null} onAct={never}>
+            {null}
+          </PayPanel>
+        </Case>
+        <Case label="From a wallet, a swap with gas: the second transfer, cancelled in the wallet" wide>
+          <PayPanel order={GAS_WALLET_ORDER} now={NOW} part="second" action={payAction({ ...payBase, order: GAS_WALLET_ORDER, phase: "rejected" })} text={gasPayMessage("rejected", "Base", 0, GAS_UNTIL)?.text ?? null} tone="plain" link={null} onAct={never}>
+            {null}
+          </PayPanel>
+        </Case>
+        <Case label="From a wallet, a swap with gas: the second transfer, sent" wide>
+          <PayPanel order={GAS_WALLET_ORDER} now={NOW} part="second" action={payAction({ ...payBase, order: GAS_WALLET_ORDER, phase: "sent" })} text={gasPayMessage("sent", "Base", 0, GAS_UNTIL)?.text ?? null} tone="plain" link={`https://basescan.org/tx/${GAS_HASH}`} onAct={never}>
+            {null}
+          </PayPanel>
+        </Case>
       </Group>
 
       <Group title="Messages">

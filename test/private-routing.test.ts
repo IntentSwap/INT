@@ -414,7 +414,8 @@ describe("the page of component states", () => {
     expect(html).toMatch(/<div class="order-title-row"><h1 id="order-title" class="order-title">0\.5 ETH to USDT<\/h1><span class="chip routing-tag" data-tone="private">Private<\/span><\/div>/);
     expect(html).toMatch(/<div class="review-row" data-row="routing"><dt class="muted">Routing<\/dt><dd>Public<\/dd><\/div>/);
     // Everything else on the page is drawn as where the server routes in public: the other samples gained no new part.
-    const rest = html.replace(/<h2 class="states-title">Private routing<\/h2>[\s\S]*?(?=<h2 class="states-title">)/, "");
+    // (A swap with gas is always routed privately, and so is its gas order: their samples are a group of their own, and are not among the others.)
+    const rest = html.replace(/<h2 class="states-title">Private routing<\/h2>[\s\S]*?(?=<h2 class="states-title">)/, "").replace(/<h2 class="states-title">Orders with gas<\/h2>[\s\S]*?(?=<h2 class="states-title">)/, "");
     expect(rest.match(/routing-tag/g)).toHaveLength(1);
     expect(rest.match(/data-row="routing"/g)).toHaveLength(2);
     expect(rest).not.toContain("routing-switch");
