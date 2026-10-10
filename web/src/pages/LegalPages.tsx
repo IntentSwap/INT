@@ -8,6 +8,10 @@
 //
 // The Privacy Policy says what Ghost mode changes about what is kept, on the server and in the
 // browser, and what it leaves as it is. That is said everywhere: the mode is on every site.
+//
+// Add gas is offered only beside a privately routed swap. So only where swaps are routed privately
+// do the Terms say that confirming with it makes two orders, and the Privacy Policy what is kept
+// of the second one.
 
 import type { ReactNode } from "react";
 import { TERMS_VERSION } from "../../../shared/api.ts";
@@ -68,6 +72,8 @@ export function TermsPage() {
       <Section title="3. How a swap works">
         <p>You choose the coin you pay and the coin you receive, and you give a receiving address. You are shown a quote: what you send, about what you receive, the least you will receive, every fee, and how long you have to pay. Nothing happens until you confirm.</p>
         <p>Confirming makes an order. An order cannot be changed once it is made. Making an order moves no coins. You then pay it, either from a connected wallet or by sending to the deposit address shown.</p>
+        {/* Only where Add gas is offered: with it, confirming makes a second order, and these terms hold for each of the two. */}
+        {privateOn ? <p>With Add gas switched on, confirming makes two orders: one for the swap, and one for the gas. Each is an order of its own, with its own deposit address, deadline and refund, and each is paid separately. If the gas order cannot be made, the swap is made all the same.</p> : null}
         <p>Blockchain transfers cannot be undone. Once you have sent coins, nobody can call them back: not you, not IntentSwap.</p>
       </Section>
 
@@ -221,6 +227,12 @@ export function PrivacyPage() {
           <li>
             <strong>Your network address.</strong> It is used in memory to apply rate limits{regionBlock ? <>, and to work out your country and region</> : null}. Only the shortened form is written down.
           </li>
+          {/* Only where Add gas is offered. */}
+          {privateOn ? (
+            <li>
+              <strong>Add gas.</strong> When gas is added to a swap, the gas order is a second order of its own, kept as any order is and for as long. The swap's record notes whether its gas order was made, and the gas order's record that it is one. The gas order's ID is worked out from the swap's, which is how the swap's page shows both; neither record holds the other's ID. A delivered gas order adds its value in US dollars to the running totals, with no row of its own and without being counted as a swap, and its points are written down as set out under Points. Where the two are made in Ghost mode, each is deleted as set out under Ghost mode, below.
+            </li>
+          ) : null}
           <li>
             <strong>Ghost mode.</strong> An order made in <Link href={docHref(GHOST_DOC_SLUG)}>Ghost mode</Link> is marked as one. While it runs, the server keeps it as it keeps any order. The moment it is delivered or refunded its record is deleted; one that was never paid is deleted a day after its deadline, once the server has stopped looking for a late deposit; one that fails, or that ran out after a transaction was named for it that could not be confirmed, is kept for 30 days, as any order is, because coins may still be in it. After the deletion the server still holds three things of it: a one-way fingerprint of the order's ID, with one word for how it ended, for 30 days, so that the order's link can say that the order finished and how; its place in the running totals, {statsOn ? <>with no row among the Stats page's recent swaps and no listing of its deposit transaction</> : <>with no row kept for it</>}; and, if the order has a rewards address, its points, which are written down before the record is deleted and kept as set out under Points. The logs name it by a one-way fingerprint, as they name any order, and hold neither an address nor a transaction hash of it. It is never found from its deposit address. Ghost mode changes nothing else on this page: the access log and your network address are treated as for any visit, the host keeps its own record of each request, the swap service receives what it does for any swap and keeps its own records, and every transfer is public on its blockchain.
           </li>

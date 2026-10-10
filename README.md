@@ -11,7 +11,7 @@ writes no swap contracts and never holds user funds.
 ```
 Browser (React) ──HTTPS──▶ Our server (Node) ──HTTPS──▶ Swap provider
    │ wallet                     │ order store (disk)
-   └─ signs one transfer        └─ status poller
+   └─ one transfer per order    └─ status poller
 ```
 
 - `server/` the Node server (`node:http`, run with `tsx`)
@@ -24,7 +24,7 @@ Rules the code keeps:
 - Amounts are `BigInt` on integer strings. Never floating point.
 - The server sets the fee and the deposit address. The browser cannot send or change either.
 - Every quote from the provider is verified (signature, then a field-by-field comparison with what was asked) before it is stored or shown.
-- The wallet is asked for one plain transfer. Never an approval, a permit or a message signature.
+- The wallet is asked for one plain transfer for each order: one for a swap, and a second when gas is added. Never an approval, a permit or a message signature.
 - The browser never talks to the provider and never sees a key.
 
 ## Commands
@@ -310,6 +310,59 @@ before private routing existed, says nothing of private swaps, and
 `shared/positioning.ts`. Everything said of private routing is held to the
 provider's own words: the link between a deposit and a delivery is not in
 public records, both ends are public, and nobody promises that it is complete.
+
+## Add gas
+
+A switch on the swap card, under the receiving address. With it on, a second,
+small order is made beside the swap. It delivers a little of the receiving
+chain's own coin to the swap's receiving address, so that a wallet with nothing
+in it can pay that chain's network fees and move what arrived. It is an
+ordinary order in every way: its own quote, verified like any quote, its own
+deposit address, its own deadline and its own refund. No contract is involved,
+and the site never holds funds.
+
+- **Where it goes.** The server sets the gas order's receiving address: always
+  exactly the swap's. Its refund address is the swap's too. Nothing in a request
+  can change either.
+- **How it is routed.** Privately, and only ever privately. It is offered only
+  beside a privately routed swap: `PRIVACY_MODE` is `basic`, and the person has
+  not chosen public routing for that swap. Where it cannot be routed privately
+  it is not offered and not made.
+- **Its size.** About $3 of the paying coin, at the coin list's price; $5 to
+  Ethereum and Gnosis, $10 to Tron. `shared/gas.ts` holds the sizes and the
+  reason for each. There is none above $10.
+- **The preview.** `POST /api/gas` says whether gas can be added beside a swap,
+  and what the gas order would be. It answers `gas: null` wherever gas is not
+  offered, whatever the reason, and the card then shows no switch: never one
+  that cannot be pressed.
+- **The two orders.** `POST /api/orders` with `gas` makes the swap exactly as it
+  always does, and then the gas order by the same path: its own limits, its own
+  sanctions screening, its own quote and signature check. If anything stops the
+  gas order, the swap stands and the answer says that gas was not made.
+- **What pairs them.** The gas order's ID is derived from the swap's: the first
+  27 characters of the base64url SHA-256 of `gas:` followed by the swap's ID.
+  Nothing else pairs the two but the records themselves: there is no index, and
+  nothing in the gas order's record points back to the swap. The swap's record
+  notes whether its gas order was made; the gas order's record says that it is
+  one.
+- **Paying.** Two payments, never combined. By deposit address: two addresses
+  and two transfers. From a connected wallet: two plain transfers, one after the
+  other, each confirmed in the wallet.
+- **Each stands alone.** If only the swap is paid, it is delivered and the gas
+  order runs out unpaid. If only the gas is paid, the gas arrives.
+- **Points and Stats.** A delivered gas order adds its dollars to the volume
+  and its points to the swap's rewards address, once. It is not counted as a
+  swap and has no row among the recent swaps.
+- **Ghost mode.** Both orders are made in Ghost mode, and each record is deleted
+  when that order is delivered or refunded.
+
+What the site says of it follows `PRIVACY_MODE`, as its words on private routing
+do. With `basic`: the Docs page "Add gas" at `/docs/add-gas`, the question "What
+is Add gas?", "Add gas" among what the site does, a sentence that a swap with
+gas is two orders and two payments wherever the Docs, the questions, the home
+page's steps and the Terms speak of paying an order, and a paragraph in the
+Privacy Policy on what is kept of a gas order. With `public` none of that is
+shown, and `/docs/add-gas` is "Page not found."
 
 ## Deploy (Railway)
 

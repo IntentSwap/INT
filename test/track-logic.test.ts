@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { explorerAddressUrl, EXPLORER_HOSTS } from "../shared/chains.ts";
 import { DOC_SLUGS, docSlugs, GHOST_DOC_SLUG, isDocSlug, PRIVATE_DOC_SLUG } from "../shared/pages.ts";
-import { DOC_PAGES, docExists, docHref, docPages, headingId, headingInView, neighbours, PRIVATE_DOC } from "../web/src/lib/docs-logic.ts";
+import { DOC_PAGES, docExists, docHref, docPages, GAS_DOC, headingId, headingInView, neighbours, PRIVATE_DOC } from "../web/src/lib/docs-logic.ts";
 import { chainsOnList, features, isPrivateMode, listCounts, PRIVATE_MEANS, socialLinks } from "../web/src/lib/site-logic.ts";
 import { findOrder, readTrackInput, TRACK_WORDS, type TrackOutcome } from "../web/src/lib/track-logic.ts";
 import { matchRoute, NAV, navFor, navItems } from "../web/src/router.ts";
@@ -110,16 +110,16 @@ describe("the header's pages", () => {
   });
 
   it("the documentation is one page to a subject, each at its own address, all under Docs", () => {
-    // (One of them, the page on private routing, is a page only where swaps are routed privately. The next test holds that.)
+    // (Two of them, the page on private routing and the page on Add gas, are pages only where swaps are routed privately. The next test holds that.)
     // The page on Ghost mode is a page everywhere: its address is two words joined by a hyphen, and the router reads it as one page.
-    expect([...DOC_SLUGS]).toEqual(["fees", "chains", "refunds", "safety", "private", "ghost-mode", "rewards", "faq"]);
+    expect([...DOC_SLUGS]).toEqual(["fees", "chains", "refunds", "safety", "private", "ghost-mode", "add-gas", "rewards", "faq"]);
     expect(GHOST_DOC_SLUG).toBe("ghost-mode");
     expect(matchRoute("/docs/ghost-mode")).toEqual({ page: "docs", slug: "ghost-mode" });
     for (const slug of DOC_SLUGS) {
       expect(matchRoute(`/docs/${slug}`)).toEqual({ page: "docs", slug });
       expect(navFor(`/docs/${slug}`)).toBe("/docs");
     }
-    // Where swaps are routed in public, the contents are every page but that one, and the Terms and the Privacy Policy after them; nothing else.
+    // Where swaps are routed in public, the contents are every page but those two, and the Terms and the Privacy Policy after them; nothing else.
     expect(DOC_PAGES.map((page) => page.href)).toEqual(["/docs", "/docs/fees", "/docs/chains", "/docs/refunds", "/docs/safety", "/docs/ghost-mode", "/docs/rewards", "/docs/faq", "/terms", "/privacy"]);
     expect(DOC_PAGES.find((page) => page.href === "/docs/ghost-mode")).toEqual({ href: "/docs/ghost-mode", title: "Ghost mode", group: "Guide" });
     expect(DOC_PAGES.map((page) => page.href)).toEqual(["/docs", ...docSlugs(false).map((slug) => `/docs/${slug}`), "/terms", "/privacy"]);
@@ -151,14 +151,15 @@ describe("the header's pages", () => {
     expect(neighbours(PRIVATE_DOC.href)).toEqual({ previous: null, next: null });
 
     // Routed privately: it follows "Staying safe", in the contents and in previous and next, and everything else keeps its place.
+    // (The page on Add gas, the other page that exists only there, follows "Ghost mode"; test/gas-words.test.ts holds it.)
     expect([...docSlugs(true)]).toEqual([...DOC_SLUGS]);
-    expect(docPages(true).map((page) => page.href)).toEqual(["/docs", "/docs/fees", "/docs/chains", "/docs/refunds", "/docs/safety", "/docs/private", "/docs/ghost-mode", "/docs/rewards", "/docs/faq", "/terms", "/privacy"]);
+    expect(docPages(true).map((page) => page.href)).toEqual(["/docs", "/docs/fees", "/docs/chains", "/docs/refunds", "/docs/safety", "/docs/private", "/docs/ghost-mode", "/docs/add-gas", "/docs/rewards", "/docs/faq", "/terms", "/privacy"]);
     expect(docPages(true).map((page) => page.href)).toEqual(["/docs", ...docSlugs(true).map((slug) => `/docs/${slug}`), "/terms", "/privacy"]);
-    expect(docPages(true).filter((page) => page.href !== PRIVATE_DOC.href)).toEqual([...DOC_PAGES]);
+    expect(docPages(true).filter((page) => page.href !== PRIVATE_DOC.href && page.href !== GAS_DOC.href)).toEqual([...DOC_PAGES]);
     expect(neighbours("/docs/safety", docPages(true))).toMatchObject({ previous: { href: "/docs/refunds" }, next: { href: "/docs/private" } });
     expect(neighbours("/docs/private", docPages(true))).toMatchObject({ previous: { href: "/docs/safety" }, next: { href: "/docs/ghost-mode" } });
-    expect(neighbours("/docs/ghost-mode", docPages(true))).toMatchObject({ previous: { href: "/docs/private" }, next: { href: "/docs/rewards" } });
-    expect(neighbours("/docs/rewards", docPages(true))).toMatchObject({ previous: { href: "/docs/ghost-mode" }, next: { href: "/docs/faq" } });
+    expect(neighbours("/docs/ghost-mode", docPages(true))).toMatchObject({ previous: { href: "/docs/private" }, next: { href: "/docs/add-gas" } });
+    expect(neighbours("/docs/rewards", docPages(true))).toMatchObject({ previous: { href: "/docs/add-gas" }, next: { href: "/docs/faq" } });
     expect(docExists(PRIVATE_DOC_SLUG, true)).toBe(true);
 
     // Every other page exists either way.
@@ -327,15 +328,17 @@ describe("what the wider pages state as fact", () => {
     for (const tokenSet of [false, true]) expect(JSON.stringify(features(tokenSet, false))).not.toMatch(/privat|confidential|\/docs\/private/i);
 
     // Routed privately: item 01 says what it is, in the provider's own terms and no stronger, and leads to the page that explains it.
-    const [swaps, tracking, rewards, ghost, token] = features(true, true);
+    const [swaps, tracking, rewards, ghost, gas, token] = features(true, true);
     expect(swaps).toEqual({
       key: "swaps",
       title: "Private cross-chain swaps",
       text: "Swap a coin on one chain for a coin on another. Swaps are routed with NEAR Intents' confidential routing, so what you send and what you receive are not tied to each other in public records. Every fee is shown before you confirm.",
       link: { href: "/docs/private", label: "How private routing works" },
     });
-    expect(features(false, true).map((item) => item.title)).toEqual(["Private cross-chain swaps", "Order tracking and automatic refunds", "Points and weekly rewards", "Ghost mode"]);
-    expect(features(true, true).map((item) => item.key)).toEqual(["swaps", "tracking", "rewards", "ghost", "token"]);
+    // Add gas, which is offered only beside a privately routed swap, is on the list only here, after Ghost mode (test/gas-words.test.ts holds its words).
+    expect(features(false, true).map((item) => item.title)).toEqual(["Private cross-chain swaps", "Order tracking and automatic refunds", "Points and weekly rewards", "Ghost mode", "Add gas"]);
+    expect(features(true, true).map((item) => item.key)).toEqual(["swaps", "tracking", "rewards", "ghost", "gas", "token"]);
+    expect(gas?.title).toBe("Add gas");
     // Tracking, Ghost mode and the token are the same either way.
     expect(tracking).toEqual(today[1]);
     expect(ghost).toEqual(today[3]);

@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import zlib from "node:zlib";
 import { BANNER_WORDS, type BannerKind } from "../shared/banner.ts";
-import { docSlugs, PRIVATE_DOC_SLUG } from "../shared/pages.ts";
+import { docSlugs, PRIVATE_ONLY_DOC_SLUGS } from "../shared/pages.ts";
 import { HEADLINE_SUB, headlineWords, POSITIONING, shareImageAlt, type SiteMode } from "../shared/positioning.ts";
 import { SITE_ORIGIN } from "./config.ts";
 
@@ -47,8 +47,8 @@ const COMPRESSIBLE = new Set([".html", ".js", ".css", ".json", ".webmanifest", "
 
 /** Paths the single-page app handles itself. Anything else that is not a file is a 404. */
 const APP_ROUTES = [/^\/$/, /^\/order\/[A-Za-z0-9_-]{1,64}$/, /^\/track$/, /^\/docs$/, new RegExp(`^/docs/(${docSlugs(false).join("|")})$`), /^\/rewards$/, /^\/terms$/, /^\/privacy$/];
-/** The page that explains private routing. It exists only where this server routes swaps privately; everywhere else its address is a 404 like any other. */
-const PRIVATE_ROUTES = [new RegExp(`^/docs/${PRIVATE_DOC_SLUG}$`)];
+/** The page that explains private routing, and the page on Add gas (gas is only ever added beside a privately routed swap). They exist only where this server routes swaps privately; everywhere else their addresses are a 404 like any other. */
+const PRIVATE_ROUTES = [new RegExp(`^/docs/(${PRIVATE_ONLY_DOC_SLUGS.join("|")})$`)];
 /** The token's own page. It exists only once the token's address has been set; until then its address is a 404 like any other. */
 const TOKEN_ROUTES = [/^\/token$/];
 /** The Stats page. It exists only where the server has it switched on; where it is off its address is a 404 like any other. */

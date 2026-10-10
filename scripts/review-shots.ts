@@ -412,7 +412,8 @@ const SCENARIOS: Scenario[] = [
       // The section's own heading. (The stage above it has an item of the same name.)
       await page.getByRole("heading", { name: "The $INT token", level: 2 }).waitFor();
       const items = await page.locator(".stage-tab-title").allInnerTexts();
-      if (items.length !== 5 || items[4]?.trim() !== "The $INT token") throw new Error(`with the token set the stage's items are ${JSON.stringify(items)}`);
+      // The token is the last of them: the fifth, or the sixth where swaps are routed privately, where Add gas is on the list before it.
+      if ((items.length !== 5 && items.length !== 6) || items.at(-1)?.trim() !== "The $INT token") throw new Error(`with the token set the stage's items are ${JSON.stringify(items)}`);
     },
   },
   {

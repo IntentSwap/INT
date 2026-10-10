@@ -106,7 +106,31 @@ function GhostArt() {
   );
 }
 
-const ART: Record<Feature["key"], () => React.JSX.Element> = { swaps: SwapArt, tracking: TrackArt, rewards: PointsArt, ghost: GhostArt, token: TokenArt };
+/**
+ * Add gas: two orders, a larger and a smaller, lead to one address. The coin received is already
+ * there, and a small coin lands beside it.
+ */
+function GasArt() {
+  return (
+    <svg className="art" viewBox="0 0 280 200" aria-hidden="true" focusable="false">
+      <rect className="art-line" x="28" y="62" width="88" height="28" rx="14" />
+      <path className="art-line" d="M46 76h36" />
+      <rect className="art-line" x="28" y="110" width="56" height="28" rx="14" />
+      <path className="art-line" d="M46 124h12" />
+      <path className="art-quiet" d="M126 76h40" strokeDasharray="2 8" />
+      <path className="art-quiet" d="M94 124h72" strokeDasharray="2 8" />
+      <rect className="art-line" x="176" y="52" width="76" height="96" rx="16" />
+      <circle className="art-ink" cx="214" cy="82" r="14" />
+      <circle className="art-ink" cx="214" cy="82" r="5" />
+      <g className="art-count">
+        <circle className="art-accent" cx="214" cy="122" r="9" />
+        <circle className="art-accent-fill" cx="214" cy="122" r="3" />
+      </g>
+    </svg>
+  );
+}
+
+const ART: Record<Feature["key"], () => React.JSX.Element> = { swaps: SwapArt, tracking: TrackArt, rewards: PointsArt, ghost: GhostArt, gas: GasArt, token: TokenArt };
 
 /** A swipe has to travel this far, in pixels, to count as one. */
 const SWIPE = 40;

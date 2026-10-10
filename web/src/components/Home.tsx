@@ -248,10 +248,11 @@ function FlowDiagram({ reached }: { reached: number }) {
   );
 }
 
-const STEPS: { title: string; text: string }[] = [
+/** The three steps. Where Add gas is offered (only where swaps are routed privately), the third says that a swap with gas is paid with a second transfer. */
+const steps = (privateOn: boolean): { title: string; text: string }[] => [
   { title: "Quote", text: "Choose what you pay and what you receive. The quote shows the rate, every fee and the least you will get." },
   { title: "Review", text: "Check both addresses and the numbers on one sheet. Nothing leaves your wallet until you pay." },
-  { title: "Pay and track", text: "Send one transfer from your wallet, or to the deposit address shown. The order's page follows it to the end." },
+  { title: "Pay and track", text: `Send one transfer from your wallet, or to the deposit address shown${privateOn ? "; with Add gas on, a second for the gas" : ""}. The order's page follows it to the end.` },
 ];
 
 /** One step. It says when it has first come into view, and a line is drawn down from its number to the next. */
@@ -273,7 +274,7 @@ function Step({ index, title, text, onSeen }: { index: number; title: string; te
   );
 }
 
-function HowItWorks() {
+function HowItWorks({ privateOn }: { privateOn: boolean }) {
   // How many of the steps have been reached. It only ever goes up.
   const [reached, setReached] = useState(0);
   const mark = useRef((index: number) => setReached((before) => Math.max(before, index + 1))).current;
@@ -282,7 +283,7 @@ function HowItWorks() {
       <SectionHead tag="How it works" title="Three steps" id="how-title" />
       <div className="how">
         <ol className="how-steps">
-          {STEPS.map((step, index) => (
+          {steps(privateOn).map((step, index) => (
             <Step key={step.title} index={index} title={step.title} text={step.text} onSeen={mark} />
           ))}
         </ol>
@@ -425,7 +426,7 @@ export function HomeSections() {
       <ChainStrip />
       <FactStrip />
       <WhatItDoes />
-      <HowItWorks />
+      <HowItWorks privateOn={privateOn} />
       <DoAndDont privateOn={privateOn} />
       {privateOn ? <PrivateMeans /> : null}
       <TokenSection />

@@ -436,9 +436,9 @@ describe("private wording is shown only where swaps are routed privately", () =>
       expect(markup).toMatch(/<a href="\/docs\/private" class="stage-link draw means-more">How private routing works/);
     });
 
-    it("the questions have one more, before the one on who can see a swap, and three answers say what private routing changes", () => {
-      expect(questions(true).map((item) => item.id)).toEqual(QUESTIONS.flatMap((id) => (id === "public" ? ["private-routing", id] : [id])));
-      expect(questions(true).filter((item) => item.privateOnly).map((item) => item.question)).toEqual(["What is private routing?"]);
+    it("the questions have two more, one before the one on who can see a swap and one, on Add gas, after the one on Ghost mode, and three answers say what private routing changes", () => {
+      expect(questions(true).map((item) => item.id)).toEqual(QUESTIONS.flatMap((id) => (id === "public" ? ["private-routing", id] : id === "ghost-mode" ? [id, "add-gas"] : [id])));
+      expect(questions(true).filter((item) => item.privateOnly).map((item) => item.question)).toEqual(["What is private routing?", "What is Add gas?"]);
       for (const page of [faq, docs("faq")]) {
         const markup = drawnWith(config, page);
         const text = wordsOf(markup);

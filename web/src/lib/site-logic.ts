@@ -5,7 +5,7 @@ import { chainInfo, chainName } from "../../../shared/chains.ts";
 import { CHAIN_ORDER } from "../config.ts";
 
 export interface Feature {
-  key: "swaps" | "tracking" | "rewards" | "ghost" | "token";
+  key: "swaps" | "tracking" | "rewards" | "ghost" | "gas" | "token";
   title: string;
   text: string;
   /** Where to go to use it or to read more. */
@@ -37,6 +37,10 @@ export function isPrivateMode(config: { privacyMode?: unknown } | null | undefin
  *
  * Ghost mode is on the list everywhere: its switch is in the header however swaps are routed. What
  * is said of it here is what it does and, in the last sentence, the first thing it does not.
+ *
+ * Add gas is on the list only where swaps are routed privately: gas is only ever added beside a
+ * privately routed swap, so anywhere else there is no switch to speak of. What is said of it here
+ * is what it does and, in the last sentence, that it is paid for by itself: two payments.
  */
 export function features(tokenSet: boolean, privateRouting = false): readonly Feature[] {
   const all: Feature[] = [
@@ -47,6 +51,7 @@ export function features(tokenSet: boolean, privateRouting = false): readonly Fe
     { key: "rewards", title: "Points and weekly rewards", text: "Each delivered swap adds points to the wallet behind it: 10 for each $1 swapped. Each week a payout is shared out by points. Payouts are at IntentSwap's discretion and can change.", link: { href: "/rewards", label: "See your points" } },
     { key: "ghost", title: "Ghost mode", text: "One switch in the header. While it is on, the site loads no wallet and keeps nothing in your browser but the switch itself, and deletes your order's record once it is delivered or refunded. Your deposit and your delivery are still public on-chain.", link: { href: "/docs/ghost-mode", label: "How Ghost mode works" } },
   ];
+  if (privateRouting) all.push({ key: "gas", title: "Add gas", text: "A switch on the swap card, where gas can be added. With it on, a second, small order delivers a little of the receiving chain's own coin to the same address, by the same private route, so a new wallet can move what arrived straight away. There are two payments.", link: { href: "/docs/add-gas", label: "How Add gas works" } });
   if (tokenSet) all.push({ key: "token", title: "The $INT token", text: "The token's contract address, its chain and its trading pair are shown on this site, each with a link to the chain's own explorer.", link: { href: "/token", label: "The token's facts" } });
   return all;
 }

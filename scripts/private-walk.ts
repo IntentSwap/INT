@@ -110,6 +110,8 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
       for (const word of NEVER) say(!word.test(docs.replace(/is not anonymity|not anonymous/gi, "")), `the Docs page on private routing uses a word it must never use (${String(word)})`);
       for (const part of [/mixer/i, /shielded/i, /screen/i, /not anonymity/i]) say(part.test(docs), `the Docs page on private routing says nothing of ${String(part)}`);
       say((await page.locator(".docs-page-link", { hasText: "Private routing" }).count()) >= 1, "the Docs' contents do not list Private routing");
+      // The other page that exists only on a site that routes privately: Add gas, which is offered only beside a privately routed swap.
+      say((await page.locator(".docs-page-link", { hasText: "Add gas" }).count()) >= 1, "the Docs' contents do not list Add gas");
       await seeAll(page);
       await page.evaluate(() => window.scrollTo(0, 0));
       await shoot("docs", true);
@@ -284,6 +286,10 @@ export async function privateWalk(browser: Browser, options: { privateUrl: strin
       missing = true;
       const reply = await page.goto(new URL("/docs/private", publicUrl).toString());
       say(reply?.status() === 404, `on the public site the Docs page on private routing answers ${reply?.status()}`);
+      await page.getByRole("heading", { name: "Page not found." }).waitFor({ timeout: 15_000 });
+      // Neither is the page on Add gas a page there: gas is only ever added beside a privately routed swap.
+      const gasReply = await page.goto(new URL("/docs/add-gas", publicUrl).toString());
+      say(gasReply?.status() === 404, `on the public site the Docs page on Add gas answers ${gasReply?.status()}`);
       await page.getByRole("heading", { name: "Page not found." }).waitFor({ timeout: 15_000 });
     } catch (error) {
       complaints.push(`${label}: ${(error as Error).message.split("\n")[0]}`);

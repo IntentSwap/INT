@@ -9,19 +9,23 @@
 //
 // One page is about Ghost mode. It is a page everywhere, and says in as many sections what the
 // mode does, what it does not, and what is still kept.
+//
+// One page is about Add gas. Gas is only ever added beside a privately routed swap, so it is a page
+// only where swaps are routed privately, and only there do two other pages say that a swap with
+// gas is paid with two transfers.
 
 import { useEffect, useMemo, useState } from "react";
 import { displayAmount, displayBps, parseAmount } from "../../../shared/amounts.ts";
 import { SLIPPAGE, type QuoteView, type TokenView } from "../../../shared/api.ts";
 import { chainName, DEPOSIT_CLOSE_MS, isWalletChain, sendWindowMs } from "../../../shared/chains.ts";
-import { GHOST_DOC_SLUG, PRIVATE_DOC_SLUG, type DocSlug } from "../../../shared/pages.ts";
+import { GAS_DOC_SLUG, GHOST_DOC_SLUG, PRIVATE_DOC_SLUG, type DocSlug } from "../../../shared/pages.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { api } from "../api.ts";
 import { Callout, DocSection, DocsLayout, TableFrame } from "../components/DocsLayout.tsx";
 import { questions, type Question } from "../components/Faq.tsx";
 import { Link } from "../components/Link.tsx";
 import { DEFAULT_PAIR, EXAMPLE_AMOUNT } from "../config.ts";
-import { docHref } from "../lib/docs-logic.ts";
+import { docHref, gasSizes, listed } from "../lib/docs-logic.ts";
 import { chainsOnList, isPrivateMode } from "../lib/site-logic.ts";
 import { statsPageOn } from "../lib/stats-logic.ts";
 import { appFeeWords, minutesText } from "../lib/swap-logic.ts";
@@ -70,6 +74,11 @@ function PrivateRoutingLink() {
   return <Link href={docHref(PRIVATE_DOC_SLUG)}>How private routing works</Link>;
 }
 
+/** The link to the page that explains Add gas, by its name. Drawn only where that page exists. */
+function AddGasLink() {
+  return <Link href={docHref(GAS_DOC_SLUG)}>Add gas</Link>;
+}
+
 function HowItWorks() {
   const privateOn = usePrivateRouting();
   const statsOn = useApp((state) => statsPageOn(state.config));
@@ -82,7 +91,16 @@ function HowItWorks() {
         <p>One sheet shows the numbers and both addresses in full: where your coins are delivered, and where they come back to if the swap fails. Confirming makes an order. Making an order moves no coins.</p>
       </DocSection>
       <DocSection title="Pay">
-        <p>Pay the order from a connected wallet, which is asked for one transfer and nothing else, or send the exact amount yourself to the deposit address shown.</p>
+        <p>
+          Pay the order from a connected wallet, which is asked for one transfer and nothing else, or send the exact amount yourself to the deposit address shown.
+          {/* Only where Add gas is offered: a swap with gas is two orders, and so two transfers. */}
+          {privateOn ? (
+            <>
+              {" "}
+              With <AddGasLink /> there are two orders, and each is paid in this way: one transfer for the swap, and a second for the gas.
+            </>
+          ) : null}
+        </p>
         <Callout tone="tip" title="Either way, you send the coins yourself.">
           <p>IntentSwap cannot move them, and never holds them.</p>
         </Callout>
@@ -308,6 +326,12 @@ function Safety() {
       </DocSection>
       <DocSection title="What your wallet is asked for" id="wallet">
         <p>To pay an order your wallet is asked for one transfer: the order's amount, to the order's deposit address. Paying never asks it to approve spending or to sign a message.</p>
+        {/* Only where Add gas is offered. A second request from the wallet is then expected, and the page says exactly what it is. */}
+        {privateOn ? (
+          <p>
+            With <AddGasLink /> there are two orders, so your wallet is asked for two transfers, one after the other: one for the swap, and a second for the gas. Each is a plain transfer of that order's amount to that order's own deposit address.
+          </p>
+        ) : null}
         <p>
           One page asks for a signature, and it is not this one: on <Link href="/rewards">Rewards</Link>, signing in to see your own points means signing one plain message. It is not a transaction, moves nothing, approves nothing and costs no network fee.
         </p>
@@ -607,7 +631,100 @@ function GhostMode() {
   );
 }
 
-const PAGES: Record<DocSlug, () => React.JSX.Element> = { fees: Fees, chains: Chains, refunds: Refunds, safety: Safety, private: PrivateRouting, "ghost-mode": GhostMode, rewards: Rewards, faq: Questions };
+/**
+ * Add gas, in plain words: what the switch does, when it is there, the two payments, that each
+ * order stands alone, where the gas goes and how it is routed, what it costs, what it adds to
+ * points and to the totals, and Ghost mode. Every sentence here states what the site and its
+ * server do. The sizes are read from the rule the server itself uses (shared/gas.ts).
+ *
+ * A page only where swaps are routed privately, as the page on private routing is: gas is only
+ * ever added beside a privately routed swap, so anywhere else there is no switch to explain, its
+ * address is "Page not found.", and this is never drawn.
+ */
+function AddGas() {
+  // Where the site has its Stats page, the totals a gas order is counted in are the ones shown there.
+  const statsOn = useApp((state) => statsPageOn(state.config));
+  const sizes = gasSizes();
+  return (
+    <DocsLayout href={docHref(GAS_DOC_SLUG)} title="Add gas" lead="A switch on the swap card. With it on, a second, small order delivers a little of the receiving chain's own coin to the same address as your swap, so that a wallet with nothing in it can pay network fees and move what arrived straight away.">
+      <DocSection title="What it does" id="what">
+        <p>Each chain has a coin of its own, and its network fees are paid in that coin: SOL on Solana, for example. When a swap delivers another coin to a new, empty wallet, such as USDC on Solana, the coins arrive and cannot be moved, because the wallet has none of the chain's own coin to pay a fee with.</p>
+        <p>With Add gas switched on, a second, small order is made beside the swap. It delivers a little of the receiving chain's own coin to the same receiving address, so the wallet can pay network fees and move what arrived straight away.</p>
+        <p>
+          A gas order is for about ${sizes.usual}.{sizes.larger.length > 0 ? <> {listed(sizes.larger.map((size, index) => `${index === 0 ? "On" : "on"} ${listed(size.chains)} ${index === 0 ? "it is " : ""}about $${size.usd}`))}.</> : null} The review shows how much of the chain's own coin arrives, before you confirm.
+        </p>
+        <Callout tone="tip" title="No contract is involved.">
+          <p>It is done with ordinary orders and plain transfers. IntentSwap never holds your funds.</p>
+        </Callout>
+      </DocSection>
+      <DocSection title="When the switch is there" id="when">
+        <p>The switch is on the swap card, under the receiving address. It is offered when all of these are so:</p>
+        <ul>
+          <li>
+            <strong>The coin you receive is not its chain's own coin.</strong> USDC on Solana is one such: fees there are paid in SOL.
+          </li>
+          <li>
+            <strong>The swap is privately routed.</strong> Gas is offered only beside a privately routed swap.
+          </li>
+          <li>
+            <strong>The swap service will take the small order just then.</strong>
+          </li>
+        </ul>
+        <p>Where it is not offered, there is no switch.</p>
+      </DocSection>
+      <DocSection title="Two payments" id="payments">
+        <p>The gas order is paid with the same coin as the swap. So there are two payments: one for the swap, and one for the gas.</p>
+        <ul>
+          <li>
+            <strong>Sending it yourself:</strong> two deposit addresses, one for each order, and two separate transfers.
+          </li>
+          <li>
+            <strong>Paying from a connected wallet:</strong> two plain transfers, one after the other, each confirmed in your wallet. Nothing else is ever asked of the wallet, and never an approval of spending.
+          </li>
+        </ul>
+        <Callout tone="warning" title="Two separate transfers, never combined.">
+          <p>Each order has its own deposit address and its own amount. Send each amount to its own address.</p>
+        </Callout>
+      </DocSection>
+      <DocSection title="Each order stands alone" id="alone">
+        <p>The gas order is an ordinary order, with its own quote, its own deposit address, its own deadline and its own refund. Neither order waits for the other.</p>
+        <ul>
+          <li>
+            <strong>Only the swap is paid:</strong> the swap is delivered. The gas order runs out unpaid, and nothing is lost.
+          </li>
+          <li>
+            <strong>Only the gas is paid:</strong> the gas arrives.
+          </li>
+          <li>
+            <strong>The gas order cannot be made at the moment you confirm:</strong> the swap is made all the same, and its page says that gas was not added.
+          </li>
+        </ul>
+      </DocSection>
+      <DocSection title="Where the gas goes" id="where">
+        <p>Always to the swap's receiving address. No other address can be given for it.</p>
+        <p>
+          The gas order is only ever routed privately, like the swap beside it. So the gas arrives by the same private route, and a new wallet needs no funding from an old one. Its deposit and its delivery are still public transfers, as the swap's are. Private routing is not anonymity. <PrivateRoutingLink />
+        </p>
+      </DocSection>
+      <DocSection title="What it costs" id="cost">
+        <p>IntentSwap takes no fee on either order. The provider's fee and the receiving chain's network fee apply to the gas order as to any order, and both are shown before you confirm.</p>
+      </DocSection>
+      <DocSection title="Points and totals" id="points">
+        <p>
+          A delivered gas order adds <Link href={docHref("rewards")}>points</Link> as any order does.
+        </p>
+        <p>{statsOn ? <>On the <Link href="/stats">Stats page</Link> its value in US dollars is counted in the volume. It is not counted as another swap, and it has no row among the recent swaps.</> : <>The server's running totals count its value in US dollars in the volume. It is not counted as another swap, and no row is kept for it.</>}</p>
+      </DocSection>
+      <DocSection title="In Ghost mode" id="ghost-mode">
+        <p>
+          Add gas works in <Link href={docHref(GHOST_DOC_SLUG)}>Ghost mode</Link>. Both orders are then made in Ghost mode, and the record of each is deleted when that order is delivered or refunded.
+        </p>
+      </DocSection>
+    </DocsLayout>
+  );
+}
+
+const PAGES: Record<DocSlug, () => React.JSX.Element> = { fees: Fees, chains: Chains, refunds: Refunds, safety: Safety, private: PrivateRouting, "ghost-mode": GhostMode, "add-gas": AddGas, rewards: Rewards, faq: Questions };
 
 export default function DocsPage({ slug }: { slug: DocSlug | null }) {
   const Page = slug === null ? HowItWorks : PAGES[slug];

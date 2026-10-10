@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
-import { GHOST_DOC_SLUG, PRIVATE_DOC_SLUG } from "../../../shared/pages.ts";
+import { GAS_DOC_SLUG, GHOST_DOC_SLUG, PRIVATE_DOC_SLUG } from "../../../shared/pages.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { docHref } from "../lib/docs-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
@@ -23,12 +23,15 @@ export interface Question {
  * Questions people ask before a first swap, answered in plain words. Every answer states what
  * happens, not what is hoped. One list: the home page shows it folded, the Docs show it open.
  *
- * Where swaps are routed privately there is one question more, and three answers say what private
+ * Where swaps are routed privately there are two questions more, and three answers say what private
  * routing changes: what others can see, what a swap costs, and what adds points. Where they are
  * not, nothing on the list speaks of private routing (see `questions`).
  *
  * One question is about Ghost mode, and is asked everywhere: what it does, what it does not, and
  * where the rest is written.
+ *
+ * The second of the two is about Add gas, which is offered only beside a privately routed swap.
+ * There too, the answer on connecting a wallet says that a swap with gas is paid with two transfers.
  */
 const FAQ: readonly Question[] = [
   {
@@ -54,7 +57,12 @@ const FAQ: readonly Question[] = [
   {
     id: "wallet",
     question: "Do I need to connect a wallet?",
-    answer: () => <p>No. You can connect a wallet and pay with one transfer, or pay without connecting by sending to the deposit address shown for your order, from any wallet.</p>,
+    answer: (_contact, privateRouting) => (
+      <p>
+        No. You can connect a wallet and pay with one transfer, or pay without connecting by sending to the deposit address shown for your order, from any wallet.
+        {privateRouting ? <> With Add gas there are two orders, and so two payments: two transfers from a connected wallet, or two deposit addresses to send to.</> : null}
+      </p>
+    ),
   },
   {
     id: "failed",
@@ -103,6 +111,16 @@ const FAQ: readonly Question[] = [
     ),
   },
   {
+    id: "add-gas",
+    question: "What is Add gas?",
+    privateOnly: true,
+    answer: () => (
+      <p>
+        A switch on the swap card, shown where gas can be added. A new wallet has none of its chain's own coin to pay network fees with, so a coin that arrives there, such as USDC on Solana, cannot be moved. With Add gas on, a second, small order delivers a little of the chain's own coin to the same receiving address, by the same private route as the swap, so the new wallet needs no funding from an old one. There are two payments: one for the swap, and one for the gas. <Link href={docHref(GAS_DOC_SLUG)}>How Add gas works</Link>
+      </p>
+    ),
+  },
+  {
     id: "points",
     question: "What are points?",
     answer: (_contact, privateRouting) => (
@@ -133,7 +151,7 @@ const FAQ: readonly Question[] = [
   },
 ];
 
-/** The questions as they stand on this site: every one of them where swaps are routed privately, and all but the one about private routing where they are not. */
+/** The questions as they stand on this site: every one of them where swaps are routed privately, and all but the two asked only there (private routing, Add gas) where they are not. */
 export function questions(privateRouting: boolean): readonly Question[] {
   return privateRouting ? FAQ : FAQ.filter((item) => item.privateOnly !== true);
 }

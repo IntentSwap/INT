@@ -587,7 +587,8 @@ describe("the Docs' page on Ghost mode", () => {
       expect(docSlugs(privateRouting), String(privateRouting)).toContain("ghost-mode");
       expect(docExists(GHOST_DOC_SLUG, privateRouting)).toBe(true);
       const pages = docPages(privateRouting).map((page) => page.href);
-      expect(pages.indexOf("/docs/ghost-mode")).toBe(pages.indexOf("/docs/rewards") - 1);
+      // (Where swaps are routed privately the page on Add gas, which exists only there, stands between it and the page on points.)
+      expect(pages.indexOf("/docs/ghost-mode")).toBe(pages.indexOf("/docs/rewards") - (privateRouting ? 2 : 1));
       expect(pages.indexOf("/docs/ghost-mode")).toBeGreaterThan(pages.indexOf("/docs/safety"));
     }
     expect(DOC_SLUGS.indexOf("ghost-mode")).toBe(DOC_SLUGS.indexOf("private") + 1);
@@ -715,8 +716,8 @@ describe("the Privacy Policy on Ghost mode", () => {
       const server = section(markup, "what-is-kept-on-the-server-and-for-how-long");
       expect(words(server)).toContain(GHOST_PARAGRAPH("with no row among the Stats page's recent swaps and no listing of its deposit transaction"));
       expect(server).toContain('<strong>Ghost mode.</strong> An order made in <a href="/docs/ghost-mode">Ghost mode</a> is marked as one.');
-      // The last of that section's list, after everything it refers to.
-      expect(server.match(/<li>/g)).toHaveLength(10);
+      // The last of that section's list, after everything it refers to. (Where swaps are routed privately the list has one item more, on Add gas, before it.)
+      expect(server.match(/<li>/g)).toHaveLength(config === ROUTED_PRIVATELY ? 11 : 10);
       expect(server.lastIndexOf("<li>")).toBe(server.indexOf("<li><strong>Ghost mode.</strong>"));
       expect(markup.match(/<strong>Ghost mode\.<\/strong>/g)).toHaveLength(1);
     }
@@ -783,8 +784,8 @@ describe("the home page's line for Ghost mode", () => {
     for (const [tokenSet, privateRouting] of [[false, false], [true, false], [false, true], [true, true]] as const) {
       const item = features(tokenSet, privateRouting).find((feature) => feature.key === "ghost");
       expect(item).toEqual({ key: "ghost", title: "Ghost mode", text: HOME_LINE, link: { href: "/docs/ghost-mode", label: "How Ghost mode works" } });
-      // After points, and before the token where there is one.
-      expect(features(tokenSet, privateRouting).map((feature) => feature.key)).toEqual(["swaps", "tracking", "rewards", "ghost", ...(tokenSet ? ["token"] : [])]);
+      // After points, and before the token where there is one. (Where swaps are routed privately, Add gas follows it.)
+      expect(features(tokenSet, privateRouting).map((feature) => feature.key)).toEqual(["swaps", "tracking", "rewards", "ghost", ...(privateRouting ? ["gas"] : []), ...(tokenSet ? ["token"] : [])]);
     }
     // No longer than the longest of the others, and it ends on the first thing the mode does not do.
     const others = features(true, true).filter((feature) => feature.key !== "ghost");
