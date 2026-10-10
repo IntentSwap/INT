@@ -257,6 +257,12 @@ export interface CreateOrderBody {
   rewardsAddress?: string;
   /** True when the person chose to route this one swap in public, as in the quote that was reviewed. Only `true` is read. */
   withoutPrivate?: boolean;
+  /**
+   * True for an order made in Ghost mode. Only `true` is read. Such an order has no row among the
+   * recent swaps, and its record is deleted from the server the moment it finishes. It switches off
+   * no check: the quote, the provider's signature, the limits and the screening apply as to any order.
+   */
+  ghost?: boolean;
   reviewed: ReviewedNumbers;
   termsVersion: string;
   termsAccepted: true;
@@ -292,6 +298,8 @@ export interface OrderDetails {
 export interface OrderView {
   id: string;
   status: OrderStatus;
+  /** Present, and true, for an order made in Ghost mode: its page says that its record is deleted when it finishes. */
+  ghost?: true;
   createdAt: string;
   updatedAt: string;
   /** When the current status began. */
@@ -348,6 +356,8 @@ export type ErrorCode =
   | "region"
   | "rate_limited"
   | "not_found"
+  // An order made in Ghost mode that has finished: its record was deleted, and this is all that is known of it. Answered with status 410.
+  | "order_deleted"
   | "too_large"
   | "no_route"
   | "private_unavailable"
