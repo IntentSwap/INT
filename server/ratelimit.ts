@@ -82,6 +82,11 @@ export class RateLimiter {
     for (const [key, bucket] of this.buckets) if (bucket.resetAt <= t) this.buckets.delete(key);
   }
 
+  /** Lets go of a key at once. Only for a key that can never be asked about again (an order whose record is gone): for any other it would lift the limit. */
+  forget(key: string): void {
+    this.buckets.delete(key);
+  }
+
   get size(): number {
     return this.buckets.size;
   }

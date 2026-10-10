@@ -1,6 +1,10 @@
 // Structured logs. Operational events go to stdout. Access lines go to daily
 // files that are pruned after 14 days. Neither ever carries a secret, a full
 // IP address, a request body or a wallet address.
+//
+// An order is named in either by a short one-way hash of its ID (`hashId`), never by the ID. For an
+// order made in Ghost mode that hash is the whole of it: no line carries anything else that could
+// name the order, the provider's tracing ID included.
 
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -44,8 +48,10 @@ export interface AccessEntry {
   ms: number;
   ip: string | null;
   country: string | null;
+  /** The order's hashed ID. */
   order?: string;
   screening?: string;
+  /** The provider's tracing ID of the call made for this request. Never there for an order made in Ghost mode. */
   cid?: string;
 }
 

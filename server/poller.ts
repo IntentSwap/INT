@@ -8,7 +8,7 @@ import { isEndState, STATUS_MAP, type OrderDetails, type OrderStatus, type TxRef
 import { explorerTxUrl, isWalletChain } from "../shared/chains.ts";
 import type { Alerts } from "./alerts.ts";
 import { hashId, type Logger } from "./log.ts";
-import type { OneClick, Priority } from "./oneclick.ts";
+import type { OneClick, Priority, Tracing } from "./oneclick.ts";
 import { hasProvenFunds, type OrderRecord, type OrderState, type OrderStore } from "./store.ts";
 
 /** A waiting order becomes "expired" this long after its deadline. */
@@ -173,6 +173,15 @@ export function unpaidIntervalMs(scheduleMs: number, unpaidOrders: number, unpai
   return Math.max(scheduleMs, turn);
 }
 
+/**
+ * How the provider is asked about an order. For one made in Ghost mode the provider's tracing ID of
+ * each reply is dropped: it is the provider's own name for the request, and so for the order, and
+ * no log line of ours may carry one.
+ */
+export function tracingOf(record: Pick<OrderRecord, "ghost">): Tracing {
+  return record.ghost === true ? "dropped" : "kept";
+}
+
 /** An order counts as watched for this long after its page last asked about it. */
 export const WATCHED_MS = 60_000;
 const MAX_FORWARD_ATTEMPTS = 5;
@@ -190,6 +199,8 @@ export interface Poller {
   recheck(id: string, priority?: Priority): Promise<void>;
   /** Makes an order due immediately, after a deposit hash arrives. */
   nudge(id: string): void;
+  /** True while anything at all is held here for an order. Nothing is, once its record is gone. Exposed for tests. */
+  holds(id: string): boolean;
   /**
    * Asks the provider one last time about an order that is about to be deleted.
    * "gone": nothing new, it may be deleted. "changed": something happened, the order was
@@ -228,6 +239,15 @@ export function createPoller(options: {
   let timer: NodeJS.Timeout | null = null;
   let ticking = false;
 
+  // When an order's record goes, so does everything held here for it: its place in the schedule,
+  // when its page last asked, and the deposit hash that was being offered to the provider.
+  store.onRemoved((id) => {
+    schedule.delete(id);
+    lastLazy.delete(id);
+    lastViewed.delete(id);
+    forwardAttempts.delete(id);
+  });
+
   function plan(record: OrderRecord, errors: number): void {
     const t = now();
     let base = pollIntervalMs(t - record.state.anchor);
@@ -256,6 +276,7 @@ export function createPoller(options: {
       { depositAddress: record.depositAddress, txHash: state.depositTxHash, ...(record.depositMemo === null ? {} : { memo: record.depositMemo }) },
       // A hash nobody could confirm travels with the unpaid orders, so a pile of them cannot crowd out anything else.
       isFunded(state) ? "tracking" : "idle",
+      tracingOf(record),
     );
     const fresh = store.get(record.id);
     if (result.ok && fresh !== null && fresh.state.depositTxHash === state.depositTxHash && !fresh.state.depositForwarded) {
@@ -269,7 +290,7 @@ export function createPoller(options: {
     const { state } = record;
     if (state.status !== "waiting" || !isFunded(state) || state.unseenAlertSent === true) return record;
     if (now() <= Date.parse(record.deadline) + EXPIRE_AFTER_DEADLINE_MS) return record;
-    alerts.send("deposit_unseen", `Order ${hashId(record.id)} has a deposit confirmed on-chain, but the provider still reports nothing ${Math.round(EXPIRE_AFTER_DEADLINE_MS / 60_000)} minutes after its deadline. It stays open and is still tracked.`, record.id);
+    alerts.send("deposit_unseen", `Order ${hashId(record.id)} has a deposit confirmed on-chain, but the provider still reports nothing ${Math.round(EXPIRE_AFTER_DEADLINE_MS / 60_000)} minutes after its deadline. It stays open and is still tracked.`, hashId(record.id));
     const next = { ...state, unseenAlertSent: true };
     store.saveState(record.id, next);
     return { ...record, state: next };
@@ -283,7 +304,7 @@ export function createPoller(options: {
     }
     const errors = schedule.get(id)?.errors ?? 0;
     await forwardIfNeeded(record);
-    const result = await oneclick.status(record.depositAddress, record.depositMemo, priority);
+    const result = await oneclick.status(record.depositAddress, record.depositMemo, priority, tracingOf(record));
     const fresh = store.get(id);
     if (fresh === null) return;
     // An order that has already ended is only ever here because someone opened its page.
@@ -301,7 +322,7 @@ export function createPoller(options: {
       if (stopped === null) return false;
       if (isFunded(stopped) && stopped.unfinishedAlertSent !== true) {
         // Funds went in and the provider never reported an end. The record is kept until someone has looked into it.
-        alerts.send("unfinished_order", `Order ${hashId(id)} has had funds in it for a week past its deadline without finishing (last status: ${stopped.status}). Tracking has stopped; the record is kept. Check it with the provider.`, id);
+        alerts.send("unfinished_order", `Order ${hashId(id)} has had funds in it for a week past its deadline without finishing (last status: ${stopped.status}). Tracking has stopped; the record is kept. Check it with the provider.`, hashId(id));
         stopped = { ...stopped, unfinishedAlertSent: true };
       }
       store.saveState(id, stopped);
@@ -311,7 +332,8 @@ export function createPoller(options: {
     };
 
     if (!result.ok) {
-      if (result.cid !== undefined) log.warn("status_failed", { order: hashId(id), cid: result.cid });
+      // The line is there to carry the provider's tracing ID. For an order made in Ghost mode none is kept, and there is no line.
+      if (result.cid !== undefined && tracingOf(fresh) === "kept") log.warn("status_failed", { order: hashId(id), cid: result.cid });
       const t = now();
       // The provider says it does not know this address, and the deadline is well past: nobody paid.
       const notFound = result.kind === "rejected" && result.status === 404;
@@ -337,7 +359,7 @@ export function createPoller(options: {
     }
     const update = applyStatus(fresh, result.data, now());
     if (update.kind === "mismatch") {
-      alerts.send("status_mismatch", `A status reply did not match the stored deposit address for order ${hashId(id)}.`, id);
+      alerts.send("status_mismatch", `A status reply did not match the stored deposit address for order ${hashId(id)}.`, hashId(id));
       if (ended) schedule.delete(id);
       else if (!abandon(fresh)) plan(fresh, errors + 1);
       return;
@@ -354,7 +376,7 @@ export function createPoller(options: {
       !state.slowAlertSent &&
       now() - Date.parse(state.statusSince) > 3 * Math.max(fresh.timeEstimate, 60) * 1000
     ) {
-      alerts.send("slow_swap", `Order ${hashId(id)} has been swapping for more than three times its estimate.`, id);
+      alerts.send("slow_swap", `Order ${hashId(id)} has been swapping for more than three times its estimate.`, hashId(id));
       state = { ...state, slowAlertSent: true };
       store.saveState(id, state);
     } else if (update.changed) {
@@ -450,6 +472,7 @@ export function createPoller(options: {
       if (entry) entry.nextAt = now();
       else if (store.get(id) !== null) schedule.set(id, { nextAt: now(), errors: 0 });
     },
+    holds: (id) => schedule.has(id) || lastLazy.has(id) || lastViewed.has(id) || forwardAttempts.has(id),
     async finalCheck(id) {
       const record = store.get(id);
       if (record === null) return "gone";
@@ -457,7 +480,7 @@ export function createPoller(options: {
       try {
         // In the class kept for orders with funds in motion: there are few of these calls, and the
         // class for unpaid orders can be kept busy by anyone with unpaid orders of their own.
-        result = await oneclick.status(record.depositAddress, record.depositMemo, "tracking");
+        result = await oneclick.status(record.depositAddress, record.depositMemo, "tracking", tracingOf(record));
       } catch {
         return "outage";
       }

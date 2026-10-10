@@ -7,6 +7,10 @@
 // address, the swap's value in dollars, the two coins and the time. These are transaction records
 // and are kept as such.
 //
+// An order made in Ghost mode that names a rewards address adds its entry as any order does, and the
+// entry is written before the order's record is deleted (server/settle.ts). One that names none
+// adds no entry, like any order that names none: nothing is kept of it here.
+//
 // Points are counted from a swap's value: ten for each US dollar. An entry written while they were
 // counted from a fee (v: 1) holds no value of the swap, and is not read: its file is left where it
 // is, and adds nothing. A week closed then is still read, as it was written.

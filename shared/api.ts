@@ -259,8 +259,10 @@ export interface CreateOrderBody {
   withoutPrivate?: boolean;
   /**
    * True for an order made in Ghost mode. Only `true` is read. Such an order has no row among the
-   * recent swaps, and its record is deleted from the server the moment it finishes. It switches off
-   * no check: the quote, the provider's signature, the limits and the screening apply as to any order.
+   * recent swaps, and its record is deleted from the server once nothing more can happen to it and no
+   * funds are in it: at once when it is delivered or refunded, and, when it ran out unpaid, when the
+   * watch for a late deposit ends. It switches off no check: the quote, the provider's signature, the
+   * limits and the screening apply as to any order.
    */
   ghost?: boolean;
   reviewed: ReviewedNumbers;
@@ -356,7 +358,8 @@ export type ErrorCode =
   | "region"
   | "rate_limited"
   | "not_found"
-  // An order made in Ghost mode that has finished: its record was deleted, and this is all that is known of it. Answered with status 410.
+  // An order made in Ghost mode that has finished: its record was deleted. Answered with status 410. Where it is known how the
+  // order ended, `detail.ended` says so in one word ("delivered", "refunded" or "expired"); nothing else is known of it.
   | "order_deleted"
   | "too_large"
   | "no_route"

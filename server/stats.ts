@@ -24,6 +24,10 @@
 // Never an order's ID and never an address. (A deposit's transaction is public on its own chain,
 // and whoever opens it there sees the address that sent it.)
 //
+// An order made in Ghost mode is in the totals and nowhere else. It adds to every sum above as any
+// delivered order does, once, and it is given no row, at no time: its deposit's transaction is not
+// read at all.
+//
 // That an order has been counted is not written here either. It is a mark on the order's own
 // record, set by the order store before the totals are touched, so an order is counted at most
 // once, across restarts too, and the mark goes when the order's record goes.
@@ -96,6 +100,8 @@ export interface Delivery {
   began: number;
   /** The coin that was delivered. It adds to that coin's total of dollars received and to nothing else. */
   to?: StatsCoin;
+  /** True for an order made in Ghost mode: it adds to the sums and is given no row. */
+  unlisted?: true;
 }
 
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -132,7 +138,8 @@ const LONGEST_DELIVERY_S = 24 * 3600;
  * the provider names on the chain the order was sent from or, where it names none, the one this
  * server itself confirmed pays the order. A hash that was only announced is not taken: it could
  * be anyone's. The time taken runs from the last step this server saw before the end (the order
- * being made, its deposit being confirmed, the swap starting) to the delivery.
+ * being made, its deposit being confirmed, the swap starting) to the delivery. Of an order made in
+ * Ghost mode the deposit's transaction is not read: such an order is for the sums alone.
  */
 function deliveryOf(record: OrderRecord): Delivery | null {
   if (record.state.status !== "delivered") return null;
@@ -142,16 +149,21 @@ function deliveryOf(record: OrderRecord): Delivery | null {
   const seconds = began > 0 && at >= began && at - began <= LONGEST_DELIVERY_S * 1000 ? Math.round((at - began) / 1000) : null;
   const sent = record.from;
   const coin = { ...coinOf(sent), decimals: isDecimals(sent.decimals) ? sent.decimals : 0 };
+  const sums = { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), seconds, at, began: began > 0 && began <= at ? began : at, to: coinOf(record.to) };
+  if (record.ghost === true) return { ...sums, tx: null, unlisted: true };
   const paid = record.state.details?.originTxs[0]?.hash ?? (record.state.depositVerified === true ? record.state.depositTxHash : null);
-  return { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), tx: isValidTxHash(coin.chain, paid) ? paid : null, seconds, at, began: began > 0 && began <= at ? began : at, to: coinOf(record.to) };
+  return { ...sums, tx: isValidTxHash(coin.chain, paid) ? paid : null };
 }
 
 /**
  * The row a delivery adds to the list: the coin sent, the amount sent, the minute the swap began on
  * the sending side and the deposit's hash. The moment of delivery is a fact about the receiving
- * side, so a row does not carry it. A delivery whose amount cannot be read adds no row.
+ * side, so a row does not carry it. A delivery whose amount cannot be read adds no row, and
+ * neither does that of an order made in Ghost mode: not as it is delivered, and not when the rows
+ * of orders already counted are put back at a start.
  */
 function rowFor(delivery: Delivery): StoredRow | null {
+  if (delivery.unlisted === true) return null;
   if (!isAmount(delivery.amount)) return null;
   return { coin: { symbol: delivery.coin.symbol, chain: delivery.coin.chain, decimals: delivery.coin.decimals }, amount: delivery.amount, at: momentOf(Math.floor(delivery.began / MINUTE_MS) * MINUTE_MS), tx: delivery.tx };
 }
@@ -372,6 +384,12 @@ export interface Stats {
   recordDelivered(record: OrderRecord, claim: () => boolean, write?: boolean): boolean;
   /** Writes the sums to disk. Called after every order on disk has been gone through at a start, it also ends that going-through. */
   save(): void;
+  /**
+   * Writes the sums to disk if the file is behind them: something was added with the write left for
+   * later, or a write failed. Otherwise it does nothing. For the moment before an order's record is
+   * deleted, when what the order added must be on disk already.
+   */
+  flush(): void;
   /** Adds made-up deliveries, for a practice server's sample content. No route reaches it. */
   seed(deliveries: readonly Delivery[]): void;
   /** What the Stats page is sent: the figures as they stand at this moment. */
@@ -407,7 +425,12 @@ export function createStats(dataDir: string, options: { now?: () => number; rece
   // done again. `held` is the rows the file came with, each standing for one order.
   let mending = false;
   const held = new Map<string, number>();
-  const write = () => writeDurable(file, JSON.stringify(toFile(live, mending ? 2 : 3)));
+  // True while the sums in memory hold something the file does not.
+  let unwritten = false;
+  const write = () => {
+    writeDurable(file, JSON.stringify(toFile(live, mending ? 2 : 3)));
+    unwritten = false;
+  };
   const mend = (record: OrderRecord): void => {
     const delivery = deliveryOf(record);
     const row = delivery === null ? null : rowFor(delivery);
@@ -461,8 +484,12 @@ export function createStats(dataDir: string, options: { now?: () => number; rece
       // order is missing from the totals; it can never be in them twice.
       if (!claim()) return false;
       add(live, delivery, now());
+      unwritten = true;
       if (andWrite) write();
       return true;
+    },
+    flush() {
+      if (unwritten) write();
     },
     save() {
       mending = false;

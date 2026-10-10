@@ -6,6 +6,7 @@ import { errorKind, type AccessLog, type Logger } from "./log.ts";
 import type { OrderStatus } from "../shared/api.ts";
 import type { Poller } from "./poller.ts";
 import type { Limiters } from "./ratelimit.ts";
+import type { Settler } from "./settle.ts";
 import { deleteAfter, type OrderRecord, type OrderStore } from "./store.ts";
 
 /** Alert when more than this share of provider calls failed over 5 minutes. */
@@ -72,11 +73,23 @@ export const UNCLEAR_GRACE_MS = 7 * 86_400_000;
  * One awkward record never holds up the rest. An unclear answer skips that record until the
  * next round (and a week past its date it is deleted anyway, and logged). Only an outage ends
  * the round. Records are asked about in turn, least recently asked first.
+ *
+ * Each round begins with what Ghost mode leaves to it (`settler.tidy`): an order made in that mode
+ * whose record should have gone as it was delivered or refunded, and did not, is put to its ending
+ * again, and the fingerprints of deleted orders that are 30 days old are removed. A failure there
+ * is logged, and the round goes on.
+ *
+ * A Ghost order that ran out unpaid is deleted here and nowhere else, by the rules above: a day
+ * after its deadline, once the provider has been asked one last time and has nothing new. Its
+ * record is kept not a moment longer than any such order's, and not a moment less. (The store
+ * leaves the fingerprint of a Ghost order that had ended, whoever removes its record.)
  */
-export function createSweeper(options: { store: OrderStore; poller: Pick<Poller, "finalCheck">; log: Logger; now: () => number }): () => Promise<number> {
-  const { store, poller, log, now } = options;
+export function createSweeper(options: { store: OrderStore; poller: Pick<Poller, "finalCheck">; log: Logger; now: () => number; settler?: Pick<Settler, "tidy"> }): () => Promise<number> {
+  const { store, poller, log, now, settler } = options;
   const lastAsked = new Map<string, number>();
   let running = false;
+  // When a record goes, whoever removes it, so does the note of when it was last asked about.
+  store.onRemoved((id) => void lastAsked.delete(id));
 
   return async function sweep(): Promise<number> {
     if (running) return 0;
@@ -85,6 +98,11 @@ export function createSweeper(options: { store: OrderStore; poller: Pick<Poller,
     let kept = 0;
     let unclear = 0;
     let forced = 0;
+    try {
+      settler?.tidy();
+    } catch (err) {
+      log.error("ghost_tidy_failed", { kind: errorKind(err) });
+    }
     try {
       const due = store.deletable(now());
       const dueIds = new Set(due.map((record) => record.id));

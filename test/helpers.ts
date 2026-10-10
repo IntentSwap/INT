@@ -14,15 +14,17 @@ import { createApp, type AppDeps } from "../server/app.ts";
 import { loadConfig, type Config } from "../server/config.ts";
 import { createStaticGeo, type Geo } from "../server/geo.ts";
 import { createLogger, type AccessEntry } from "../server/log.ts";
+import { createSweeper } from "../server/maintenance.ts";
 import { createOneClick, type OneClick, type UpstreamResult } from "../server/oneclick.ts";
 import { createPoller, type Poller } from "../server/poller.ts";
-import { createLimiters, type Limit, type LimitName } from "../server/ratelimit.ts";
+import { createLimiters, type Limit, type LimitName, type Limiters } from "../server/ratelimit.ts";
 import { createRpc, type Rpc, type RpcCall, type RpcResult } from "../server/rpc.ts";
 import { createRewards, createSignIn, type Rewards, type SignIn } from "../server/rewards.ts";
 import { createStaticSanctions, type Sanctions } from "../server/sanctions.ts";
 import { createSessionIssuer } from "../server/session.ts";
+import { createSettler } from "../server/settle.ts";
 import type { StaticSite } from "../server/static.ts";
-import { createStats } from "../server/stats.ts";
+import { createStats, type Stats } from "../server/stats.ts";
 import { createOrderStore, type OrderStore } from "../server/store.ts";
 import { createStubProvider, type StubProvider } from "../server/stub-provider.ts";
 import { createTokenService, type TokenService } from "../server/tokens.ts";
@@ -154,6 +156,10 @@ export interface ProviderTap {
   quoteClasses: string[];
   statusClasses: string[];
   submitClasses: string[];
+  /** What each of the same calls said was to become of the provider's tracing ID of its reply ("kept" or "dropped"), in order. */
+  quoteTracing: string[];
+  statusTracing: string[];
+  submitTracing: string[];
 }
 
 export interface Harness {
@@ -165,13 +171,19 @@ export interface Harness {
   rpc: FakeRpc;
   store: OrderStore;
   rewards: Rewards;
+  stats: Stats;
   signIn: SignIn;
   poller: Poller;
+  limiters: Limiters;
   tokens: TokenService;
   dataDir: string;
   logs: string[];
   access: AccessEntry[];
   alerts: Array<{ kind: AlertKind; text: string }>;
+  /** The key each alert was sent with, by which repeats about one subject are held back. In the order of `alerts`. */
+  alertKeys: string[];
+  /** One clean-up pass, as the server runs it every ten minutes. */
+  sweep(): Promise<number>;
   session(ip?: string): Promise<string>;
   get(path: string, options?: RequestOptions): Promise<Reply>;
   post(path: string, body: unknown, options?: RequestOptions): Promise<Reply>;
@@ -226,13 +238,15 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const alerts: Harness["alerts"] = [];
   const log = createLogger((line) => logs.push(line));
   const stub = createStubProvider({ upstream: null, tokens: FIXTURE_TOKENS, now });
-  const tap: ProviderTap = { quotes: [], tamperRequest: null, corruptResponse: null, nextQuote: null, tokensResult: null, degraded: false, beforeQuote: null, submitFails: false, statusReply: null, submits: [], quoteClasses: [], statusClasses: [], submitClasses: [] };
+  const alertKeys: string[] = [];
+  const tap: ProviderTap = { quotes: [], tamperRequest: null, corruptResponse: null, nextQuote: null, tokensResult: null, degraded: false, beforeQuote: null, submitFails: false, statusReply: null, submits: [], quoteClasses: [], statusClasses: [], submitClasses: [], quoteTracing: [], statusTracing: [], submitTracing: [] };
 
   const oneclick: OneClick = {
     tokens: async () => tap.tokensResult ?? stub.provider.tokens(),
-    async quote(body, priority) {
+    async quote(body, priority, tracing) {
       tap.quotes.push(body);
       tap.quoteClasses.push(priority ?? "user");
+      tap.quoteTracing.push(tracing ?? "kept");
       if (tap.beforeQuote) await tap.beforeQuote(body);
       if (tap.nextQuote !== null) {
         const result = tap.nextQuote;
@@ -243,13 +257,15 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
       if (result.ok && tap.corruptResponse) return { ...result, data: tap.corruptResponse(result.data as Record<string, unknown>) };
       return result;
     },
-    async status(address, memo, priority) {
+    async status(address, memo, priority, tracing) {
       tap.statusClasses.push(priority ?? "user");
+      tap.statusTracing.push(tracing ?? "kept");
       return tap.statusReply?.(address) ?? stub.provider.status(address, memo, priority);
     },
-    async submitDeposit(body, priority) {
+    async submitDeposit(body, priority, tracing) {
       tap.submits.push({ ...body });
       tap.submitClasses.push(priority ?? "user");
+      tap.submitTracing.push(tracing ?? "kept");
       return tap.submitFails ? { ok: false, kind: "unavailable", status: 503 } : stub.provider.submitDeposit(body, priority);
     },
     health: () => ({ degraded: tap.degraded, errorRate: tap.degraded ? 1 : 0, calls: tap.degraded ? 3 : 0 }),
@@ -260,6 +276,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const alertSink = {
     send: (kind: AlertKind, text: string, dedupeKey?: string) => {
       alerts.push({ kind, text });
+      alertKeys.push(dedupeKey ?? "");
       delivered?.send(kind, text, dedupeKey);
     },
   };
@@ -268,15 +285,14 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const tokens = createTokenService({ oneclick: realProvider ?? oneclick, rpc: realRpc ?? rpc, alerts: alertSink, log, dataDir, excludedChains: config.excludedChains, now });
   const rewards = createRewards(dataDir);
   const signIn = createSignIn();
-  // The site's totals are told of each saved state as the server itself tells them (see server/boot.ts).
+  // Each saved state is put to the site's totals, to the points record and, for an order made in Ghost
+  // mode that has ended, to the deletion of its record, as the server itself does it (see server/boot.ts).
   const stats = createStats(dataDir, { now });
-  const store: OrderStore = createOrderStore(dataDir, {
-    onState(record) {
-      rewards.recordDelivered(record);
-      stats.recordDelivered(record, () => store.markCounted(record.id));
-    },
-  });
+  const store: OrderStore = createOrderStore(dataDir, { now, onState: (record) => void settler.settle(record) });
+  const settler = createSettler({ store, stats, rewards, log });
   const poller = createPoller({ store, oneclick: realProvider ?? oneclick, alerts: alertSink, log, now });
+  const sweep = createSweeper({ store, poller, log, now, settler });
+  const limiters = createLimiters(now, options.limits);
 
   const deps: AppDeps = {
     config,
@@ -290,7 +306,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     store,
     poller,
     rpc: realRpc ?? rpc,
-    limiters: createLimiters(now, options.limits),
+    limiters,
     sessions: createSessionIssuer(),
     rewards,
     signIn,
@@ -347,13 +363,17 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     rpc,
     store,
     rewards,
+    stats,
     signIn,
     poller,
+    limiters,
     tokens,
     dataDir,
     logs,
     access,
     alerts,
+    alertKeys,
+    sweep,
     async session(ip = "203.0.113.10") {
       const cached = sessions.get(ip);
       if (cached) return cached;

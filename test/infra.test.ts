@@ -1307,7 +1307,7 @@ describe("upkeep and alert thresholds", () => {
       const lines: string[] = [];
       const left = () => (records as Array<{ id: string }>).filter((r) => !removed.includes(r.id));
       const run = createSweeper({
-        store: { deletable: () => left(), remove: (id: string) => void removed.push(id) } as never,
+        store: { deletable: () => left(), remove: (id: string) => void removed.push(id), onRemoved() {} } as never,
         poller: { finalCheck: async (id: string) => (asked.push(id), verdicts[id] ?? "outage") },
         log: createLogger((line) => lines.push(line)),
         now: () => clock.t,
@@ -1375,6 +1375,7 @@ describe("upkeep and alert thresholds", () => {
           deletable: () => {
             throw new Error("orders folder unreadable");
           },
+          onRemoved() {},
         } as never,
         poller: { finalCheck: async () => "gone" },
         log: createLogger((line) => lines.push(line)),
@@ -1387,7 +1388,7 @@ describe("upkeep and alert thresholds", () => {
       const gate = new Promise<void>((resolve) => (release = resolve));
       let asked = 0;
       const slow = createSweeper({
-        store: { deletable: () => [order("a", "expired")], remove() {} } as never,
+        store: { deletable: () => [order("a", "expired")], remove() {}, onRemoved() {} } as never,
         poller: {
           finalCheck: async () => {
             asked += 1;

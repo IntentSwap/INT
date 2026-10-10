@@ -17,6 +17,11 @@ export type AlertKind =
   | "unfinished_order";
 
 export interface Alerts {
+  /**
+   * `dedupeKey` tells one subject of an alert from another, so that repeats about the same one can
+   * be held back. It is kept in memory for as long as that takes. For an order it is the order's
+   * hashed ID (`hashId`), as in the text: never the ID itself.
+   */
   send(kind: AlertKind, text: string, dedupeKey?: string): void;
 }
 

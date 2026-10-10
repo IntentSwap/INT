@@ -16,6 +16,14 @@ export const ONECLICK_ORIGIN = "https://1click.chaindefuser.com";
  */
 export type Priority = "user" | "order" | "tracking" | "idle";
 
+/**
+ * What becomes of the provider's tracing ID of a reply. For a call made for an order in Ghost mode
+ * it is "dropped" as the reply is read, so that it is in no log line and is not handed back to
+ * whoever called. For every other call it is "kept", as ever. What is sent to the provider is the
+ * same either way.
+ */
+export type Tracing = "kept" | "dropped";
+
 export type UpstreamResult =
   | { ok: true; status: number; data: unknown; cid?: string }
   /** The provider understood the request and refused it (a 4xx other than an authentication or rate-limit error). */
@@ -55,9 +63,9 @@ function correlationId(data: unknown): { cid?: string } {
 
 export interface OneClick {
   tokens(): Promise<UpstreamResult>;
-  quote(body: Record<string, unknown>, priority?: Priority): Promise<UpstreamResult>;
-  status(depositAddress: string, depositMemo: string | null, priority?: Priority): Promise<UpstreamResult>;
-  submitDeposit(body: { depositAddress: string; txHash: string; memo?: string }, priority?: Priority): Promise<UpstreamResult>;
+  quote(body: Record<string, unknown>, priority?: Priority, tracing?: Tracing): Promise<UpstreamResult>;
+  status(depositAddress: string, depositMemo: string | null, priority?: Priority, tracing?: Tracing): Promise<UpstreamResult>;
+  submitDeposit(body: { depositAddress: string; txHash: string; memo?: string }, priority?: Priority, tracing?: Tracing): Promise<UpstreamResult>;
   health(): { degraded: boolean; errorRate: number; calls: number };
 }
 
@@ -134,7 +142,7 @@ export function createOneClick(options: {
   async function call(
     method: "GET" | "POST",
     pathname: string,
-    init: { query?: Record<string, string>; body?: unknown; timeoutMs: number; maxBytes: number; priority: Priority },
+    init: { query?: Record<string, string>; body?: unknown; timeoutMs: number; maxBytes: number; priority: Priority; tracing?: Tracing },
   ): Promise<UpstreamResult> {
     if (!budget(init.priority)) return { ok: false, kind: "unavailable", status: null, budget: true };
     const url = new URL(pathname, ONECLICK_ORIGIN);
@@ -158,7 +166,7 @@ export function createOneClick(options: {
       } catch {
         parsed = false;
       }
-      const cid = correlationId(data);
+      const cid = init.tracing === "dropped" ? {} : correlationId(data);
       // 401 means our own key is wrong and 429 that we are calling too fast: both are our problem, not the person's.
       if (res.status >= 500 || res.status === 429 || res.status === 401) {
         record(true);
@@ -205,22 +213,23 @@ export function createOneClick(options: {
 
   return {
     tokens: () => call("GET", "/v0/tokens", { timeoutMs: 10_000, maxBytes: 4_000_000, priority: "tracking" }),
-    quote: (body, priority = "user") => {
+    quote: (body, priority = "user", tracing = "kept") => {
       if (body.dry !== true && !allowLive) return refused("order");
-      return call("POST", "/v0/quote", { body, timeoutMs: 15_000, maxBytes: 200_000, priority });
+      return call("POST", "/v0/quote", { body, timeoutMs: 15_000, maxBytes: 200_000, priority, tracing });
     },
-    status: (depositAddress, depositMemo, priority = "tracking") => {
+    status: (depositAddress, depositMemo, priority = "tracking", tracing = "kept") => {
       if (!allowLive) return refused("status");
       return call("GET", "/v0/status", {
         query: depositMemo === null ? { depositAddress } : { depositAddress, depositMemo },
         timeoutMs: 10_000,
         maxBytes: 400_000,
         priority,
+        tracing,
       });
     },
-    submitDeposit: (body, priority = "user") => {
+    submitDeposit: (body, priority = "user", tracing = "kept") => {
       if (!allowLive) return refused("deposit");
-      return call("POST", "/v0/deposit/submit", { body, timeoutMs: 10_000, maxBytes: 400_000, priority });
+      return call("POST", "/v0/deposit/submit", { body, timeoutMs: 10_000, maxBytes: 400_000, priority, tracing });
     },
     health() {
       const t = now();

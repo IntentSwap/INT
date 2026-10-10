@@ -8,7 +8,7 @@ import { createAlerts, type Alerts } from "./alerts.ts";
 import { createApp } from "./app.ts";
 import { ConfigError, describeConfig, loadConfig, type Config } from "./config.ts";
 import { createGeo, createStaticGeo, type Geo, type GeoService } from "./geo.ts";
-import { createAccessLog, errorKind, hashId, type Logger } from "./log.ts";
+import { createAccessLog, errorKind, type Logger } from "./log.ts";
 import { createDiskGuard, createSweeper, DISK_CHECK_MS, measureDisk, providerErrorAlert, runMaintenance } from "./maintenance.ts";
 import { idleBudget, type OneClick } from "./oneclick.ts";
 import { createPoller } from "./poller.ts";
@@ -19,9 +19,10 @@ import { createRpc } from "./rpc.ts";
 import { holdsSampleContent, seedSamples, withSampleSettings } from "./sample.ts";
 import { createSanctions, type SanctionsService } from "./sanctions.ts";
 import { createSessionIssuer } from "./session.ts";
+import { createSettler } from "./settle.ts";
 import { loadStaticSite } from "./static.ts";
 import { createStats } from "./stats.ts";
-import { createOrderStore } from "./store.ts";
+import { createOrderStore, type OrderStore } from "./store.ts";
 import { createTokenService } from "./tokens.ts";
 
 /** How often old order records are looked at for deletion. */
@@ -113,44 +114,24 @@ export function boot(options: {
 
   const rpc = createRpc({ urls: config.rpcUrls, ...net });
   const tokens = createTokenService({ oneclick, rpc, alerts, log, dataDir: config.dataDir, excludedChains: config.excludedChains, now });
-  // The record of points. Each time an order's state is saved, it is asked whether the order now adds
-  // any (a delivered order with a rewards address does, once). At start every stored order is put to
-  // it once more, so that a delivery saved a moment before a restart is not missed.
+  // The record of points and the site's own totals, for the Rewards and the Stats pages. Each time an
+  // order's state is saved, both are asked whether the order now adds anything (a delivered order
+  // does, once: its own record is marked as counted before the totals are touched, and its points
+  // are a file of their own). The totals are kept whether or not the Stats page is switched on, so
+  // that they are whole when it is. After the two, and never before, the record of an order made in
+  // Ghost mode is deleted if the order is delivered or refunded: see server/settle.ts.
   const rewards = createRewards(config.dataDir);
-  // The site's own totals, for the Stats page. They are told of the same orders at the same two
-  // moments, and count each once: the order's own record is marked as counted before the totals
-  // are touched. They are kept whether or not the page is switched on, so that they are whole when it is.
   const stats = createStats(config.dataDir, { now, receivedMin: config.statsReceivedMin });
   if (stats.setAside) log.error("stats_file_unreadable");
-  const store = createOrderStore(config.dataDir, {
-    onState(record) {
-      try {
-        rewards.recordDelivered(record);
-      } catch (err) {
-        log.error("points_not_recorded", { order: hashId(record.id), error: errorKind(err) });
-      }
-      try {
-        stats.recordDelivered(record, () => store.markCounted(record.id));
-      } catch (err) {
-        log.error("stats_not_counted", { order: hashId(record.id), error: errorKind(err) });
-      }
-    },
-  });
+  const store: OrderStore = createOrderStore(config.dataDir, { now, onState: (record) => void settler.settle(record) });
+  const settler = createSettler({ store, stats, rewards, log });
+  // At start every stored order is put to the same three steps once more, so that a delivery saved a
+  // moment before a restart is not missed, and a Ghost order that had ended is not left on disk.
+  // One order that cannot be put to them does not stop the server starting: it is logged, and the
+  // rest are still gone through. The totals are added up in memory, and written once after the last.
   for (const id of store.ids()) {
-    // One order that cannot be put to the record must not stop the server starting: it is logged, and the rest are still put to it.
-    try {
-      const record = store.get(id);
-      if (record !== null && record.state.status === "delivered") rewards.recordDelivered(record);
-    } catch (err) {
-      log.error("points_not_recorded", { order: hashId(id), error: errorKind(err) });
-    }
-    try {
-      const record = store.get(id);
-      // Added up in memory, and written once after the last of them.
-      if (record !== null) stats.recordDelivered(record, () => store.markCounted(id), false);
-    } catch (err) {
-      log.error("stats_not_counted", { order: hashId(id), error: errorKind(err) });
-    }
+    const record = store.get(id);
+    if (record !== null) settler.settle(record, false);
   }
   try {
     stats.save();
@@ -246,7 +227,7 @@ export function boot(options: {
     }
     diskGuard.record(runMaintenance({ accessLog, limiters, dataDir: config.dataDir, alerts, log, ...statfs }));
   };
-  const sweep = createSweeper({ store, poller, log, now });
+  const sweep = createSweeper({ store, poller, log, now, settler });
   const checkDisk = () => diskGuard.record(measureDisk({ dataDir: config.dataDir, alerts, log, ...statfs }));
   const timers: NodeJS.Timeout[] = [];
   // With the practice provider on, only this machine can reach the server.

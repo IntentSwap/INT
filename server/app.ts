@@ -25,8 +25,8 @@ import { isPrivateIp, type Geo } from "./geo.ts";
 import { errorBody, HttpError, isRecord, isSameOrigin, readJson, requestPath, securityHeaders, sendJson } from "./http.ts";
 import { rateKey, resolveClientIp, truncateIp, wideKey } from "./ip.ts";
 import { errorKind, hashId, type Logger } from "./log.ts";
-import type { OneClick } from "./oneclick.ts";
-import { EXPIRE_AFTER_DEADLINE_MS, type Poller } from "./poller.ts";
+import type { OneClick, Tracing } from "./oneclick.ts";
+import { EXPIRE_AFTER_DEADLINE_MS, tracingOf, type Poller } from "./poller.ts";
 import { buildSentQuote, enforceUsdCap, mapRejection, parseSwapInput, privateUnavailable, refusesPrivate, toQuoteView, type QuoteInput } from "./quotes.ts";
 import { MAX_HASH_SUBMISSIONS, MAX_UNPAID_PER_CLIENT, MAX_UNPAID_PER_NETWORK, openOrderCap, type LimitName, type Limiters } from "./ratelimit.ts";
 import { decodeErc20Transfer, decodeTransferLog, hexToBigInt, isBalanceBatch, parseProxyBody, type Rpc } from "./rpc.ts";
@@ -104,6 +104,12 @@ interface Ctx {
   logOrder?: string;
   logScreening?: string;
   logCid?: string;
+  /**
+   * Set by a handler when the request is for an order made in Ghost mode, or asks for one to be
+   * made. Its line in the access log then carries the order's hashed ID and nothing else that
+   * could name the order: the provider's tracing ID is left out.
+   */
+  ghost?: boolean;
 }
 
 interface Route {
@@ -135,6 +141,8 @@ export function toOrderView(record: OrderRecord, now: number): OrderView {
   return {
     id: record.id,
     status,
+    // Said only of an order made in Ghost mode, so that its page can say what becomes of its record.
+    ...(record.ghost === true ? { ghost: true as const } : {}),
     createdAt: record.createdAt,
     updatedAt: state.updatedAt,
     statusSince: state.statusSince,
@@ -197,12 +205,37 @@ export function createApp(deps: AppDeps): RequestListener {
   if (config.privacyMode === "basic" && config.oneClickApiKey === null) log.warn("private_routing_without_partner_key");
   const baseHeaders = securityHeaders({ scriptHashes: site?.scriptHashes ?? [] });
   const NOT_FOUND = new HttpError(404, "not_found", "Not found.");
+  // What is said of an order made in Ghost mode once it has finished and its record is deleted. With it goes one
+  // word for how the order ended, where that is known (see `noOrder`), and nothing else of the order.
+  const GONE = new HttpError(410, "order_deleted", "This order finished, and its record was deleted.");
 
   function limited(name: LimitName, key: string, cost = 1): void {
     const limiter = limiters[name];
     if (!limiter.take(key, cost)) {
       throw new HttpError(429, "rate_limited", "Too many requests. Wait a moment and try again.", { retryAfter: limiter.retryAfter(key) });
     }
+  }
+
+  /** Names an order for the access log, by its hashed ID, and says whether it is one made in Ghost mode. */
+  function noteOrder(ctx: Ctx, record: OrderRecord): void {
+    ctx.logOrder = hashId(record.id);
+    if (record.ghost === true) ctx.ghost = true;
+  }
+
+  /**
+   * What is answered when an order's ID opens no record. For a Ghost order whose record was deleted
+   * within the last 30 days: that it finished and that its record was deleted, with the one word
+   * for how it ended ("delivered", "refunded" or "expired"), so that someone who was watching their
+   * swap is told what became of it. No amount, coin, address, hash or time: the word is all that
+   * was kept. Where the word cannot be read, the answer goes without it. That is no guess at an ID,
+   * and is not counted as one. For every other ID, as ever: unknown and malformed IDs look
+   * identical, and guessing is rate limited hard.
+   */
+  function noOrder(ctx: Ctx, id: string | undefined): HttpError {
+    const gone = isOrderId(id) ? store.wiped(id) : null;
+    if (gone !== null) return gone.ended === null ? GONE : new HttpError(410, GONE.code, GONE.message, { detail: { ended: gone.ended } });
+    limited("orderMiss", ctx.ipKey);
+    return NOT_FOUND;
   }
 
   async function snapshotOrFail(): Promise<TokenSnapshot> {
@@ -216,11 +249,11 @@ export function createApp(deps: AppDeps): RequestListener {
   }
 
   /** Asks the provider for a quote and verifies it. Never returns an unverified quote. */
-  async function fetchQuote(ctx: Ctx, input: QuoteInput, dry: boolean): Promise<{ verified: VerifiedQuote; response: unknown; sent: SentQuote }> {
+  async function fetchQuote(ctx: Ctx, input: QuoteInput, dry: boolean, tracing: Tracing = "kept"): Promise<{ verified: VerifiedQuote; response: unknown; sent: SentQuote }> {
     const t = now();
     const sent = buildSentQuote(input, { dry, now: t, feeRecipient: config.feeRecipient, feeBps: config.feeBps, feeBpsPrivate: config.feeBpsPrivate });
     // A real quote for an order has a share of the call budget of its own, so previews cannot crowd it out.
-    const result = await oneclick.quote(sent as unknown as Record<string, unknown>, dry ? "user" : "order");
+    const result = await oneclick.quote(sent as unknown as Record<string, unknown>, dry ? "user" : "order", tracing);
     // The provider's tracing ID goes in the access log whether the call worked or not.
     if (result.cid !== undefined) ctx.logCid = result.cid;
     if (!result.ok) {
@@ -359,6 +392,16 @@ export function createApp(deps: AppDeps): RequestListener {
     }
     return { client, network };
   };
+
+  // When an order's record goes, so does everything held here in memory for it: which client made
+  // it, the request that made it, and the count of deposit hashes sent in for it. (The count of
+  // orders to its receiving address stays until its hour ends, under a one-way hash of the address:
+  // that limit would otherwise be lifted.)
+  store.onRemoved((id) => {
+    madeBy.delete(id);
+    for (const [key, entry] of recentRequests) if (entry.orderId === id) recentRequests.delete(key);
+    limiters.depositPerOrder.forget(id);
+  });
 
   /**
    * The current pool, for the Rewards page: what the reserve wallet holds of the coin rewards are
@@ -523,6 +566,11 @@ export function createApp(deps: AppDeps): RequestListener {
         }
         // How the quote the person saw was routed, as that quote said it. Left out, it reads as public.
         const seen = { amountOut: BigInt(reviewed.amountOut), minAmountOut: BigInt(reviewed.minAmountOut), totalFeeBps: reviewed.totalFeeBps, routing: isRouting(reviewed.routing) ? reviewed.routing : routingOf("public") };
+        // Whether the order is made in Ghost mode. Only the value true says so, and anything else is as
+        // if nothing were sent. It decides what is kept of the order, and nothing about making it:
+        // every check and every limit below is the same with it and without it.
+        const ghost = body.ghost === true;
+        if (ghost) ctx.ghost = true;
         const snapshot = await snapshotOrFail();
         // The routing level comes from the server's setting, never from the request.
         const input = parseSwapInput(body, snapshot.byId, true, config.privacyMode);
@@ -536,9 +584,10 @@ export function createApp(deps: AppDeps): RequestListener {
 
         let requestKey: string | null = null;
         // What this request asks for, so a retry key cannot be reused for something else. The routing
-        // level is part of it: the same swap asked for the other way is another request.
+        // level is part of it: the same swap asked for the other way is another request. So is Ghost
+        // mode: a retry never answers with an order made the other way.
         const fingerprint = createHash("sha256")
-          .update(JSON.stringify([input.from.id, input.to.id, input.amount.toString(), input.pay, input.recipient, input.refundTo, input.sender, input.slippageBps, rewardsAddress, input.confidentiality]))
+          .update(JSON.stringify([input.from.id, input.to.id, input.amount.toString(), input.pay, input.recipient, input.refundTo, input.sender, input.slippageBps, rewardsAddress, input.confidentiality, ghost]))
           .digest("base64url");
         if (body.requestId !== undefined) {
           if (typeof body.requestId !== "string" || !/^[A-Za-z0-9_-]{22,64}$/.test(body.requestId)) throw new HttpError(400, "bad_request", "The request could not be read.");
@@ -550,7 +599,7 @@ export function createApp(deps: AppDeps): RequestListener {
           }
           const existing = earlier !== undefined && now() - earlier.at < REQUEST_TTL_MS ? store.get(earlier.orderId) : null;
           if (existing !== null) {
-            ctx.logOrder = hashId(existing.id);
+            noteOrder(ctx, existing);
             return { status: 200, body: toOrderView(existing, now()) };
           }
           if (pending !== undefined) return pending.result;
@@ -573,7 +622,9 @@ export function createApp(deps: AppDeps): RequestListener {
 
           // Quotas are reserved now, before the provider is called, so that requests arriving together
           // cannot all slip under the same limit. Whatever is reserved is given back if no order results.
-          const recipientKey = `${input.to.chain}:${input.recipient.toLowerCase()}`;
+          // The count is kept under a one-way hash of the receiving address. It has to outlive the order (the limit
+          // would otherwise be lifted by the order ending), and this way nothing of the address is held for it.
+          const recipientKey = createHash("sha256").update(`${input.to.chain}:${input.recipient.toLowerCase()}`).digest("base64url");
           const reserved: Array<() => void> = [];
           const reserve = (name: "orderCreateDaily" | "orderCreateDailyWide" | "orderPerRecipient", key: string) => {
             const release = limiters[name].hold(key);
@@ -613,7 +664,7 @@ export function createApp(deps: AppDeps): RequestListener {
             if (ctx.wideKey !== null) limited("orderLiveDailyWide", ctx.wideKey);
             limited("orderCreateGlobal", "all");
 
-            const { verified, response, sent } = await fetchQuote(ctx, input, false);
+            const { verified, response, sent } = await fetchQuote(ctx, input, false, ghost ? "dropped" : "kept");
             if (verified.depositAddress === null || verified.deadline === null) {
               throw new HttpError(502, "try_later", "We couldn't confirm that quote. Try again shortly.");
             }
@@ -670,6 +721,7 @@ export function createApp(deps: AppDeps): RequestListener {
               termsVersion: TERMS_VERSION,
               screening: screening.record,
               quoteResponse: response,
+              ...(ghost ? { ghost: true as const } : {}),
               state: {
                 status: "waiting",
                 upstreamStatus: "PENDING_DEPOSIT",
@@ -695,7 +747,7 @@ export function createApp(deps: AppDeps): RequestListener {
                 for (const [key, entry] of recentRequests) if (t - entry.at > REQUEST_TTL_MS) recentRequests.delete(key);
               }
             }
-            ctx.logOrder = hashId(record.id);
+            noteOrder(ctx, record);
             return { status: 201, body: toOrderView(record, t) };
           } finally {
             for (const done of settled) done();
@@ -719,12 +771,8 @@ export function createApp(deps: AppDeps): RequestListener {
       handler: async (ctx, match) => {
         const id = match[1];
         const record = isOrderId(id) ? store.get(id) : null;
-        if (record === null) {
-          // Unknown and malformed IDs look identical, and guessing is rate limited hard.
-          limited("orderMiss", ctx.ipKey);
-          throw NOT_FOUND;
-        }
-        ctx.logOrder = hashId(record.id);
+        if (record === null) throw noOrder(ctx, id);
+        noteOrder(ctx, record);
         // Someone is looking: keep this order's checks prompt, and re-check one we no longer poll.
         if (record.state.status === "expired" || record.state.stopped) void poller.recheck(record.id);
         else if (!isEndState(record.state.status)) poller.watch(record.id);
@@ -761,12 +809,16 @@ export function createApp(deps: AppDeps): RequestListener {
         // receiving side, which the Stats page keeps out. Once delivered, an order opens from its own
         // link or ID only, while the Stats page is on.
         const listed = found !== null && config.statsPage && found.state.status === "delivered";
-        const record = found !== null && found.confidentiality !== "basic" && !listed ? found : null;
+        // Nor an order made in Ghost mode, at any moment of its life: before it is paid, while it is
+        // under way, after it has run out, and once its record is deleted (its address goes with it).
+        // Its deposit address is answered exactly as an address that is no order's, and counted the same.
+        const ghost = found !== null && found.ghost === true;
+        const record = found !== null && found.confidentiality !== "basic" && !listed && !ghost ? found : null;
         if (record === null) {
           limited("orderMiss", ctx.ipKey);
           throw NOT_FOUND;
         }
-        ctx.logOrder = hashId(record.id);
+        noteOrder(ctx, record);
         return { status: 200, body: { id: record.id } };
       },
     },
@@ -781,11 +833,8 @@ export function createApp(deps: AppDeps): RequestListener {
       handler: async (ctx, match, body) => {
         const id = match[1];
         const record = isOrderId(id) ? store.get(id) : null;
-        if (record === null) {
-          limited("orderMiss", ctx.ipKey);
-          throw NOT_FOUND;
-        }
-        ctx.logOrder = hashId(record.id);
+        if (record === null) throw noOrder(ctx, id);
+        noteOrder(ctx, record);
         limited("depositPerOrder", record.id);
         const txHash = isRecord(body) ? body.txHash : undefined;
         if (!isValidTxHash(record.from.chain, txHash)) throw new HttpError(400, "bad_request", "That doesn't look like a transaction hash.");
@@ -824,7 +873,7 @@ export function createApp(deps: AppDeps): RequestListener {
             if (!screening.ok) {
               ctx.logScreening = screening.reason;
               if (screening.reason === "unavailable") throw new HttpError(503, "try_later", "Try again shortly.");
-              alerts.send("sanctions_hit", `The wallet that paid order ${hashId(record.id)} is on the sanctions list. The transaction was not recorded or forwarded.`, record.id);
+              alerts.send("sanctions_hit", `The wallet that paid order ${hashId(record.id)} is on the sanctions list. The transaction was not recorded or forwarded.`, hashId(record.id));
               throw new HttpError(403, "blocked", "This swap can't be processed.");
             }
           }
@@ -861,6 +910,7 @@ export function createApp(deps: AppDeps): RequestListener {
           const forwarded = await oneclick.submitDeposit(
             { depositAddress: fresh.depositAddress, txHash, ...(fresh.depositMemo === null ? {} : { memo: fresh.depositMemo }) },
             confirmed ? "tracking" : "idle",
+            tracingOf(fresh),
           );
           if (forwarded.cid !== undefined) ctx.logCid = forwarded.cid;
           if (forwarded.ok) {
@@ -1144,7 +1194,8 @@ export function createApp(deps: AppDeps): RequestListener {
           country,
           ...(ctx.logOrder === undefined ? {} : { order: ctx.logOrder }),
           ...(ctx.logScreening === undefined ? {} : { screening: ctx.logScreening }),
-          ...(ctx.logCid === undefined ? {} : { cid: ctx.logCid }),
+          // The provider's tracing ID would name the order to the provider. For an order made in Ghost mode it is left out.
+          ...(ctx.logCid === undefined || ctx.ghost === true ? {} : { cid: ctx.logCid }),
           });
         })
         .catch(() => {
