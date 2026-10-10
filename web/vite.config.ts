@@ -53,6 +53,18 @@ export default defineConfig({
     target: "es2022",
     sourcemap: false,
     assetsInlineLimit: 0,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          // Everything the first screen needs travels in one file. Left to itself the bundler gives
+          // every piece of it that a later part of the site also uses a small file of its own (a
+          // store here, a link there), and the first screen then waits for a round trip for each of
+          // them. Only code the page loads at once is gathered: what is fetched later (a page of
+          // its own, the review, the wallet) stays out, and is fetched when it is asked for.
+          groups: [{ name: "first", tags: ["$initial"] }],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

@@ -505,3 +505,21 @@
 .review-row[data-row="routing"] {
   align-items: center;
 }
+
+/* ---- Add gas in the review ----
+   The second part of a review with gas: a short heading, then the gas order's own rows in the same
+   box the swap's rows have. The heading is set as the labels over the addresses are. */
+.review-gas {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.review-part {
+  font-size: var(--text-14);
+  line-height: var(--line-14);
+  font-weight: var(--weight-500);
+}
+
+.review-part .muted {
+  font-weight: var(--weight-400);
+}

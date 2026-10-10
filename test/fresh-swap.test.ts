@@ -96,7 +96,7 @@ describe("the swap page always starts fresh", () => {
     // A first visit: the usual pair, and nothing else.
     const leave = visitSwap();
     const first = held(useSwap.getState());
-    expect(first).toEqual({ fromId: ETH.id, toId: USDT.id, amountText: "", pay: "wallet", recipient: "", refundTo: "", impactConfirmed: false, slippageBps: 100, withoutPrivate: false, quote: null, fetchedAt: 0, loading: false, dirty: false, problem: null });
+    expect(first).toEqual({ fromId: ETH.id, toId: USDT.id, amountText: "", pay: "wallet", recipient: "", refundTo: "", impactConfirmed: false, slippageBps: 100, withoutPrivate: false, quote: null, fetchedAt: 0, loading: false, dirty: false, problem: null, gasOn: false, gas: null, gasFetchedAt: 0, gasLoading: false });
 
     // The card is filled as a person fills it: another coin, an amount, paying by hand, both addresses, a slippage limit, and a quote on screen.
     const swap = useSwap.getState();
@@ -127,7 +127,8 @@ describe("the swap page always starts fresh", () => {
     const filled = held(useSwap.getState());
     expect(filled).toMatchObject({ fromId: USDC.id, toId: USDT.id, amountText: AMOUNT, pay: "manual", recipient: RECEIVING, refundTo: REFUND, impactConfirmed: true, slippageBps: 50, withoutPrivate: true, quote: { amountOut: "416900000" }, loading: true });
     // Every part of the card that a person or a quote can change has been changed: none is the same as on the first visit.
-    for (const key of Object.keys(first)) if (key !== "dirty" && key !== "problem" && key !== "toId") expect(filled[key], key).not.toEqual(first[key]);
+    // (All but what the card holds of "Add gas": no gas can be added beside these coins. That part is filled, and seen to be cleared, in gas-card.test.ts.)
+    for (const key of Object.keys(first)) if (key !== "dirty" && key !== "problem" && key !== "toId" && !key.startsWith("gas")) expect(filled[key], key).not.toEqual(first[key]);
 
     // The person goes to another page. The card is cleared there and then: it holds what a card holds before it is given its coins.
     leave();

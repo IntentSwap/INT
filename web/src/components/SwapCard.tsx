@@ -20,6 +20,7 @@ import { AmountInput, AmountOutput, UsdValue } from "./AmountField.tsx";
 import { PrimaryButton, TextButton } from "./Button.tsx";
 import { CoinButton } from "./CoinButton.tsx";
 import { CoinPicker } from "./CoinPicker.tsx";
+import { GasSwitch } from "./GasSwitch.tsx";
 import { QuotePanel } from "./QuotePanel.tsx";
 
 /** Re-renders once a second, so a quote can be seen to expire. */
@@ -111,6 +112,7 @@ function Balance({ token, held, onMax }: { token: TokenView; held: Held; onMax?:
 
 /**
  * The swap card is the page: two small tools, the coins and the amount, the receiving address, the live quote in one line, and one button.
+ * Under the receiving address, only where the server offers it for this swap: the "Add gas" switch.
  * Where the server routes swaps privately, the row of tools also says so at its left end; where it does not, nothing here speaks of routing.
  * Choosing a coin happens inside the card: its contents give way to the coin picker and come back when a coin is chosen.
  * In Ghost mode the card carries the mode's small mark at that left end, knows no wallet (no balance, no Max, nothing
@@ -166,6 +168,10 @@ export function SwapCard() {
   const toHeld = held(to);
   const balance = typeof fromHeld === "bigint" ? fromHeld : null;
   const impact = quote?.priceImpactBps ?? null;
+  // The coin a gas order would deliver, as the server's preview names it. With no preview there is none, and no switch.
+  const gasCoin = swap.gas === null ? null : (tokens.byId.get(swap.gas.quote.to) ?? null);
+  // What the gas order is sent, with gas switched on: a second payment of the coin paid, which a wallet's balance must cover as well.
+  const gasAmount = swap.gasOn && swap.gas !== null ? BigInt(swap.gas.quote.amountIn) : null;
 
   // The connected wallet's address is offered where it is known to be the person's: see walletAddressFor.
   const walletInfo = { address: connected ? wallet.address : null, chain: wallet.chain, family: wallet.chain === null ? null : chainInfo(wallet.chain).family, plain: wallet.plain };
@@ -183,6 +189,7 @@ export function SwapCard() {
     pay,
     walletConnected: connected,
     balance,
+    gasAmount,
     recipient: swap.recipient,
     refundTo,
     quote: age,
@@ -230,7 +237,7 @@ export function SwapCard() {
 
   const max = () => {
     if (from === null || balance === null) return;
-    swap.setAmount(maxSpendable(balance, from, NATIVE_RESERVE[from.chain]));
+    swap.setAmount(maxSpendable(balance, from, NATIVE_RESERVE[from.chain], gasAmount ?? 0n));
   };
 
   const canPayByWallet = from !== null && from.wallet;
@@ -363,6 +370,9 @@ export function SwapCard() {
         ) : (
           <AddressFieldPlaceholder label="Receiving address" />
         )}
+
+        {/* Gas arrives at the receiving address, so the switch stands right under it. It works the same in Ghost mode. */}
+        <GasSwitch gas={swap.gas} coin={gasCoin} on={swap.gasOn} onChange={swap.setGasOn} />
 
         {/* Paying by hand a refund address is always asked for. Paying from a wallet it is asked for where the
             wallet's own cannot be used, and shown whenever it holds something typed: see asksForRefund. */}

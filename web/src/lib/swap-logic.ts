@@ -55,13 +55,15 @@ export function cleanAmount(text: string, decimals: number, maxChars = 40): stri
 /**
  * What "Max" puts in the amount field: the whole balance, less a reserve for network fees when
  * the coin is the chain's own (a transfer of everything would leave nothing to pay for itself).
- * Never negative. `reserveText` is in whole coins, from the settings.
+ * Never negative. `reserveText` is in whole coins, from the settings. `alsoSent` is what another
+ * payment of the same coin will take (the gas order's amount, with "Add gas" switched on): it is
+ * left in the wallet too.
  */
-export function maxSpendable(balance: bigint, token: Pick<TokenView, "decimals" | "contract">, reserveText: string | undefined): string {
-  let reserve = 0n;
+export function maxSpendable(balance: bigint, token: Pick<TokenView, "decimals" | "contract">, reserveText: string | undefined, alsoSent = 0n): string {
+  let reserve = alsoSent;
   if (token.contract === null && reserveText !== undefined) {
     const parsed = parseAmount(reserveText, token.decimals);
-    if (parsed.ok) reserve = parsed.raw;
+    if (parsed.ok) reserve += parsed.raw;
   }
   return formatExact(balance > reserve ? balance - reserve : 0n, token.decimals);
 }
@@ -395,6 +397,8 @@ export interface ActionInput {
   walletConnected: boolean;
   /** The connected wallet's balance of the origin coin, when known. */
   balance: bigint | null;
+  /** With "Add gas" switched on: what the gas order is sent, of the same coin. Null, or left out, without gas. */
+  gasAmount?: bigint | null;
   recipient: string;
   refundTo: string;
   quote: "none" | "loading" | "ready" | "expired";
@@ -461,6 +465,8 @@ export function primaryAction(input: ActionInput): PrimaryAction {
 
   if (input.pay === "wallet" && !input.walletConnected) return { kind: "connect", label: "Connect wallet", disabled: false, busy: false };
   if (input.pay === "wallet" && input.balance !== null && input.balance < parsed.raw) return blocked(`Not enough ${from.symbol}`);
+  // With gas there are two payments of the one coin. A wallet that holds enough for the swap alone would leave the gas unpaid: said here, before anything is reviewed.
+  if (input.pay === "wallet" && input.balance !== null && input.gasAmount !== undefined && input.gasAmount !== null && input.balance < parsed.raw + input.gasAmount) return blocked(fitLabel([`Not enough ${from.symbol} with gas`, "Not enough with gas"], CARD_BUTTON_ROOM));
 
   if (input.quote === "none" || input.quote === "loading") return blocked("Getting a quote…", true);
 

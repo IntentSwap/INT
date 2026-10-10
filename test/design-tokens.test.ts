@@ -464,8 +464,10 @@ describe("only transform and opacity are ever animated", () => {
   const files = cssFiles(stylesDir);
   // The first exception: the quote on the swap card opens with
   // a smooth height animation. A height is animated in two rules of the card's stylesheet, both in
-  // answer to something the person has just done, and nowhere else.
-  const HEIGHT = { file: path.join("styles", "card.css"), property: "grid-template-rows", rules: [".quote", ".quote-more"] };
+  // answer to something the person has just done, and nowhere else but the one rule named next.
+  // That one is the "Add gas" switch taking its place under the receiving address, when the server
+  // offers gas for the swap: what is beneath it moves down by its height, smoothly and once.
+  const HEIGHT = { file: path.join("styles", "card.css"), property: "grid-template-rows", rules: [".quote", ".quote-more", ".card-gas"] };
   // The second, and the last: the swap card's own height, as its contents change places with the coin
   // picker and back. One rule of the card's stylesheet, in answer to something the person has just
   // done (opening the picker, or leaving it), and nowhere else. The card's top edge and its width stay
@@ -494,12 +496,13 @@ describe("only transform and opacity are ever animated", () => {
     expect(problems).toEqual([]);
   });
 
-  it("a height is animated only where the swap card's quote opens", () => {
+  it("a height is animated only where the swap card's quote opens, and where its Add gas switch takes its place", () => {
     const css = fs.readFileSync(path.join(stylesDir, HEIGHT.file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
     const rules = [...css.matchAll(/(?<=^|[{}])\s*([^{}@]+?)\s*\{([^{}]*)\}/g)].filter((match) => /transition:[^;]*grid-template-rows/.test(match[2]!)).map((match) => match[1]!.trim());
     expect(rules).toEqual(HEIGHT.rules);
     // And where the system asks for less movement, not even there.
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.quote,\s*\.quote-more,[^}]*\{\s*transition: none;/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.card-gas,[^}]*\{\s*transition: none;/);
   });
 
   it("the card's own height is animated only where the swap and the coin picker change places", () => {

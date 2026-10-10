@@ -1,15 +1,20 @@
-import { useEffect, useLayoutEffect } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { SecondaryButton } from "../components/Button.tsx";
 import { Notice } from "../components/Shell.tsx";
 import { Faq } from "../components/Faq.tsx";
 import { Backdrop, Headline, HomeSections } from "../components/Home.tsx";
-import { ReviewSheet } from "../components/ReviewSheet.tsx";
 import { SlippageSheet } from "../components/SlippageSheet.tsx";
 import { SwapCard } from "../components/SwapCard.tsx";
 import { useApp } from "../stores/app.ts";
 import { useSheet } from "../stores/sheet.ts";
 import { useSwap, visitSwap } from "../stores/swap.ts";
 import { useTokens } from "../stores/tokens.ts";
+
+// The review opens only on a press, and it is the largest part of this page. Its code travels apart
+// from the first script, so that the first screen is not kept waiting for it, and is fetched ahead of
+// the press: as soon as the card holds a quote, which is the first moment there is anything to review.
+const loadReview = () => import("../components/ReviewSheet.tsx");
+const ReviewSheet = lazy(() => loadReview().then((sheet) => ({ default: sheet.ReviewSheet })));
 
 export function SwapPage() {
   const status = useTokens((state) => state.status);
@@ -27,6 +32,12 @@ export function SwapPage() {
   useEffect(() => {
     if (count > 0) init(window.location.search);
   }, [count, init]);
+
+  // The review's code is fetched once there is a quote. A fetch that fails here is tried again when the review is opened.
+  const quoted = useSwap((state) => state.quote !== null);
+  useEffect(() => {
+    if (quoted) void loadReview().catch(() => undefined);
+  }, [quoted]);
 
   // What stands where the card would, when the card cannot be used. The rest of the page is unchanged.
   const instead = paused ? (
@@ -50,7 +61,12 @@ export function SwapPage() {
       </div>
       <HomeSections />
       <Faq />
-      {sheet === "review" ? <ReviewSheet /> : null}
+      {/* The page stays as it is for the moment the review's code may still be on its way. */}
+      {sheet === "review" ? (
+        <Suspense fallback={null}>
+          <ReviewSheet />
+        </Suspense>
+      ) : null}
       {sheet === "slippage" ? <SlippageSheet /> : null}
     </>
   );

@@ -1090,3 +1090,112 @@
     color: var(--text);
   }
 }
+
+/* ---- Add gas ----
+   Under the receiving address, and only where the server offers gas for the swap: a quiet row that
+   is a switch. Its name and one line on the left, the switch itself on the right; no border and no
+   fill of its own, only a tint under the pointer. Until it is offered nothing of it is on the page.
+   When it comes it opens as the quote's line does, so what is beneath it moves down by its height,
+   smoothly and once: the third and last rule on this site that animates a height (a test holds the
+   exception to it). */
+.card-gas {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-base) var(--ease-out);
+}
+
+.card-gas[data-open] {
+  grid-template-rows: 1fr;
+}
+
+.card-gas-slot {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The whole row is pressed: far more than 44 px, at any width. The space above it is its own, so it closes with it. */
+.gas-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  width: 100%;
+  min-height: var(--height-44);
+  margin-top: var(--space-4);
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-12);
+  color: var(--text);
+  text-align: left;
+  animation: fade-in var(--motion-base) var(--ease-out);
+}
+
+.gas-switch:active {
+  background: var(--hover-tint);
+}
+
+.gas-switch-words {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.gas-switch-name {
+  font-weight: var(--weight-500);
+}
+
+.gas-switch-line {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  text-wrap: pretty;
+}
+
+/* The switch: a hairline track with a small round thumb. On, the track is filled in the text's own colour, as a ticked box is. Never green. */
+.gas-switch-track {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  width: var(--height-36);
+  height: var(--icon-20);
+  padding: 0 calc(var(--space-4) - var(--border-width));
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-12);
+  background: var(--field-tint);
+}
+
+.gas-switch-thumb {
+  width: var(--tick-size);
+  height: var(--tick-size);
+  border-radius: var(--radius-8);
+  background: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.gas-switch[aria-checked="true"] > .gas-switch-track {
+  border-color: var(--text);
+  background: var(--text);
+}
+
+.gas-switch[aria-checked="true"] .gas-switch-thumb {
+  background: var(--bg);
+  transform: translateX(var(--space-16));
+}
+
+/* The keyboard's quiet line is drawn just inside the row's edge, where the slot around it cannot cut it off. */
+:root[data-keys] .gas-switch:focus-visible {
+  outline-offset: calc(var(--border-width) * -2);
+}
+
+@media (hover: hover) {
+  .gas-switch:hover {
+    background: var(--hover-tint);
+  }
+}
+
+/* Less movement: the row is simply there, and the thumb is at once on its other side. */
+@media (prefers-reduced-motion: reduce) {
+  .card-gas,
+  .gas-switch-thumb {
+    transition: none;
+  }
+}

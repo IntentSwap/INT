@@ -7,6 +7,7 @@ import { chainInfo, chainName, sendWindowMs } from "../../../shared/chains.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { api, ApiError } from "../api.ts";
 import { IMPACT_BLOCK_BPS, IMPACT_WARN_BPS } from "../config.ts";
+import { GAS_WITHDRAWN, gasChoice, gasDiffers, gasKey, gasPart, reviewAge, totalSent, TWO_PAYMENTS, type ReviewedGas } from "../lib/gas-logic.ts";
 import { aboutMinutes, appFeeWords, minutesText, modeTold, orderDiffers, PRIVATE_UNAVAILABLE, rateText, refundFor, reviewAction, reviewSentence, routedPrivately, routingChoice, routingNote, walletAddressFor, type ReviewPhase, type Reviewed } from "../lib/swap-logic.ts";
 import { clockTime } from "../lib/order-logic.ts";
 import { statsPageOn } from "../lib/stats-logic.ts";
@@ -15,7 +16,7 @@ import { useApp } from "../stores/app.ts";
 import { ghostChoice, useGhost } from "../stores/ghost.ts";
 import { useOrders } from "../stores/orders.ts";
 import { useSheet } from "../stores/sheet.ts";
-import { heardRouting, quoteAge, useSwap } from "../stores/swap.ts";
+import { gasAge, heardRouting, quoteAge, useSwap } from "../stores/swap.ts";
 import { useTokens } from "../stores/tokens.ts";
 import { useWallet } from "../stores/wallet.ts";
 import { Address } from "./Address.tsx";
@@ -63,6 +64,9 @@ function Row({ label, children, name }: { label: string; children: React.ReactNo
  * asked for by that route and no other.
  * In Ghost mode the order is marked as made in it and is added to no list in this browser, and the
  * rewards address is the person's to give or leave out: nothing fills it in.
+ * With "Add gas" switched on there are two parts: the swap, as ever, and the gas order beside it,
+ * with its own amounts and fees; then what is sent in all. The gas order's numbers are asked for,
+ * reviewed and confirmed with the swap's, and the order that comes back is held to both.
  */
 export function ReviewSheet() {
   const close = useSheet((state) => state.close);
@@ -97,9 +101,18 @@ export function ReviewSheet() {
   const from = swap.fromId === null ? null : (tokens.get(swap.fromId) ?? null);
   const to = swap.toId === null ? null : (tokens.get(swap.toId) ?? null);
   const quote = swap.quote;
-  const age = quoteAge(swap, now);
+  // The gas order beside this swap, where "Add gas" is switched on and there is a preview of it. Null for every other review.
+  const gas = gasPart(swap.gasOn, swap.gas, from, tokens);
+  // The quote's age, and with gas its preview's too: neither is confirmed old, or while it is being asked for again.
+  const age = reviewAge(quoteAge(swap, now), gas === null ? "none" : gasAge(swap, now));
+  // Gas that was part of this review and then was not (its preview was refused when it was asked for again) is said, not only taken away.
+  const [hadGas, setHadGas] = useState(false);
+  if (gas !== null && !hadGas) setHadGas(true);
+  const gasWithdrawn = hadGas && gas === null;
   // How this swap is routed, as the quote on screen says it. With the server routing in public, nothing is said.
   const routing = routingNote(privacyMode, quote, swap.withoutPrivate);
+  // The same for the gas order, by its own preview's word. It is only ever private (a preview that is not is never shown).
+  const gasRouting = gas === null ? null : routingNote(privacyMode, gas.quote);
   const privately = routedPrivately(quote);
   // "None" unless the server is set to take a fee. Points do not turn on it: they are counted from the size of the swap.
   const noFee = appFeeWords(quote);
@@ -141,7 +154,8 @@ export function ReviewSheet() {
 
   // Every new set of numbers must be on screen for a moment before it can be confirmed, and needs
   // its own tick when the price impact is large: a yes given to one quote is not a yes to the next.
-  const quoteKey = quote === null ? null : `${quote.amountIn}|${quote.amountOut}|${quote.minAmountOut}|${quote.fees.appBps}|${quote.fees.providerBps}|${privately ? "private" : ""}`;
+  // The gas order's numbers are part of the set: new ones, and gas going out of the review, are new numbers too.
+  const quoteKey = quote === null ? null : `${quote.amountIn}|${quote.amountOut}|${quote.minAmountOut}|${quote.fees.appBps}|${quote.fees.providerBps}|${privately ? "private" : ""}${gasKey(gas)}`;
   const firstKey = useRef(quoteKey);
   const [settling, setSettling] = useState(false);
   const [impactAccepted, setImpactAccepted] = useState(false);
@@ -176,6 +190,8 @@ export function ReviewSheet() {
     setPhase("creating");
     setProblem(null);
     const reviewed: Reviewed = { from: from.id, to: to.id, amountIn: quote.amountIn, minAmountOut: quote.minAmountOut, slippageBps: quote.slippageBps, recipient, refundTo, rewardsAddress: rewardsTo === "" ? null : rewardsTo, ...(quote.routing !== undefined ? { routing: quote.routing } : {}) };
+    // What the gas order must turn out to be, where gas is part of this review. Its two addresses are the swap's own, and no others.
+    const reviewedGas: ReviewedGas | null = gas === null ? null : { from: from.id, to: gas.coin.id, amountIn: gas.quote.amountIn, recipient, refundTo };
     const body: CreateOrderBody & { requestId: string } = {
       from: from.id,
       to: to.id,
@@ -191,6 +207,8 @@ export function ReviewSheet() {
       ...routingChoice(privacyMode, swap.withoutPrivate),
       // An order made in Ghost mode says so, and no other order says anything of it.
       ...ghostChoice(ghost),
+      // Gas, where it is switched on: the amount and the numbers of the preview on screen, and nothing of where it goes. The server sends it to this swap's receiving address.
+      ...gasChoice(gas),
       // With the numbers goes the routing of the quote that was on screen, in that quote's own word: the server makes no order by another route.
       reviewed: { amountOut: quote.amountOut, minAmountOut: quote.minAmountOut, totalFeeBps: quote.fees.appBps + quote.fees.providerBps, ...(quote.routing !== undefined ? { routing: quote.routing } : {}) },
       termsVersion,
@@ -199,8 +217,8 @@ export function ReviewSheet() {
     };
     try {
       const order = await api.createOrder(body);
-      // The order must be the one that was reviewed. If anything differs, nothing is paid.
-      const differs = orderDiffers(order, reviewed);
+      // The order must be the one that was reviewed, and so must the gas order made with it. If anything differs, nothing is paid.
+      const differs = orderDiffers(order, reviewed) ?? gasDiffers(order.gas, reviewedGas);
       if (differs !== null) {
         // Nothing more is confirmed from this sheet: the only way on is to close it and start again.
         setPhase("mismatch");
@@ -211,7 +229,7 @@ export function ReviewSheet() {
       // Not in Ghost mode: an order made there is reached by its own link, and by nothing kept here.
       if (!ghost) remember(order);
       close();
-      // A choice of public routing was for this swap. The next one starts as the server routes.
+      // A choice of public routing was for this swap, and so was gas. The next one starts as the server routes, with gas switched off.
       swap.orderMade();
       navigate(`/order/${order.id}`);
     } catch (err) {
@@ -389,6 +407,93 @@ export function ReviewSheet() {
           </div>
         ) : null}
 
+        {/* The second part, with "Add gas" switched on: the gas order, as plainly as the swap above it. Then what is sent in all. */}
+        {quote !== null && gas !== null ? (
+          <>
+            <section className="review-gas">
+              <h3 className="review-part">
+                Gas<span className="muted"> · {chainName(gas.coin.chain)}</span>
+              </h3>
+              <dl className="review-rows" data-stale={stale || undefined}>
+                <Row label="You send">
+                  <span className="review-coin">
+                    <CoinIcon symbol={from.symbol} chain={from.chain} contract={from.contract} size={24} />
+                    <span className="mono">
+                      {displayExact(BigInt(gas.quote.amountIn), from.decimals)}{NBSP}{from.symbol}
+                    </span>
+                  </span>
+                  <span className="review-sub muted">on {chainName(from.chain)}</span>
+                </Row>
+                <Row label="You receive, about">
+                  <span className="review-coin">
+                    <CoinIcon symbol={gas.coin.symbol} chain={gas.coin.chain} contract={gas.coin.contract} size={24} />
+                    <span className="mono">
+                      {displayExact(BigInt(gas.quote.amountOut), gas.coin.decimals)}{NBSP}{gas.coin.symbol}
+                    </span>
+                  </span>
+                  <span className="review-sub muted">on {chainName(gas.coin.chain)}</span>
+                </Row>
+                {gasRouting !== null ? (
+                  <Row label="Routing" name="routing">
+                    {gasRouting.private ? (
+                      <span className="chip routing-tag" data-tone="private">
+                        {gasRouting.text}
+                      </span>
+                    ) : (
+                      gasRouting.text
+                    )}
+                  </Row>
+                ) : null}
+                <Row label="IntentSwap fee">
+                  {appFeeWords(gas.quote) !== null ? (
+                    <span className="muted">{appFeeWords(gas.quote)}</span>
+                  ) : (
+                    <>
+                      <span className="mono">
+                        {displayExact(BigInt(gas.quote.fees.appAmount), from.decimals)} {from.symbol}
+                      </span>
+                      <span className="review-sub muted mono">{displayBps(gas.quote.fees.appBps)}</span>
+                    </>
+                  )}
+                </Row>
+                <Row label="Provider fee">
+                  <span className="mono">
+                    {displayExact(BigInt(gas.quote.fees.providerAmount), from.decimals)} {from.symbol}
+                  </span>
+                  <span className="review-sub muted mono">{displayBps(gas.quote.fees.providerBps)}</span>
+                </Row>
+                <Row label={`${chainName(gas.coin.chain)} network fee`}>
+                  {gas.quote.withdrawFee !== null && BigInt(gas.quote.withdrawFee) > 0n ? (
+                    <>
+                      <span className="mono">
+                        {displayExact(BigInt(gas.quote.withdrawFee), gas.coin.decimals)} {gas.coin.symbol}
+                      </span>
+                      <span className="review-sub muted">included above</span>
+                    </>
+                  ) : (
+                    <span className="muted">Included above</span>
+                  )}
+                </Row>
+                <Row label="Arrives at">The same receiving address</Row>
+              </dl>
+            </section>
+            <dl className="review-rows" data-stale={stale || undefined}>
+              <Row label="Total sent">
+                <span className="mono">
+                  {displayExact(totalSent(quote.amountIn, gas.quote.amountIn), from.decimals)}{NBSP}{from.symbol}
+                </span>
+                <span className="review-sub muted">on {chainName(from.chain)}</span>
+              </Row>
+            </dl>
+          </>
+        ) : null}
+        {gasWithdrawn ? (
+          <p className="notice notice-warning" role="alert">
+            <TriangleAlert size={16} strokeWidth={1.5} aria-hidden="true" />
+            <span>{GAS_WITHDRAWN}</span>
+          </p>
+        ) : null}
+
         <div className="review-address">
           <p className="review-address-label">
             Receiving address<span className="muted"> · {chainName(to.chain)}</span>
@@ -465,6 +570,8 @@ export function ReviewSheet() {
         <p className="review-plain muted">
           Confirming makes the order, with a final quote taken at that moment. If that quote is more than 1% worse than the numbers above, no order is made and you are shown the new numbers first. Nothing leaves your wallet until you pay, and an order cannot be changed once it is made.
         </p>
+        {/* With gas, said before anything is confirmed: the swap and the gas are paid one by one. */}
+        {gas !== null ? <p className="review-plain muted">{TWO_PAYMENTS}</p> : null}
         {/* Said before the order is made, wherever the site has its Stats page: what of this swap will be listed there. */}
         {/* An order made in Ghost mode is not listed there. What is true of it is said in that line's place, whether or not the site has a Stats page. */}
         {ghost ? <p className="review-plain muted">{GHOST_ORDER_LINE}</p> : statsOn ? <p className="review-plain muted">This swap's deposit transaction will be listed on the Stats page. Which swap was delivered where is not shown.</p> : null}
