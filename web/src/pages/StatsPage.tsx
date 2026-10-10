@@ -27,6 +27,7 @@ import { chainGrid, chainLine, coinText, whenText, durationText, shortTx, usdTex
 import { useTokens } from "../stores/tokens.ts";
 import "../styles/home.css";
 import "../styles/stats.css";
+import { OutboundLink } from "../components/OutboundLink.tsx";
 
 /** How many rows a list keeps room for: the five of a ranked list, and the five of "Recent swaps" that are shown without asking. */
 const ROOM = 5;
@@ -187,11 +188,11 @@ function Deposit({ chain, tx }: { chain: string; tx: string | null }) {
   const url = explorerTxUrl(chain, tx);
   if (url === null) return <span className="stats-swap-tx mono muted">{shortTx(tx)}</span>;
   return (
-    <a className="stats-swap-tx mono" href={url} target="_blank" rel="noopener noreferrer">
+    <OutboundLink className="stats-swap-tx mono" href={url}>
       {shortTx(tx)}
       <span className="sr-only"> deposit transaction on {chainName(chain)} (opens in a new tab)</span>
       <ExternalLink size={16} strokeWidth={1.5} aria-hidden="true" />
-    </a>
+    </OutboundLink>
   );
 }
 

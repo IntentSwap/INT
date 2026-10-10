@@ -1998,7 +1998,7 @@ describe("the Rewards page, as it is drawn", () => {
     // A wallet named: the pool's frame is there at once, with the wallet's own address and link, and room for each figure.
     const framed = waiting(ADDR.evm3);
     expect(framed).toMatch(/<h2 id="rewards-pool" class="rewards-heading">Current pool<\/h2><p class="rewards-pool-total" aria-hidden="true"><span class="skeleton rewards-waiting"><\/span><\/p><p class="rewards-figure mono rewards-pool-line"><\/p>/);
-    expect(framed).toContain(`<a href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" class="outbound">View the wallet on BscScan`);
+    expect(framed).toContain(`<a class="outbound" href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">View the wallet on BscScan`);
     expect(read(framed)).not.toMatch(/NEAR about|\$[\d,]+\.\d\d|Read from the chain/);
     // The same parts, in the same order, before the answer and after it: nothing is put in between later.
     const answered = draw(summaryOf(POOL, 1000n));
@@ -2023,7 +2023,7 @@ describe("the Rewards page, as it is drawn", () => {
     expect(text).toContain("Rewards are paid in NEAR on BNB Chain, to the address you signed in with.");
     // NEAR's own mark beside the amount, as a coin's icon, from the site's own files.
     expect(html).toMatch(/<p class="rewards-pool-total"><span class="coin-icon" data-size="32" aria-hidden="true"><img class="coin-icon-image" src="\/coins\/near\.webp"/);
-    expect(html).toContain(`<a href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" class="outbound">View the wallet on BscScan`);
+    expect(html).toContain(`<a class="outbound" href="https://bscscan.com/address/${ADDR.evm3}" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">View the wallet on BscScan`);
     // Nothing else the wallet holds is listed, and nothing on the page names another coin for rewards.
     expect(text).not.toMatch(/\bZEC\b|Zcash|\$INT|\bBNB\b(?! Chain)|not counted in the total|Binance-Peg/);
     // The week's points are told as they are, with no "about" before them.

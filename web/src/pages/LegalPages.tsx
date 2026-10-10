@@ -19,6 +19,7 @@ import { docHref } from "../lib/docs-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { statsPageOn } from "../lib/stats-logic.ts";
 import { useApp } from "../stores/app.ts";
+import { OutboundLink } from "../components/OutboundLink.tsx";
 
 /** Which version of the page this is. An order keeps the version of the Terms it was made under. */
 function Version() {
@@ -265,9 +266,9 @@ export function PrivacyPage() {
         {regionBlock ? (
           <p>
             Your country and region are worked out on the server from a database it holds.{" "}
-            <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">
+            <OutboundLink href="https://db-ip.com">
               IP geolocation by DB-IP
-            </a>
+            </OutboundLink>
             .
           </p>
         ) : null}

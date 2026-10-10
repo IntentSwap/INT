@@ -32,6 +32,7 @@ import { useRewards } from "../stores/rewards.ts";
 import { useWallet } from "../stores/wallet.ts";
 import "../styles/home.css";
 import "../styles/rewards.css";
+import { OutboundLink } from "../components/OutboundLink.tsx";
 
 /** Re-draws once a second, for the countdown. */
 function useSecond(): number {
@@ -50,11 +51,11 @@ function TxLinks({ hashes }: { hashes: readonly string[] }) {
       {hashes.map((hash, index) => {
         const url = explorerTxUrl(REWARDS.chain, hash);
         return url === null ? null : (
-          <a key={hash} href={url} target="_blank" rel="noopener noreferrer" className="outbound">
+          <OutboundLink key={hash} href={url} className="outbound">
             {hashes.length === 1 ? "Transaction" : `Transaction ${index + 1}`}
             <ExternalLink size={16} strokeWidth={1.5} aria-hidden="true" />
             <span className="sr-only">(opens the block explorer)</span>
-          </a>
+          </OutboundLink>
         );
       })}
     </span>
@@ -307,11 +308,11 @@ function Pool({ address, pool }: { address: string; pool: PoolView | null }) {
         </span>
         <CopyButton value={address} what="the rewards wallet's address" />
         {url !== null ? (
-          <a href={url} target="_blank" rel="noopener noreferrer" className="outbound">
+          <OutboundLink href={url} className="outbound">
             View the wallet on BscScan
             <ExternalLink size={16} strokeWidth={1.5} aria-hidden="true" />
             <span className="sr-only">(opens in a new tab)</span>
-          </a>
+          </OutboundLink>
         ) : null}
       </p>
     </section>

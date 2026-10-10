@@ -33,6 +33,7 @@ import { ghostOn, useGhost } from "../stores/ghost.ts";
 import { useOrders } from "../stores/orders.ts";
 import { useWallet } from "../stores/wallet.ts";
 import "../styles/order.css";
+import { OutboundLink } from "../components/OutboundLink.tsx";
 
 const STEP_WORD = { done: "Done", current: "Now", stopped: "Stopped", pending: "Next" } as const;
 
@@ -60,11 +61,11 @@ function TxLinks({ label, txs }: { label: string; txs: TxRef[] }) {
       <span className="muted">{label}</span>
       {txs.map((tx) =>
         tx.url !== null ? (
-          <a key={tx.hash} href={tx.url} target="_blank" rel="noopener noreferrer" className="order-tx-link">
+          <OutboundLink key={tx.hash} href={tx.url} className="order-tx-link">
             <span className="mono">{`${tx.hash.slice(0, 10)}…${tx.hash.slice(-6)}`}</span>
             <ExternalLink size={16} strokeWidth={1.5} aria-hidden="true" />
             <span className="sr-only">(opens the block explorer)</span>
-          </a>
+          </OutboundLink>
         ) : (
           <span key={tx.hash} className="mono order-tx-plain">{`${tx.hash.slice(0, 10)}…${tx.hash.slice(-6)}`}</span>
         ),

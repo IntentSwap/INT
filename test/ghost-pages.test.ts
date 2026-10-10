@@ -188,10 +188,14 @@ describe("the Rewards page in Ghost mode", () => {
   });
 
   it("shows the week, its total, the pool and the rules the same in both: only the part beside the week differs", () => {
-    const without = (markup: string) => markup.replace(mine(markup), "");
+    // (A link that leaves the site carries its small mark in the mode, and nothing else of it differs.)
+    const without = (markup: string) => markup.replace(mine(markup), "").replace(/ data-leaves="true"/g, "").replace(/<span class="leaves-site">.*?<\/span><\/span>/g, "");
     const on = draw(rewardsPage, { ghost: true, rewards: { summary } });
     const off = draw(rewardsPage, { rewards: { summary } });
     expect(without(on)).toBe(without(off));
+    // The link to the wallet on the chain's own explorer leaves the site: in the mode it says so, and out of it it carries no mark.
+    expect(on).toMatch(/<a class="outbound" href="https:\/\/bscscan\.com\/address\/[^"]+" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" data-leaves="true">View the wallet on BscScan.*?<span class="leaves-site">.*?\(leaves this site\)<\/span><\/span><\/a>/);
+    expect(off).not.toMatch(/leaves-site|data-leaves/);
     for (const kept of ["This week 5d 00:00:00 Mon 5 Oct to Sun 11 Oct, UTC time.", "This week's points 59,805 points", "Current pool 1,234.56 NEAR", "The rules, in short", "The rules in full"]) expect(words(on), kept).toContain(kept);
     // Before the server has answered, too: the frame is the same, so nothing moves between the modes as the page loads.
     expect(without(draw(rewardsPage, { ghost: true }))).toBe(without(draw(rewardsPage)));

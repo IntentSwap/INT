@@ -20,6 +20,7 @@ import { Link } from "./Link.tsx";
 import { Reveal } from "./Reveal.tsx";
 import { Stage } from "./Stage.tsx";
 import "../styles/home.css";
+import { OutboundLink } from "./OutboundLink.tsx";
 
 /** The chain the token lives on. The server accepts a token address for this chain only. */
 const TOKEN_CHAIN = "bsc";
@@ -408,11 +409,11 @@ export function TokenSection({ ownPage = false }: { ownPage?: boolean }) {
 
 function Outbound({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="outbound">
+    <OutboundLink href={href} className="outbound">
       {children}
       <ExternalLink size={16} strokeWidth={1.5} aria-hidden="true" />
       <span className="sr-only">(opens the block explorer)</span>
-    </a>
+    </OutboundLink>
   );
 }
 

@@ -665,7 +665,7 @@ describe("recent swaps", () => {
       expect(reply.text).not.toContain(delivery.slice(2));
       // And on the page: the row's link to the deposit on its own chain's explorer, and the chain counted among those used.
       const markup = renderToStaticMarkup(createElement(StatsContent, { stats, chains: LISTED }));
-      expect(markup).toContain(`<a class="stats-swap-tx mono" href="https://basescan.org/tx/${deposit}" target="_blank" rel="noopener noreferrer">${shortTx(deposit)}<`);
+      expect(markup).toContain(`<a class="stats-swap-tx mono" href="https://basescan.org/tx/${deposit}" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">${shortTx(deposit)}<`);
       expect(words(markup)).toContain("1 of 5 chains used");
     } finally {
       await h.close();
@@ -735,7 +735,7 @@ describe("recent swaps", () => {
     expect(shortTx(base)).toBe(`${base.slice(0, 6)}…${base.slice(-4)}`);
     expect(shortTx(base)).toHaveLength(11);
     // The link is named by what it shows, and then, for a screen reader alone, by what it is: no name is put over the visible one.
-    const link = /<a class="stats-swap-tx mono" href="([^"]+)" target="_blank" rel="noopener noreferrer">(.*?)<\/a>/.exec(rows[0]!);
+    const link = /<a class="stats-swap-tx mono" href="([^"]+)" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">(.*?)<\/a>/.exec(rows[0]!);
     expect(link?.[1]).toBe(`https://basescan.org/tx/${base}`);
     expect(link?.[2]).toMatch(new RegExp(`^${shortTx(base)}<span class="sr-only"> deposit transaction on Base \\(opens in a new tab\\)</span><svg [^>]*aria-hidden="true"`));
     expect(words(link![2]!).trim()).toBe(`${shortTx(base)} deposit transaction on Base (opens in a new tab)`);

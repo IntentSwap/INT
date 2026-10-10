@@ -22,6 +22,7 @@ import { walletWalk } from "./wallet-walk.ts";
 import { focusWalk } from "./focus-walk.ts";
 import { pickerWalk } from "./picker-walk.ts";
 import { privateWalk } from "./private-walk.ts";
+import { ghostWalk } from "./ghost-walk.ts";
 import { rewardsWalk } from "./rewards-walk.ts";
 
 const WIDTHS = [360, 768, 1280] as const;
@@ -737,7 +738,7 @@ if (!baseUrl) {
 }
 const chosen = only.length === 0 ? SCENARIOS : SCENARIOS.filter((scenario) => only.includes(scenario.name));
 // Besides the screenshots, the script walks through behaviour. Each walk has a name and can be run alone:
-// layout, states-in-use, review, paste, quoting, sheet-touch, focus, picker (also run by its older name, picker-keyboard), slippage, reduced-motion, chips, site, order, wallet, focus-marks, private, rewards.
+// layout, states-in-use, review, paste, quoting, sheet-touch, focus, picker (also run by its older name, picker-keyboard), slippage, reduced-motion, chips, site, order, wallet, focus-marks, private, rewards, ghost.
 const walks = (name: string) => only.length === 0 || only.includes(name);
 
 // The site limits how often one visitor may load it. This script is one visitor, so it keeps a steady pace.
@@ -1936,6 +1937,13 @@ if (walks("private") && privateUrl !== null && practiceUrl !== null) {
 // Signing in on the Rewards page, with a pretend wallet (see scripts/rewards-walk.ts).
 if (walks("rewards") && practiceUrl !== null) {
   const result = await rewardsWalk(browser, { practiceUrl, out, visit });
+  complaints.push(...result.complaints);
+  shots += result.shots;
+}
+
+// Ghost mode: nothing asked of another site, no wallet software, nothing kept, and an order gone at its end (see scripts/ghost-walk.ts).
+if (walks("ghost") && practiceUrl !== null) {
+  const result = await ghostWalk(browser, { practiceUrl, out, visit });
   complaints.push(...result.complaints);
   shots += result.shots;
 }
