@@ -1,13 +1,15 @@
 // Small HTTP helpers: errors, JSON bodies, security headers.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ApiErrorBody, ErrorCode, QuoteView } from "../shared/api.ts";
+import type { ApiErrorBody, ErrorCode, GasLine, QuoteView } from "../shared/api.ts";
 
 export class HttpError extends Error {
   readonly status: number;
   readonly code: ErrorCode;
   readonly detail: Record<string, string | number> | undefined;
   readonly quote: QuoteView | undefined;
+  /** What is still known of a deleted swap's gas order: goes with "order_deleted" only. */
+  readonly gas: GasLine | undefined;
   readonly retryAfter: number | undefined;
   /**
    * True for an outcome that is a normal part of using the product (no route for
@@ -21,7 +23,7 @@ export class HttpError extends Error {
     status: number,
     code: ErrorCode,
     message: string,
-    extra: { detail?: Record<string, string | number>; quote?: QuoteView; retryAfter?: number; expected?: boolean } = {},
+    extra: { detail?: Record<string, string | number>; quote?: QuoteView; gas?: GasLine; retryAfter?: number; expected?: boolean } = {},
   ) {
     super(message);
     this.name = "HttpError";
@@ -29,6 +31,7 @@ export class HttpError extends Error {
     this.code = code;
     this.detail = extra.detail;
     this.quote = extra.quote;
+    this.gas = extra.gas;
     this.retryAfter = extra.retryAfter;
     this.expected = extra.expected ?? false;
   }
@@ -41,6 +44,7 @@ export function errorBody(err: HttpError): ApiErrorBody {
       message: err.message,
       ...(err.detail ? { detail: err.detail } : {}),
       ...(err.quote ? { quote: err.quote } : {}),
+      ...(err.gas ? { gas: err.gas } : {}),
     },
   };
 }

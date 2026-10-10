@@ -243,6 +243,45 @@ export interface ReviewedNumbers {
   routing?: Routing;
 }
 
+/**
+ * What the page sends to ask whether gas can be added beside a swap: the swap's two coins, how it
+ * is paid, and its addresses where they are known. The swap's amount is no part of it: a gas order
+ * has a size of its own. Nothing here says where the gas would go or how it would be routed: the
+ * server delivers it to the swap's receiving address, by private routing, or does not offer it.
+ */
+export interface GasBody {
+  from: string;
+  /** The coin the swap receives. The gas is that coin's chain's own coin. */
+  to: string;
+  pay: PayMethod;
+  recipient?: string;
+  refundTo?: string;
+  sender?: string;
+}
+
+/** A gas order as it would be made now: its size, and the provider's verified preview of it. */
+export interface GasQuote {
+  /** The size, in whole US dollars: 3, 5 or 10 (shared/gas.ts). */
+  usd: number;
+  /** The preview. `from` is the coin the swap is paid with, `to` the receiving chain's own coin, `amountIn` what the gas order would be sent. Always privately routed. */
+  quote: QuoteView;
+}
+
+/** The answer about gas. `gas` is null wherever it is not offered, whatever the reason: the page then shows no switch. */
+export interface GasResponse {
+  gas: GasQuote | null;
+  serverNow: string;
+}
+
+/**
+ * What a swap's page is told of the gas order asked for with it.
+ *  - `made: false`: gas was asked for and could not be added when the swap was made. The swap is unaffected.
+ *  - `made: true` with an order: the gas order as it stands, an ordinary order with its own deposit address, deadline and state.
+ *  - `made: true` with no order: the gas order was made in Ghost mode and has finished, so its record is deleted; `ended` is the one word kept of it.
+ * Once the gas order's record is no longer kept and nothing is known of how it ended, the swap is sent no `gas` at all.
+ */
+export type GasLine = { made: false } | { made: true; order: OrderView } | { made: true; order: null; ended: "delivered" | "refunded" | "expired" };
+
 export interface CreateOrderBody {
   from: string;
   to: string;
@@ -265,6 +304,14 @@ export interface CreateOrderBody {
    * limits and the screening apply as to any order.
    */
   ghost?: boolean;
+  /**
+   * Present when the person switched "Add gas" on: the gas order as they reviewed it. `amount` is
+   * what it is sent, of the coin the swap is paid with, and `reviewed` its numbers. That is all a
+   * request can say of it. Its receiving address is the swap's, its refund address the swap's, the
+   * coin it delivers the receiving chain's own, its routing private: the server sets each, and
+   * reads none of them from here. Where it cannot be made, the swap is made all the same.
+   */
+  gas?: { amount: string; reviewed: ReviewedNumbers };
   reviewed: ReviewedNumbers;
   termsVersion: string;
   termsAccepted: true;
@@ -302,6 +349,10 @@ export interface OrderView {
   status: OrderStatus;
   /** Present, and true, for an order made in Ghost mode: its page says that its record is deleted when it finishes. */
   ghost?: true;
+  /** Present on a swap that gas was asked for with: what became of that. Absent on every other order. */
+  gas?: GasLine;
+  /** Present, and true, on a gas order itself, opened by its own ID. It is sent no `gas` of its own. */
+  gasOrder?: true;
   createdAt: string;
   updatedAt: string;
   /** When the current status began. */
@@ -384,5 +435,7 @@ export interface ApiErrorBody {
     detail?: Record<string, string | number>;
     /** Present on "price_moved": the fresh numbers to confirm. */
     quote?: QuoteView;
+    /** Present on "order_deleted" for a swap whose gas order is still known: the one link leads to both until each is gone. */
+    gas?: GasLine;
   };
 }

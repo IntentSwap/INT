@@ -1,7 +1,7 @@
 // The browser's only line to the outside: our own server. It never calls the
 // swap provider and never holds a key.
 
-import type { ApiErrorBody, ConfigResponse, CreateOrderBody, ErrorCode, OrderView, QuoteBody, QuoteView, StatsResponse, StatusResponse, TokensResponse } from "../../shared/api.ts";
+import type { ApiErrorBody, ConfigResponse, CreateOrderBody, ErrorCode, GasBody, GasLine, GasResponse, OrderView, QuoteBody, QuoteView, StatsResponse, StatusResponse, TokensResponse } from "../../shared/api.ts";
 import type { RewardsPublic, RewardsView } from "../../shared/rewards.ts";
 
 export class ApiError extends Error {
@@ -11,8 +11,10 @@ export class ApiError extends Error {
   readonly quote: QuoteView | null;
   /** Seconds the server asked us to wait before trying again, when it said. */
   readonly retryAfter: number | null;
+  /** With "order_deleted": what is still known of the deleted swap's gas order, when gas was added to it. */
+  readonly gas: GasLine | null;
 
-  constructor(status: number, code: ErrorCode | "network", message: string, detail: Record<string, string | number> = {}, quote: QuoteView | null = null, retryAfter: number | null = null) {
+  constructor(status: number, code: ErrorCode | "network", message: string, detail: Record<string, string | number> = {}, quote: QuoteView | null = null, retryAfter: number | null = null, gas: GasLine | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -20,6 +22,7 @@ export class ApiError extends Error {
     this.detail = detail;
     this.quote = quote;
     this.retryAfter = retryAfter;
+    this.gas = gas;
   }
 }
 
@@ -46,7 +49,7 @@ async function parse<T>(res: Response): Promise<T> {
   if (res.ok && (error === undefined || error === null)) return body as T;
   if (error && typeof error.code === "string" && typeof error.message === "string") {
     const wait = Number(res.headers.get("retry-after"));
-    throw new ApiError(res.status, error.code, error.message, error.detail ?? {}, error.quote ?? null, Number.isFinite(wait) && wait > 0 ? Math.min(wait, 3600) : null);
+    throw new ApiError(res.status, error.code, error.message, error.detail ?? {}, error.quote ?? null, Number.isFinite(wait) && wait > 0 ? Math.min(wait, 3600) : null, error.gas ?? null);
   }
   throw new ApiError(res.status, "unavailable", "Something went wrong. Try again.");
 }
@@ -91,6 +94,8 @@ export const api = {
   status: () => send<StatusResponse>("GET", "/api/status"),
   tokens: () => send<TokensResponse>("GET", "/api/tokens"),
   quote: (body: QuoteBody, signal: AbortSignal) => post<QuoteView>("/api/quote", body, signal),
+  /** Whether gas can be added beside a swap, and what it would be. `gas` is null wherever it is not offered. */
+  gas: (body: GasBody, signal: AbortSignal) => post<GasResponse>("/api/gas", body, signal),
   /**
    * Makes an order. Given up on after 30 seconds: the request carries a label (`requestId`), so
    * trying again with the same label returns the order that was made, if one was, and never a second.
