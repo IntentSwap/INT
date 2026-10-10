@@ -540,7 +540,7 @@ function GhostMode() {
             <strong>Nothing is kept in your browser.</strong> No list of your orders, no copy of the coin list, no note of any kind: only the switch itself. Orders you made earlier, in normal mode, are not shown while Ghost mode is on. They are there again when you turn it off, unless you chose "Also clear what this browser already holds" when you turned it on.
           </li>
           <li>
-            <strong>An order's record is deleted when it finishes.</strong> An order made in Ghost mode is marked as one. The moment it is delivered or refunded, or its deadline passes unpaid, its record is deleted from the server. Until then its own link is the only way back to it: it is on no list, and it is never found from its deposit address. After that the link says only that the order finished.
+            <strong>An order's record is deleted when it finishes.</strong> An order made in Ghost mode is marked as one. The moment it is delivered or refunded its record is deleted from the server. One that was never paid is deleted a day after its deadline, once the server has stopped looking for a late deposit. Until then its own link is the only way back to it: it is on no list, and it is never found from its deposit address. After that the link says only that the order finished, and in one word how: delivered, refunded, or run out.
           </li>
         </ul>
         <Callout tone="tip" title="Keep the order's link.">
@@ -570,7 +570,7 @@ function GhostMode() {
         <p>Once an order made in Ghost mode has finished, this is all the server still holds of it.</p>
         <ul>
           <li>
-            <strong>A one-way fingerprint of the order's ID, for 30 days.</strong> It is there so that the order's link can say that the order finished, where it would otherwise say that there is no such order. The ID itself is not kept.
+            <strong>A one-way fingerprint of the order's ID, with one word for how it ended, for 30 days.</strong> It is there so that the order's link can say that the order finished, and how, where it would otherwise say that there is no such order. The ID itself is not kept.
           </li>
           <li>
             <strong>Its place in the totals.</strong> {statsOn ? <>The <Link href="/stats">Stats page</Link> counts it in its totals: the swaps, the volume, the chains and the coins. It has no row among the recent swaps, and its deposit transaction is never listed.</> : <>The server's running totals count it: the swaps, the volume, the chains and the coins. No row is kept for it.</>}
@@ -582,7 +582,7 @@ function GhostMode() {
             <strong>Lines in the logs.</strong> The server's logs name an order by a one-way fingerprint only, and are kept as for any order. For an order made in Ghost mode they carry no address and no transaction hash.
           </li>
         </ul>
-        <p>One kind of order is kept longer. An order that fails with coins still in it is kept until that has been dealt with, as any order is, and deleted then.</p>
+        <p>Two kinds of order are kept longer, because coins may still be in them. An order that fails is kept for 30 days, as any order is, and deleted then. An order that was sent too small a deposit is kept until that deposit has been refunded.</p>
         <Callout tone="warning" title="Pay before the order's deadline.">
           <p>A deposit sent after the deadline may be lost, as for any order. With the record deleted, there is no deposit address and no amount left here to check a late payment against.</p>
         </Callout>

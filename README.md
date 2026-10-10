@@ -363,7 +363,8 @@ Un-pausing (`SWAPS_PAUSED=false`) is launch. Do it deliberately.
 
 Everything that matters is in `DATA_DIR`:
 
-- `orders/` one JSON file per order. This is the only data that cannot be rebuilt. Old records are deleted on a schedule (an expired order that was never paid, 24 hours after its deadline; any other finished order, 30 days after it finished); an unfinished order with funds in it is never deleted automatically.
+- `orders/` one JSON file per order. This is the only data that cannot be rebuilt. Old records are deleted on a schedule (an expired order that was never paid, 24 hours after its deadline; any other finished order, 30 days after it finished); an unfinished order with funds in it is never deleted automatically. An order made in Ghost mode is deleted sooner: the moment it is delivered or refunded.
+- `ghost/gone/` one small file for each order made in Ghost mode whose record was deleted when it finished: named by a one-way fingerprint of the order's ID, holding one word for how it ended, and removed after 30 days. It is what lets the order's own link say that it finished. Nothing else of such an order is kept.
 - `rewards/` the points record: one small file per delivered swap that added points (`entries/`), one per closed week (`weeks/`), and the lists the payout tool wrote (`exports/`). It cannot be rebuilt once the orders behind it have been deleted, so it is backed up with them. It is never deleted automatically.
 - `sanctions/`, `geo/`, `cache/` are downloaded again automatically.
 - `logs/` access logs, deleted after 14 days and capped at 50 MB a day.
