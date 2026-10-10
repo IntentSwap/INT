@@ -14,6 +14,9 @@
 // cleared (see visitSwap). Nothing typed into it is written to the browser's
 // storage: it lives in this page's memory, and only for as long as the swap page is shown.
 // (An order, once made, is another matter: it is noted in the list of this browser's orders. See stores/orders.ts.)
+//
+// In Ghost mode no wallet is connected, so a swap is always paid by sending to its deposit address:
+// the card's way of paying is "manual" there, and cannot be set to anything else.
 
 import { create } from "zustand";
 import { checkAddress } from "../../../shared/addresses.ts";
@@ -21,8 +24,10 @@ import { formatExact, parseAmount } from "../../../shared/amounts.ts";
 import { SLIPPAGE, type Confidentiality, type PayMethod, type QuoteBody, type QuoteView, type TokenView } from "../../../shared/api.ts";
 import { api, ApiError } from "../api.ts";
 import { DEFAULT_PAIR, QUOTE_DEBOUNCE_MS, QUOTE_EXPIRES_MS, QUOTE_REFRESH_MS, QUOTE_TIMEOUT_MS } from "../config.ts";
+import { ghostHolds } from "../lib/kept.ts";
 import { modeTold, parsePrefill, PRIVATE_UNAVAILABLE, refreshDue, routingChoice, type PrivacyMode, type QuoteProblem } from "../lib/swap-logic.ts";
 import { useApp } from "./app.ts";
+import { useGhost } from "./ghost.ts";
 import { usePicker } from "./picker.ts";
 import { useSheet } from "./sheet.ts";
 import { findToken, useTokens } from "./tokens.ts";
@@ -128,9 +133,9 @@ function pairChanged(fromId: string | null, toId: string | null): void {
   if (now.withoutPrivate && (now.fromId !== fromId || now.toId !== toId)) useSwap.setState({ withoutPrivate: false });
 }
 
-/** Wallet payment is offered only for coins on the reviewed allowlist. */
+/** Wallet payment is offered only for coins on the reviewed allowlist, and never in Ghost mode, where there is no wallet. */
 function defaultPay(from: TokenView | null): PayMethod {
-  return from !== null && from.wallet ? "wallet" : "manual";
+  return !ghostHolds() && from !== null && from.wallet ? "wallet" : "manual";
 }
 
 function buildBody(state: SwapState): QuoteBody | null {
@@ -243,6 +248,10 @@ function start(): void {
   useWallet.subscribe((wallet, previous) => {
     if (wallet.address !== previous.address || wallet.chain !== previous.chain) inputChanged(true);
   });
+  // Ghost mode turning on changes how it is paid: a card that was to be paid from a wallet is now paid by hand.
+  useGhost.subscribe((ghost, previous) => {
+    if (ghost.on && !previous.on && useSwap.getState().pay !== "manual") useSwap.getState().setPay("manual");
+  });
 }
 
 export const useSwap = create<SwapState>((set, get) => ({
@@ -301,6 +310,7 @@ export const useSwap = create<SwapState>((set, get) => ({
   },
 
   setPay(pay) {
+    if (pay === "wallet" && ghostHolds()) return;
     set({ pay });
     inputChanged(true);
   },
@@ -362,7 +372,7 @@ export const useSwap = create<SwapState>((set, get) => ({
 
   reset() {
     dropPending();
-    set(FRESH);
+    set(ghostHolds() ? { ...FRESH, pay: "manual" } : FRESH);
   },
 }));
 

@@ -145,6 +145,7 @@
   }
 }
 
+/* The icon in a connected wallet's button. Below 768 px the address stands alone: the header's room there goes to the theme switch and the Ghost mode switch beside it. */
 .wide-only {
   display: none;
 }
@@ -487,7 +488,6 @@
 }
 
 @media (min-width: 480px) {
-  .wide-only,
   .header:not([data-wallet="disconnected"]) .wordmark-text {
     display: inline;
   }
@@ -528,6 +528,10 @@
 }
 
 @media (min-width: 768px) {
+  .wide-only {
+    display: inline;
+  }
+
   .social[data-where="header"] {
     display: flex;
     margin-right: var(--space-4);

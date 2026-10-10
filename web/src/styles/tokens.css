@@ -229,6 +229,8 @@
   --tint-warning: rgba(245, 181, 68, 0.08);
   --tint-accent: rgba(0, 236, 151, 0.07);
   --tint-neutral: rgba(255, 255, 255, 0.04);
+  /* The fill of the header's Ghost mode pill: the neutral tint, a little firmer, because it stands on the bare page and not on a card. */
+  --tint-ghost: rgba(255, 255, 255, 0.07);
   /* The swap card is see-through: the page's grid and light show softly behind it. Its fields are a
      shade lighter again, and what is under the pointer a shade more. The "solid" colours are what
      those layers come to on the plain page: the ring round a coin's chain badge is drawn in them, so
@@ -272,6 +274,7 @@
   --tint-warning: rgba(138, 90, 0, 0.07);
   --tint-accent: rgba(0, 110, 70, 0.06);
   --tint-neutral: rgba(0, 0, 0, 0.03);
+  --tint-ghost: rgba(0, 0, 0, 0.06);
   --focus-ring: rgba(0, 0, 0, 0.45);
   --card-tint: rgba(255, 255, 255, 0.7);
   --field-tint: rgba(0, 0, 0, 0.03);
@@ -280,4 +283,26 @@
   --card-solid-hover: #f0f0ef;
   --field-solid: #f5f5f4;
   --field-solid-hover: #e9e9e8;
+}
+
+/* ---- Ghost mode ----
+   While the mode is on the page marks itself (data-ghost on the root; the page's first script sets it
+   on a tab loaded in the mode, so nothing flashes). It is the same site in a calmer cast: the accent
+   is toned down to a soft grey-green, and the green light behind things gives way to a neutral one.
+   Nothing else changes: the same greys, the same warnings, the same shapes. A handful of tokens, the
+   same handful in both themes, each measured like the ones above (text 4.5:1 on every surface; a
+   test holds them to it). The first block is the dark theme's; the second, written with the theme's
+   own name so that it outranks both, is the light theme's. */
+:root[data-ghost] {
+  --accent: #a7bdb3;
+  --tint-accent: rgba(255, 255, 255, 0.06);
+  --glow: rgba(255, 255, 255, 0.07);
+  --glow-faint: rgba(255, 255, 255, 0.035);
+}
+
+:root[data-ghost][data-theme="light"] {
+  --accent: #3d5a4d;
+  --tint-accent: rgba(0, 0, 0, 0.05);
+  --glow: rgba(96, 104, 116, 0.1);
+  --glow-faint: rgba(96, 104, 116, 0.05);
 }

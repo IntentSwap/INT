@@ -1,11 +1,18 @@
 // The connected wallet, as the rest of the interface sees it. The wallet and
 // chain libraries are loaded only when the person presses Connect.
+//
+// In Ghost mode there is no wallet. The wallet software is fetched through one door, in this file,
+// and the door is shut while the mode holds: nothing of that software is requested, and nothing of
+// it runs. No balance is read either, since there is no address to read one for.
 
 import { create } from "zustand";
 import type { TokenView } from "../../../shared/api.ts";
 import { isWalletChain } from "../../../shared/chains.ts";
 import { api } from "../api.ts";
+import { ghostHolds } from "../lib/kept.ts";
 import { balanceCalls, readBalance } from "../lib/swap-logic.ts";
+// Only what the module looks like. This line fetches nothing: the module itself comes through the door below, when it comes at all.
+import type * as walletModule from "../wallet/index.ts";
 
 /** What is needed of a coin to read a balance of it. */
 type Coin = Pick<TokenView, "id" | "chain" | "contract">;
@@ -54,6 +61,59 @@ export function noBalances(): Pick<WalletState, "balances" | "unreadable"> {
   return { balances: new Map(), unreadable: new Set() };
 }
 
+/** The module that talks to a wallet, with the libraries it brings in. */
+type WalletSoftware = typeof walletModule;
+
+/**
+ * The one door to the wallet software: every part of the site that needs it asks here, and nothing
+ * else fetches it. While Ghost mode holds the door is shut, so that not even a stray call can bring
+ * the software into the page.
+ */
+export async function walletSoftware(): Promise<WalletSoftware> {
+  if (ghostHolds()) throw new Error("In Ghost mode the wallet software is not loaded.");
+  const fetched = import("../wallet/index.ts");
+  onItsWay = fetched.then(
+    () => undefined,
+    () => undefined,
+  );
+  return fetched;
+}
+
+/** Set once the door has been gone through: the wallet software is in this page, or on its way into it. */
+let onItsWay: Promise<void> | null = null;
+
+/** The wallet software, once it is in this page: enough of it to let go of a wallet without fetching anything. */
+let inPage: Pick<WalletSoftware, "disconnect"> | null = null;
+
+/** Called by the wallet software itself as it arrives in the page, whichever part of the site fetched it. */
+export function walletSoftwareArrived(software: Pick<WalletSoftware, "disconnect">): void {
+  inPage = software;
+}
+
+/** How long a wallet that is being disconnected is waited for. One that does not answer is left behind all the same. */
+const LET_GO_MS = 3_000;
+
+/** The store with no wallet in it. */
+const noWallet = () => ({ status: "disconnected" as const, address: null, chain: null, chainId: null, plain: null, ...noBalances() });
+
+/**
+ * Ghost mode is turning on. A connected wallet is disconnected, through the software that
+ * connected it, and the store is put back as it is before any wallet. Answers whether that
+ * software is in this page, or was on its way into it: if so, only loading the page again takes it out.
+ */
+export async function letGoOfWallet(): Promise<boolean> {
+  const waited = () => new Promise<void>((resolve) => setTimeout(resolve, LET_GO_MS));
+  try {
+    // Software that was asked for a moment ago is waited for, so that it is not left to arrive after the mode is on.
+    if (onItsWay !== null) await Promise.race([onItsWay, waited()]);
+    if (inPage !== null) await Promise.race([inPage.disconnect(), waited()]);
+  } catch {
+    // Whatever the wallet answered, the page keeps nothing of it.
+  }
+  useWallet.setState({ ...noWallet(), error: null });
+  return inPage !== null || onItsWay !== null;
+}
+
 export const useWallet = create<WalletState>((set, get) => ({
   status: "disconnected",
   address: null,
@@ -63,12 +123,15 @@ export const useWallet = create<WalletState>((set, get) => ({
   ...noBalances(),
   error: null,
   async connect() {
+    // In Ghost mode there is no wallet to connect: nothing is fetched, and nothing is said.
+    if (ghostHolds()) return;
     set({ status: "connecting", error: null });
     try {
-      const wallet = await import("../wallet/index.ts");
+      const wallet = await walletSoftware();
       await wallet.connect();
     } catch {
-      set({ status: "disconnected", error: "The wallet could not be opened. Try again." });
+      // Ghost mode turned on meanwhile: there is no wallet, and nothing went wrong that the person need be told.
+      set({ status: "disconnected", error: ghostHolds() ? null : "The wallet could not be opened. Try again." });
     }
   },
   refreshBalance(token) {
@@ -76,7 +139,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
   async loadBalances(tokens, freshMs = BALANCE_FRESH_MS) {
     const address = get().address;
-    if (get().status !== "connected" || address === null) return;
+    if (get().status !== "connected" || address === null || ghostHolds()) return;
     const now = Date.now();
     const due = tokens.filter((token) => isWalletChain(token.chain) && now - (askedAt.get(token.id) ?? -Infinity) >= freshMs);
     for (const token of due) askedAt.set(token.id, now);
@@ -110,10 +173,10 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
   async disconnect() {
     try {
-      const wallet = await import("../wallet/index.ts");
-      await wallet.disconnect();
+      // The software that connected the wallet is in the page already. It is never fetched in order to disconnect.
+      await inPage?.disconnect();
     } finally {
-      set({ status: "disconnected", address: null, chain: null, chainId: null, plain: null, ...noBalances() });
+      set(noWallet());
     }
   },
 }));

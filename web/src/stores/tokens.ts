@@ -1,10 +1,11 @@
 // The coin list, loaded from our server and kept for up to 24 hours as a fallback.
+// In Ghost mode it is not kept, and a kept one is not read: the list is the server's answer or nothing.
 
 import { create } from "zustand";
 import type { TokenView } from "../../../shared/api.ts";
 import { api } from "../api.ts";
+import { KEPT, readKept, writeKept } from "../lib/kept.ts";
 
-const CACHE_KEY = "coins-v1";
 const CACHE_MS = 24 * 3_600_000;
 
 interface TokensState {
@@ -40,7 +41,7 @@ export function isToken(value: unknown): value is TokenView {
 
 function readCache(): TokenView[] | null {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = readKept(KEPT.coins);
     if (raw === null) return null;
     const parsed = JSON.parse(raw) as { savedAt?: number; tokens?: TokenView[] };
     if (typeof parsed.savedAt !== "number" || Date.now() - parsed.savedAt > CACHE_MS || !Array.isArray(parsed.tokens)) return null;
@@ -64,11 +65,8 @@ export const useTokens = create<TokensState>((set) => ({
     try {
       const { tokens } = await api.tokens();
       set({ status: "ready", tokens, byId: index(tokens) });
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), tokens }));
-      } catch {
-        // No storage: the list simply is not kept for next time.
-      }
+      // Without storage, and in Ghost mode, the list simply is not kept for next time.
+      writeKept(KEPT.coins, JSON.stringify({ savedAt: Date.now(), tokens }));
     } catch {
       const cached = readCache();
       if (cached !== null) set({ status: "stale", tokens: cached, byId: index(cached) });

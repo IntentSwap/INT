@@ -182,6 +182,91 @@ describe("contrast, computed from the token file", () => {
   });
 });
 
+// While Ghost mode is on, the page takes a calmer cast: a handful of tokens set again under
+// `:root[data-ghost]`, the same handful for both themes. They are measured here as the themes' own
+// are above: every text colour 4.5:1 on every surface it can stand on, with the page's light behind it.
+describe("the calmer cast of Ghost mode, computed from the token file", () => {
+  const CAST = { dark: theme(":root[data-ghost] {"), light: theme(':root[data-ghost][data-theme="light"] {') };
+  const spread = (value: string) => Math.max(...parseColour(value).rgb) - Math.min(...parseColour(value).rgb);
+  const solid = (colour: Rgb) => `rgb(${colour.map(Math.round).join(", ")})`;
+
+  it("sets the same four tokens again in both themes, after the themes themselves, and the light theme's by a rule that outranks both", () => {
+    for (const cast of Object.values(CAST)) expect(Object.keys(cast).sort()).toEqual(["--accent", "--glow", "--glow-faint", "--tint-accent"]);
+    const at = (text: string) => tokensCss.indexOf(text);
+    expect(at(":root[data-ghost] {")).toBeGreaterThan(at(':root[data-theme="light"] {'));
+    expect(at(':root[data-ghost][data-theme="light"] {')).toBeGreaterThan(at(":root[data-ghost] {"));
+    // Every one is a token the themes already have: the cast adds no colour of its own.
+    for (const [name, cast] of Object.entries(CAST)) for (const token of Object.keys(cast)) expect(THEMES[name as keyof typeof THEMES], token).toHaveProperty(token);
+  });
+
+  describe.each(Object.entries(CAST))("%s theme", (name, cast) => {
+    const vars = { ...THEMES[name as keyof typeof THEMES], ...cast };
+    const ordinary = THEMES[name as keyof typeof THEMES];
+    const page = parseColour(vars["--bg"]!).rgb;
+    const lit = over(parseColour(vars["--glow"]!), page);
+    const layers = (behind: Rgb, ...tints: string[]) => tints.reduce((under, tint) => over(parseColour(vars[tint]!), under), behind);
+
+    it("the accent is toned down: a soft grey-green, far less of a colour than the ordinary accent, and still the accent's own hue", () => {
+      expect(spread(vars["--accent"]!)).toBeLessThan(spread(ordinary["--accent"]!) / 3);
+      const [red, green, blue] = parseColour(vars["--accent"]!).rgb;
+      expect(green).toBeGreaterThan(red!);
+      expect(green).toBeGreaterThan(blue!);
+    });
+
+    it("the light behind things is a neutral one, where the ordinary one is green", () => {
+      for (const token of ["--glow", "--glow-faint", "--tint-accent"]) expect(spread(vars[token]!), token).toBeLessThanOrEqual(24);
+      expect(spread(ordinary["--glow"]!)).toBeGreaterThan(150);
+      // No stronger than the light it stands in for.
+      expect(parseColour(vars["--glow"]!).alpha).toBeLessThanOrEqual(parseColour(ordinary["--glow"]!).alpha);
+      expect(parseColour(vars["--glow-faint"]!).alpha).toBeLessThan(parseColour(vars["--glow"]!).alpha);
+    });
+
+    it.each(BACKGROUNDS)("the accent on %s is at least 4.5:1", (background) => {
+      expect(contrast(vars["--accent"]!, vars[background]!)).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it.each(TEXT.flatMap((token) => [[token, "the card", ["--card-tint"]] as const, [token, "a field", ["--card-tint", "--field-tint"]] as const]))("%s on %s is at least 4.5:1, on the plain page and over the neutral light", (token, _where, tints) => {
+      for (const behind of [page, lit]) expect(contrast(vars[token]!, solid(layers(behind, ...tints)))).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it("what is read on the bare page, on a field under the pointer and on the small labels' tints stays readable over that light", () => {
+      for (const token of ["--text", "--text-muted", "--accent"] as const) expect(contrast(vars[token]!, solid(lit)), token).toBeGreaterThanOrEqual(4.5);
+      for (const behind of [page, lit]) {
+        for (const token of ["--text", "--text-muted"] as const) expect(contrast(vars[token]!, solid(layers(behind, "--card-tint", "--field-tint", "--hover-tint"))), token).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(vars["--accent"]!, solid(layers(behind, "--card-tint", "--field-tint", "--tint-accent")))).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it("the keyboard's mark still stands out, at 3:1, from the page, the card and its fields", () => {
+      for (const behind of [page, lit]) for (const tints of [[], ["--card-tint"], ["--card-tint", "--field-tint"]]) expect(contrast(vars["--focus-ring"]!, solid(layers(behind, ...tints)))).toBeGreaterThanOrEqual(3);
+    });
+
+    it("the header's pill: its words on its fill are at least 4.5:1, on the page, over the light and over the header's veil; the fill is a neutral tint", () => {
+      expect(spread(vars["--tint-ghost"]!)).toBe(0);
+      expect(vars["--tint-ghost"]).not.toBe(vars["--accent"]);
+      const veiled = over(parseColour(vars["--veil"]!), lit);
+      for (const behind of [page, lit, veiled]) {
+        expect(contrast(vars["--text"]!, solid(layers(behind, "--tint-ghost")))).toBeGreaterThanOrEqual(4.5);
+        // Under the pointer the fill is the one a blocked button has.
+        expect(contrast(vars["--text"]!, solid(layers(behind, "--fill-blocked")))).toBeGreaterThanOrEqual(4.5);
+        // The switch itself, off: the quiet text colour on the bare header.
+        expect(contrast(vars["--text-muted"]!, solid(behind))).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  });
+
+  it("is put on the page by one attribute of the root, set by the page's first script and by the mode's store, and by nothing else", () => {
+    const sources = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? sources(path.join(dir, entry.name)) : /\.(tsx?|html)$/.test(entry.name) ? [path.join(dir, entry.name)] : []));
+    const setters = [...sources(stylesDir), path.resolve("web", "index.html")].filter((file) => /dataset\.ghost\b/.test(fs.readFileSync(file, "utf8"))).map((file) => path.relative(path.resolve("web"), file).split(path.sep).join("/"));
+    expect(setters.sort()).toEqual(["index.html", "src/stores/ghost.ts"]);
+    // No stylesheet but the token file gives the attribute a colour of its own: the cast is those tokens.
+    for (const file of cssFiles(stylesDir).filter((name) => !name.endsWith(path.join("styles", "tokens.css")))) {
+      const css = fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const rule of css.matchAll(/(?<=^|[{}])\s*([^{}@]+?)\s*\{([^{}]*)\}/g)) if (rule[1]!.includes("data-ghost")) expect(rule[2], rule[1]!.trim()).not.toMatch(/(?:color|background|fill|stroke)\s*:/);
+    }
+  });
+});
+
 function cssFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);

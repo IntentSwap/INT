@@ -19,9 +19,16 @@ describe("the theme a visit starts in", () => {
     expect(script).toContain('document.documentElement.dataset.theme = "light";');
     // Nothing else in the page, and nothing in the theme's own code, could start it any other way.
     for (const text of [page, source]) {
-      expect(text).not.toMatch(/localStorage|sessionStorage|matchMedia|prefers-color-scheme|cookie/);
+      expect(text).not.toMatch(/localStorage|matchMedia|prefers-color-scheme|cookie/);
       expect(text).not.toMatch(/dataset\.theme = "dark"/);
     }
+    expect(source).not.toMatch(/sessionStorage/);
+    // The page's first script reads one thing that a tab has kept, once, and it is not the theme: the flag of Ghost mode.
+    // The theme is set after that, outside it, whatever the flag says.
+    expect(page.match(/sessionStorage/g)).toHaveLength(1);
+    expect(script).toContain('if (sessionStorage.getItem("ghost") === "on") {');
+    expect(script.indexOf("} catch (error) {")).toBeGreaterThan(script.indexOf("sessionStorage"));
+    expect(script.indexOf('document.documentElement.dataset.theme = "light";')).toBeGreaterThan(script.indexOf("} catch (error) {"));
     // The browser's own parts (scroll bars, form controls) are told light first.
     expect(page).toContain('<meta name="color-scheme" content="light dark" />');
   });

@@ -5,16 +5,20 @@ import { chainName, explorerAddressUrl } from "../../../shared/chains.ts";
 import { chainColour, chainIconUrl } from "../lib/icons.ts";
 import { chainsOnList } from "../lib/site-logic.ts";
 import { coinLabel, contractChain, gridMove, lookAlikes, pickerRows, searchChains, shortAddress, type PickerRows } from "../lib/swap-logic.ts";
+import { useGhost } from "../stores/ghost.ts";
 import type { PickerSide } from "../stores/picker.ts";
 import { useSwap } from "../stores/swap.ts";
 import { useTokens } from "../stores/tokens.ts";
 import { LIST_FRESH_MS, useWallet } from "../stores/wallet.ts";
 import { Amount } from "./Amount.tsx";
 import { CoinIcon, NoArtwork } from "./CoinIcon.tsx";
+import { OutboundLink } from "./OutboundLink.tsx";
 
 const SKELETON_TILES = 12;
 const SKELETON_ROWS = 5;
 const MOVES = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"];
+/** What the picker knows of balances in Ghost mode, where there is no wallet: nothing. */
+const NO_BALANCES: ReadonlyMap<string, bigint> = new Map();
 
 /** True where there is a mouse and a keyboard: a search field may then take the keyboard unasked. On touch that would open the on-screen keyboard. */
 const finePointer = () => window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -98,9 +102,9 @@ export function CoinRow({ token, index, id, active, chosen, otherSide, elsewhere
           </span>
           {showContract && token.contract !== null ? <span className="picker-row-contract mono">{shortAddress(token.contract, 4)}</span> : null}
           {showContract && explorer !== null ? (
-            <a className="picker-link" href={explorer} target="_blank" rel="noopener noreferrer" tabIndex={-1} aria-label={`${token.symbol} on the ${chainName(token.chain)} block explorer`} title="View on the block explorer">
+            <OutboundLink className="picker-link" href={explorer} tabIndex={-1} aria-label={`${token.symbol} on the ${chainName(token.chain)} block explorer`} title="View on the block explorer">
               <ExternalLink size={12} strokeWidth={1.5} aria-hidden="true" />
-            </a>
+            </OutboundLink>
           ) : null}
         </span>
       </span>
@@ -236,8 +240,10 @@ export function CoinPicker({ side, leaving = false, onClose }: { side: PickerSid
   };
 
   // ---- Coins ----
-  const balances = useWallet((state) => state.balances);
-  const walletAddress = useWallet((state) => (state.status === "connected" ? state.address : null));
+  // In Ghost mode there is no wallet: no balance stands beside a coin, none decides the order of the list, and none is read.
+  const ghost = useGhost((state) => state.on);
+  const balances = useWallet((state) => (ghost ? NO_BALANCES : state.balances));
+  const walletAddress = useWallet((state) => (!ghost && state.status === "connected" ? state.address : null));
   const loadBalances = useWallet((state) => state.loadBalances);
   // With a wallet connected, what it holds is read as the picker opens.
   useEffect(() => {

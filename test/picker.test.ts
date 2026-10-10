@@ -114,7 +114,8 @@ describe("the coin picker is a view of the swap card", () => {
 
   it("the old pop-up picker and its chain chips are gone", () => {
     const read = (file: string) => fs.readFileSync(path.resolve("web", "src", file), "utf8");
-    expect(read("stores/sheet.ts")).toMatch(/export type SheetName = "review" \| "menu" \| "slippage";/);
+    // The sheets there are: the review, the menu, the slippage limit, and the one that explains Ghost mode. None is a picker.
+    expect(read("stores/sheet.ts")).toMatch(/export type SheetName = "review" \| "menu" \| "slippage" \| "ghost";/);
     expect(read("config.ts")).not.toMatch(/FEATURED_CHAINS/);
     expect(read("lib/swap-logic.ts")).not.toMatch(/OTHER_CHAINS|FEATURED_CHAINS/);
     expect(read("components/CoinPicker.tsx")).not.toMatch(/button-chip|picker-chips|"All"|Other chains/);
@@ -177,7 +178,7 @@ describe("the picker's bottom half: coins of the chosen chain", () => {
     const [own, usdc] = rows(picker("from"));
     expect(usdc).toContain('<span class="coin-icon" data-size="32" aria-hidden="true">');
     expect(usdc).toMatch(/<button type="button" class="picker-pick" tabindex="-1" aria-describedby="[^"]+"><span class="picker-row-name">USD Coin<\/span><\/button>/);
-    expect(usdc).toMatch(/<span id="[^"]+" class="picker-row-symbol">USDC<\/span><span class="picker-row-contract mono">0x83…2913<\/span><a class="picker-link" href="https:\/\/basescan\.org\/token\/0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-label="USDC on the Base block explorer"/);
+    expect(usdc).toMatch(/<span id="[^"]+" class="picker-row-symbol">USDC<\/span><span class="picker-row-contract mono">0x83…2913<\/span><a class="picker-link" tabindex="-1" aria-label="USDC on the Base block explorer" title="View on the block explorer" href="https:\/\/basescan\.org\/token\/0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">/);
     // A chain's own coin has no contract: its symbol stands alone.
     expect(own).toContain('<span class="picker-row-name">Ethereum</span>');
     expect(own).toMatch(/class="picker-row-symbol">ETH<\/span><\/span>/);

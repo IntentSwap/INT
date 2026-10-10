@@ -2,8 +2,10 @@
 // order's ID, the transaction's hash and when. The server learns of a transfer only once it can
 // see it on the chain, which may be a little later than a reload. With this note, a reload in
 // that moment follows the transfer instead of offering to send it a second time.
+// In Ghost mode no wallet is connected, so nothing is sent from one and there is no note to keep or to read.
 
-const KEY = "sent-v1";
+import { dropKept, KEPT, readKept, writeKept } from "../lib/kept.ts";
+
 const MAX = 20;
 
 export interface SentNote {
@@ -52,20 +54,13 @@ export function withSent(notes: Notes, orderId: string, note: SentNote): Notes {
 }
 
 function load(): Notes {
-  try {
-    return readSent(localStorage.getItem(KEY));
-  } catch {
-    return {};
-  }
+  return readSent(readKept(KEPT.sent));
 }
 
+/** Without storage the note lasts only as long as this page. */
 function save(notes: Notes): void {
-  try {
-    if (Object.keys(notes).length === 0) localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, JSON.stringify(notes));
-  } catch {
-    // No storage: the note lasts only as long as this page.
-  }
+  if (Object.keys(notes).length === 0) dropKept(KEPT.sent);
+  else writeKept(KEPT.sent, JSON.stringify(notes));
 }
 
 /** The transfer sent for this order from this browser, if there was one. */

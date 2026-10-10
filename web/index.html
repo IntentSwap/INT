@@ -3,6 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <script>
+      (function () {
+        // A tab left in Ghost mode. Before anything else on this page is fetched, the page is held to this
+        // site's own origin by a content policy of its own (the same words as GHOST_POLICY in src/stores/ghost.ts),
+        // and takes the mode's calmer cast. The one thing read here is the mode's own flag, kept for this tab only.
+        try {
+          if (sessionStorage.getItem("ghost") === "on") {
+            var policy = document.createElement("meta");
+            policy.httpEquiv = "Content-Security-Policy";
+            policy.content = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; media-src 'self'; manifest-src 'self'; worker-src 'none'; child-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+            document.head.appendChild(policy);
+            document.documentElement.dataset.ghost = "on";
+          }
+        } catch (error) {
+          // A browser that will not let the flag be read has not kept it either: the mode is off.
+        }
+        // Every visit starts in the light theme, for everyone. The dark one can be chosen, and lasts until the page is loaded again.
+        document.documentElement.dataset.theme = "light";
+        // The words below are the home page's; any other page starts empty.
+        if (location.pathname === "/") document.documentElement.dataset.first = "home";
+      })();
+    </script>
     <meta name="description" content="Swap any coin to any coin, across chains." />
     <meta name="color-scheme" content="light dark" />
     <title>IntentSwap</title>
@@ -21,14 +43,6 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <script>
-      (function () {
-        // Every visit starts in the light theme, for everyone. The dark one can be chosen, and lasts until the page is loaded again.
-        document.documentElement.dataset.theme = "light";
-        // The words below are the home page's; any other page starts empty.
-        if (location.pathname === "/") document.documentElement.dataset.first = "home";
-      })();
-    </script>
   </head>
   <body>
     <div id="root">

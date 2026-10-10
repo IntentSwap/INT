@@ -1,4 +1,4 @@
-import { ArrowDownUp, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { ArrowDownUp, Ghost, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { displayBps } from "../../../shared/amounts.ts";
 import type { TokenView } from "../../../shared/api.ts";
@@ -8,6 +8,7 @@ import { REWARDS } from "../../../shared/rewards.ts";
 import { asksForRefund, cardRouting, estimateUsd, maxSpendable, minimumNote, pointsByDefault, primaryAction, PRIVATE_UNAVAILABLE, quoteAnnouncement, refundFor, routedPrivately, routingNote, shouldAnnounce, walletAddressFor, type Announced } from "../lib/swap-logic.ts";
 import { useKeyboardInset, useStuck } from "../lib/use-stuck.ts";
 import { useApp } from "../stores/app.ts";
+import { useGhost } from "../stores/ghost.ts";
 import { closePicker, openPicker, usePicker, watchPickerHistory, type PickerSide } from "../stores/picker.ts";
 import { useSheet } from "../stores/sheet.ts";
 import { quoteAge, useSwap } from "../stores/swap.ts";
@@ -112,12 +113,16 @@ function Balance({ token, held, onMax }: { token: TokenView; held: Held; onMax?:
  * The swap card is the page: two small tools, the coins and the amount, the receiving address, the live quote in one line, and one button.
  * Where the server routes swaps privately, the row of tools also says so at its left end; where it does not, nothing here speaks of routing.
  * Choosing a coin happens inside the card: its contents give way to the coin picker and come back when a coin is chosen.
+ * In Ghost mode the card carries the mode's small mark at that left end, knows no wallet (no balance, no Max, nothing
+ * to connect), and is paid one way: by sending to the order's deposit address.
  */
 export function SwapCard() {
   useKeyboardInset();
   const swap = useSwap();
   const tokens = useTokens();
   const wallet = useWallet();
+  const ghost = useGhost((state) => state.on);
+  const ghostFresh = useGhost((state) => state.fresh);
   const paused = useApp((state) => state.config?.paused ?? false);
   // How the server routes swaps. The card only ever says what the server does; it never chooses a level.
   const privacyMode = useApp((state) => state.config?.privacyMode ?? null);
@@ -149,7 +154,10 @@ export function SwapCard() {
   const to = swap.toId === null ? null : (tokens.byId.get(swap.toId) ?? null);
   const quote = swap.quote;
   const age = quoteAge(swap, now);
-  const connected = wallet.status === "connected" && wallet.address !== null;
+  // In Ghost mode there is no wallet, whatever the wallet's store may hold for a moment as the mode turns on.
+  const connected = !ghost && wallet.status === "connected" && wallet.address !== null;
+  // The one way to pay in Ghost mode is by hand. The card's store says the same (see setPay); this is the card not taking its word for it.
+  const pay = ghost ? "manual" : swap.pay;
   // What the connected address holds of a coin, for a coin on a network a wallet can pay on. It is read
   // from the coin's own chain, so the network the wallet is on at the moment makes no difference.
   // Nothing is shown with no wallet, for a coin on any other chain, or after a read that failed.
@@ -164,7 +172,7 @@ export function SwapCard() {
   const walletForRecipient = to !== null ? walletAddressFor(to.chain, chainInfo(to.chain).family, walletInfo) : null;
   const walletForRefund = from !== null ? walletAddressFor(from.chain, chainInfo(from.chain).family, walletInfo) : null;
   // The refund address the order would be made with: typed, or the wallet's own where that is safe (see refundFor).
-  const refundTo = refundFor(swap.pay, swap.refundTo, walletForRefund);
+  const refundTo = refundFor(pay, swap.refundTo, walletForRefund);
 
   const action = primaryAction({
     paused,
@@ -172,7 +180,7 @@ export function SwapCard() {
     from,
     to,
     amountText: swap.amountText,
-    pay: swap.pay,
+    pay,
     walletConnected: connected,
     balance,
     recipient: swap.recipient,
@@ -190,7 +198,7 @@ export function SwapCard() {
         ? PRIVATE_UNAVAILABLE
         : swap.problem !== null && swap.problem.code === "min_usd"
           ? minimumNote(swap.problem.detail, from)
-          : wallet.error !== null && swap.pay === "wallet"
+          : wallet.error !== null && pay === "wallet"
             ? wallet.error
             : null;
 
@@ -273,6 +281,12 @@ export function SwapCard() {
             choosing public routing for this swap: the way back to private routing. The card carries no tag;
             the quote's own rows and the review say how a swap is routed. */}
         <div className="card-tools">
+          {ghost ? (
+            <span className="card-ghost" data-fresh={ghostFresh || undefined}>
+              <Ghost size={14} strokeWidth={1.5} aria-hidden="true" />
+              Ghost mode
+            </span>
+          ) : null}
           {routing === "public-by-choice" ? (
             <button type="button" className="routing-switch card-routing" onClick={() => swap.setWithoutPrivate(false)}>
               Use private routing
@@ -352,7 +366,7 @@ export function SwapCard() {
 
         {/* Paying by hand a refund address is always asked for. Paying from a wallet it is asked for where the
             wallet's own cannot be used, and shown whenever it holds something typed: see asksForRefund. */}
-        {from !== null && asksForRefund(swap.pay, connected, walletForRefund, swap.refundTo) ? (
+        {from !== null && asksForRefund(pay, connected, walletForRefund, swap.refundTo) ? (
           <AddressField label="Refund address" hint={`If the swap fails, your ${from.symbol} comes back here.`} chain={from.chain} value={swap.refundTo} onChange={swap.setRefundTo} walletAddress={walletForRefund} />
         ) : null}
 
@@ -363,7 +377,7 @@ export function SwapCard() {
           loading={swap.loading || swap.dirty}
           stale={quote !== null && (swap.loading || swap.dirty)}
           held={/[1-9]/.test(swap.amountText)}
-          pointsShown={pointsByDefault(swap.pay, REWARDS.chain, { connected, ...walletInfo })}
+          pointsShown={pointsByDefault(pay, REWARDS.chain, { connected, ...walletInfo })}
           routing={routingNote(privacyMode, quote, swap.withoutPrivate)}
           impactConfirmed={swap.impactConfirmed}
           onConfirmImpact={swap.setImpactConfirmed}
@@ -382,10 +396,11 @@ export function SwapCard() {
           </PrimaryButton>
         </div>
         <div ref={sentinel} className="card-submit-end" aria-hidden="true" />
+        {/* Under the button: the other way to pay, where there is one. In Ghost mode there is one way, and the line says which. */}
         <div className="card-actions">
           {from !== null ? (
-            canPayByWallet ? (
-              swap.pay === "wallet" ? (
+            canPayByWallet && !ghost ? (
+              pay === "wallet" ? (
                 <TextButton onClick={() => swap.setPay("manual")}>Pay without connecting</TextButton>
               ) : (
                 <TextButton onClick={() => swap.setPay("wallet")}>Pay from a connected wallet</TextButton>

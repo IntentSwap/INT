@@ -3,6 +3,7 @@
 // closing or reloading the page ends it, and it ends by itself after half an hour.
 
 import { create } from "zustand";
+import { ghostHolds } from "../lib/kept.ts";
 import { failureOf, raisedName, SIGN_IN_WORDS } from "../lib/sign-in-logic.ts";
 import { partFailedToLoad } from "../lib/stale.ts";
 import { toChecksumAddress } from "../../../shared/addresses.ts";
@@ -47,6 +48,8 @@ export const useRewards = create<RewardsState>((set, get) => ({
     }
   },
   async signIn(address, chainId = null) {
+    // In Ghost mode there is no wallet to sign with, and the module that asks one is not fetched: nothing is asked of the server either.
+    if (ghostHolds()) return;
     if (get().step !== "idle") return;
     set({ step: "asking", error: null });
     try {

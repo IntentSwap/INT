@@ -230,7 +230,9 @@ describe("the right of the header: three icon links, the theme, the wallet", () 
 
   it("a set icon opens in a new tab and tells the other site nothing; an unset one has no address to go to at all", () => {
     const links = part(social, "export function SocialLinks");
-    expect(links).toMatch(/<a className="social-link" href=\{link\.href\} target="_blank" rel="noopener noreferrer" aria-label=\{link\.label\}/);
+    // It is drawn as every link out of the site is, by the one component that draws them: a new tab, no hold on this window, no referrer.
+    expect(links).toMatch(/<OutboundLink className="social-link" href=\{link\.href\} aria-label=\{link\.label\}/);
+    expect(read("components/OutboundLink.tsx")).toMatch(/<a \{\.\.\.rest\} href=\{href\} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer"/);
     // The unset one is an anchor with no href: a press on it does nothing, and it cannot jump to the top of the page as href="#" would.
     const unset = links.slice(links.indexOf(") : (")).replace(/\/\/[^\n]*/g, "");
     expect(unset).toMatch(/<a className="social-link" role="link" aria-disabled="true" aria-label=\{link\.label\}/);

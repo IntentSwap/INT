@@ -12,6 +12,7 @@ import { clockTime } from "../lib/order-logic.ts";
 import { statsPageOn } from "../lib/stats-logic.ts";
 import { navigate } from "../router.ts";
 import { useApp } from "../stores/app.ts";
+import { ghostChoice, useGhost } from "../stores/ghost.ts";
 import { useOrders } from "../stores/orders.ts";
 import { useSheet } from "../stores/sheet.ts";
 import { heardRouting, quoteAge, useSwap } from "../stores/swap.ts";
@@ -38,6 +39,11 @@ function alignedPair(a: string, b: string): [string, string] {
   return [pad(a), pad(b)];
 }
 
+/** Under the rewards address in Ghost mode: the field is empty unless the person fills it, and they are told what filling it does. */
+export const GHOST_REWARDS_HINT = "Naming an address ties this swap's points to it. Leave it empty and this swap adds no points.";
+/** Said before an order is made in Ghost mode, where any other order is told that its deposit will be listed: this one is not, and its record does not outlast it. */
+export const GHOST_ORDER_LINE = "This order is not listed on the Stats page, and its record is deleted from this site's server when it finishes.";
+
 /** A space that a line never breaks at: a number and its unit stay on one line together. */
 const NBSP = "\u00a0";
 
@@ -55,6 +61,8 @@ function Row({ label, children, name }: { label: string; children: React.ReactNo
  * how long there is to pay, and the Terms. Confirming makes the order; it moves no funds.
  * Where the server routes swaps privately, it also says how this one is routed, and the order is
  * asked for by that route and no other.
+ * In Ghost mode the order is marked as made in it and is added to no list in this browser, and the
+ * rewards address is the person's to give or leave out: nothing fills it in.
  */
 export function ReviewSheet() {
   const close = useSheet((state) => state.close);
@@ -65,6 +73,9 @@ export function ReviewSheet() {
   const privacyMode = useApp((state) => state.config?.privacyMode ?? null);
   const statsOn = useApp((state) => statsPageOn(state.config));
   const remember = useOrders((state) => state.remember);
+  const ghost = useGhost((state) => state.on);
+  // In Ghost mode there is no wallet: the order is paid by hand, whatever the card's store were to say.
+  const pay = ghost ? "manual" : swap.pay;
 
   const [phase, setPhase] = useState<ReviewPhase>("review");
   const [accepted, setAccepted] = useState(false);
@@ -102,11 +113,12 @@ export function ReviewSheet() {
   // Paying from a wallet, the refund goes back to that wallet unless the person names another address
   // here. The wallet's own address is used only where it is known to be the person's on the paying
   // chain: on that chain itself, or on another of the same kind when the wallet is a plain one.
+  // In Ghost mode there is no wallet, whatever the wallet's store may hold for a moment as the mode turns on.
   const walletRefund =
-    from === undefined || from === null || wallet.status !== "connected"
+    ghost || from === undefined || from === null || wallet.status !== "connected"
       ? null
       : walletAddressFor(from.chain, chainInfo(from.chain).family, { address: wallet.address, chain: wallet.chain, family: wallet.chain === null ? null : chainInfo(wallet.chain).family, plain: wallet.plain });
-  const refundTo = standard(from?.chain, refundFor(swap.pay, swap.refundTo, walletRefund));
+  const refundTo = standard(from?.chain, refundFor(pay, swap.refundTo, walletRefund));
   const recipient = standard(to?.chain, swap.recipient);
   const refundValid = from !== null && checkAddress(from.chain, refundTo).ok;
   // While another refund address is being typed, the one that would be used if "Confirm" were
@@ -115,8 +127,9 @@ export function ReviewSheet() {
   // Points belong to an address on BNB Chain. Paying from a wallet, that is the wallet's own address,
   // where it is known to be the person's there too (an ordinary wallet; not a contract wallet on
   // another chain). Sending it yourself, an address can be given, or the swap adds no points.
+  // In Ghost mode nothing stands in for an address the person has not given: the field is theirs to fill or to leave empty.
   const walletRewards =
-    swap.pay !== "wallet" || wallet.status !== "connected" ? null : walletAddressFor(REWARDS.chain, chainInfo(REWARDS.chain).family, { address: wallet.address, chain: wallet.chain, family: wallet.chain === null ? null : chainInfo(wallet.chain).family, plain: wallet.plain });
+    pay !== "wallet" || wallet.status !== "connected" ? null : walletAddressFor(REWARDS.chain, chainInfo(REWARDS.chain).family, { address: wallet.address, chain: wallet.chain, family: wallet.chain === null ? null : chainInfo(wallet.chain).family, plain: wallet.plain });
   const rewardsTyped = rewardsText.trim();
   const rewardsTo = rewardsTyped !== "" ? standard(REWARDS.chain, rewardsTyped) : (walletRewards ?? "");
   const rewardsValid = rewardsTo === "" || checkAddress(REWARDS.chain, rewardsTo).ok;
@@ -167,15 +180,17 @@ export function ReviewSheet() {
       from: from.id,
       to: to.id,
       amount: quote.amountIn,
-      pay: swap.pay,
+      pay,
       // The limit the reviewed numbers were worked out with, not whatever the card holds by now.
       slippageBps: quote.slippageBps,
       recipient,
       refundTo,
-      ...(swap.pay === "wallet" && wallet.address !== null ? { sender: wallet.address } : {}),
+      ...(pay === "wallet" && wallet.address !== null ? { sender: wallet.address } : {}),
       ...(rewardsTo !== "" ? { rewardsAddress: rewardsTo } : {}),
       // The person's choice of public routing, exactly as the quote was asked for. No level is ever named.
       ...routingChoice(privacyMode, swap.withoutPrivate),
+      // An order made in Ghost mode says so, and no other order says anything of it.
+      ...ghostChoice(ghost),
       // With the numbers goes the routing of the quote that was on screen, in that quote's own word: the server makes no order by another route.
       reviewed: { amountOut: quote.amountOut, minAmountOut: quote.minAmountOut, totalFeeBps: quote.fees.appBps + quote.fees.providerBps, ...(quote.routing !== undefined ? { routing: quote.routing } : {}) },
       termsVersion,
@@ -193,7 +208,8 @@ export function ReviewSheet() {
         return;
       }
       // Kept in this browser before anything is paid, so a closed tab can find the order again.
-      remember(order);
+      // Not in Ghost mode: an order made there is reached by its own link, and by nothing kept here.
+      if (!ghost) remember(order);
       close();
       // A choice of public routing was for this swap. The next one starts as the server routes.
       swap.orderMade();
@@ -230,7 +246,7 @@ export function ReviewSheet() {
   };
 
   // The time to send in, as the order's page will count it: two minutes less than the order's own deadline.
-  const payWindow = minutesText(sendWindowMs(swap.pay, from.chain));
+  const payWindow = minutesText(sendWindowMs(pay, from.chain));
   const [receiveText, minimumText] = quote === null ? ["", ""] : alignedPair(displayExact(BigInt(quote.amountOut), to.decimals), displayExact(BigInt(quote.minAmountOut), to.decimals));
 
   return (
@@ -349,7 +365,7 @@ export function ReviewSheet() {
             ) : null}
             <Row label="Time to pay">
               {payWindow}
-              <span className="review-sub muted">until about {clockTime(now + sendWindowMs(swap.pay, from.chain))} if you confirm now</span>
+              <span className="review-sub muted">until about {clockTime(now + sendWindowMs(pay, from.chain))} if you confirm now</span>
             </Row>
           </dl>
         ) : null}
@@ -394,7 +410,7 @@ export function ReviewSheet() {
                   <Address value={shownRefund} />
                 </p>
               ) : null}
-              <AddressField label="New refund address" hint={`If the swap fails, your ${from.symbol} comes back here.`} chain={from.chain} value={swap.refundTo} onChange={swap.setRefundTo} walletAddress={swap.pay === "wallet" ? walletRefund : null} />
+              <AddressField label="New refund address" hint={`If the swap fails, your ${from.symbol} comes back here.`} chain={from.chain} value={swap.refundTo} onChange={swap.setRefundTo} walletAddress={pay === "wallet" ? walletRefund : null} />
               <p className="review-address-note muted">
                 <TextButton onClick={keepRefund} disabled={phase === "creating"}>
                   Keep this address
@@ -408,7 +424,7 @@ export function ReviewSheet() {
               </p>
               <p className="review-address-note muted">
                 If the swap fails, your {from.symbol} comes back here.{" "}
-                {swap.pay === "wallet" ? (
+                {pay === "wallet" ? (
                   <TextButton onClick={() => setEditingRefund(true)} disabled={phase === "creating"}>
                     Change
                   </TextButton>
@@ -437,7 +453,7 @@ export function ReviewSheet() {
           ) : (
             <AddressField
               label="Rewards address"
-              hint={walletRewards !== null ? "Left empty, the points go to your wallet's address." : "Optional. Without one, this swap adds no points."}
+              hint={ghost ? GHOST_REWARDS_HINT : walletRewards !== null ? "Left empty, the points go to your wallet's address." : "Optional. Without one, this swap adds no points."}
               chain={REWARDS.chain}
               value={rewardsText}
               onChange={setRewardsText}
@@ -450,13 +466,16 @@ export function ReviewSheet() {
           Confirming makes the order, with a final quote taken at that moment. If that quote is more than 1% worse than the numbers above, no order is made and you are shown the new numbers first. Nothing leaves your wallet until you pay, and an order cannot be changed once it is made.
         </p>
         {/* Said before the order is made, wherever the site has its Stats page: what of this swap will be listed there. */}
-        {statsOn ? <p className="review-plain muted">This swap's deposit transaction will be listed on the Stats page. Which swap was delivered where is not shown.</p> : null}
+        {/* An order made in Ghost mode is not listed there. What is true of it is said in that line's place, whether or not the site has a Stats page. */}
+        {ghost ? <p className="review-plain muted">{GHOST_ORDER_LINE}</p> : statsOn ? <p className="review-plain muted">This swap's deposit transaction will be listed on the Stats page. Which swap was delivered where is not shown.</p> : null}
 
         <label className="check">
           <input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} disabled={phase === "creating" || phase === "mismatch" || phase === "unavailable"} />
           <span>
             I have read and accept the{" "}
-            <a href="/terms" target="_blank" rel="noopener">
+            {/* The Terms open in a tab of their own, so that the review stays as it is. In Ghost mode that tab is opened as this
+                tab's own: the browser then hands it this tab's flag, and it opens in the mode too. Any other new tab starts outside it. */}
+            <a href="/terms" target="_blank" rel={ghost ? "opener" : "noopener"}>
               Terms of Use
             </a>
             .

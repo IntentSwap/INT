@@ -3,10 +3,14 @@
 // the page is loaded again, once, which brings the new version. If a part fails again straight
 // after that, nothing is reloaded a second time: the page says the site was updated and offers a
 // button, so a part that truly cannot be had never turns into an endless reload.
+//
+// In Ghost mode nothing may be noted, so a reload could not be told from a loop of them: the page
+// does not load itself again there. It says at once that the site was updated, and offers the button.
 
 import { useSyncExternalStore } from "react";
+import { KEPT, keptPlace } from "./kept.ts";
 
-const KEY = "reloaded-for-new-version";
+const KEY = KEPT.reloaded.key;
 /** A second failure this soon after the automatic reload is not answered with another one. */
 const SOON_MS = 60_000;
 
@@ -20,13 +24,8 @@ let asking = false;
 const listeners = new Set<() => void>();
 
 function surroundings(): Surroundings {
-  const reload = () => window.location.reload();
-  const now = () => Date.now();
-  try {
-    return { storage: window.sessionStorage, reload, now };
-  } catch {
-    return { storage: null, reload, now };
-  }
+  // Nowhere to note a reload: where the browser has no storage for the tab, and in Ghost mode.
+  return { storage: keptPlace(KEPT.reloaded), reload: () => window.location.reload(), now: () => Date.now() };
 }
 
 /**

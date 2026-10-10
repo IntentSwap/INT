@@ -1,0 +1,299 @@
+/* Ghost mode: its switch and its pill in the header, its line in the phone's menu, its mark on the
+   swap card, the sheet that explains it, and the mark on a link that leaves the site. The calmer
+   cast of the whole page while the mode is on is a handful of tokens (see the token file). */
+
+/* ---- In the header ----
+   The switch stands beside the theme switch. While the mode is on, the pill stands where Connect
+   stood, and the two are drawn as one quiet capsule: the switch is its ghost, the pill its words.
+   Pressing either turns the mode off. Nothing here has a border, and nothing is green. */
+.ghost-dock {
+  position: relative;
+  /* Its own layer, so the capsule's fill can lie behind the two buttons. */
+  z-index: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* The capsule's fill: 32 px high inside a row of 44, as round as it can be. A layer of its own, so that it can fade in. */
+.ghost-dock[data-on]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc((var(--height-44) - var(--height-32)) / 2) 0;
+  border-radius: var(--radius-16);
+  background: var(--tint-ghost);
+  pointer-events: none;
+}
+
+/* On a phone the header's room goes to the site's name: the switch is a line of the menu there (see below). */
+.ghost-switch {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-width: var(--height-44);
+  height: var(--height-44);
+  border-radius: var(--radius-12);
+  color: var(--text-muted);
+  font-weight: var(--weight-500);
+  white-space: nowrap;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+/* Its words: beside the ghost where the header has the room, and only while the mode is off. On, the pill says them. */
+.ghost-switch-words {
+  display: none;
+}
+
+.ghost-switch[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.ghost-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--height-44);
+  padding: 0 var(--space-12);
+  border-radius: var(--radius-16);
+  color: var(--text);
+  font-weight: var(--weight-500);
+  white-space: nowrap;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.ghost-switch:active,
+.ghost-pill:active {
+  transform: scale(var(--press));
+}
+
+.ghost-dock:not([data-on]) > .ghost-switch:active {
+  background: var(--raised);
+}
+
+/* Turned on where the page stands, the capsule fades in and its words settle into place. */
+.ghost-dock[data-fresh]::before {
+  animation: fade-in var(--motion-base) var(--ease-out);
+}
+
+.ghost-dock[data-fresh] > .ghost-pill {
+  animation: ghost-in var(--motion-base) var(--ease-out);
+}
+
+@keyframes ghost-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--space-4));
+  }
+}
+
+@media (hover: hover) {
+  .ghost-dock:not([data-on]) > .ghost-switch:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+
+  /* On, the capsule answers the pointer as one thing, whichever half is under it. */
+  .ghost-dock[data-on]:hover::before {
+    background: var(--fill-blocked);
+  }
+}
+
+@media (min-width: 480px) {
+  .ghost-switch {
+    display: inline-flex;
+  }
+
+  /* The switch is the capsule's ghost: the pill's own is not drawn twice, and its words follow the switch. */
+  .ghost-pill-glyph {
+    display: none;
+  }
+
+  .ghost-pill {
+    padding: 0 var(--space-16) 0 0;
+  }
+
+  /* The capsule is narrower than the switch and Connect were together. The room is left to its left, so that the icons before it stay where they were. */
+  .ghost-dock[data-on] {
+    margin-left: var(--space-16);
+  }
+
+  .menu-ghost {
+    display: none;
+  }
+}
+
+@media (min-width: 1280px) {
+  .ghost-switch[aria-pressed="false"] {
+    padding: 0 var(--space-12);
+  }
+
+  .ghost-switch[aria-pressed="false"] > .ghost-switch-words {
+    display: inline;
+  }
+}
+
+/* ---- In the phone's menu: one line, as the theme has. Its state is said in a word, never by colour alone. ---- */
+.menu-ghost-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-12);
+  color: var(--text-muted);
+  font-weight: var(--weight-400);
+}
+
+.menu-ghost[aria-pressed="true"] > .menu-ghost-state {
+  color: var(--text);
+}
+
+/* ---- On the swap card: a small mark at the left end of the row of tools ----
+   A ghost and two words in the card's quietest type. No box round it, and nothing to press. */
+.card-ghost {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--height-24);
+  /* Its ghost stands above the fields' own labels: the same distance in from the fields' edge as they are. */
+  padding: 0 var(--space-4) 0 calc(var(--space-12) + var(--border-width));
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+  font-weight: var(--weight-500);
+  white-space: nowrap;
+}
+
+/* The tools keep the right end of the row. Where the way back to private routing stands beside the mark, it does the pushing. */
+.card-ghost + .tool {
+  margin-left: auto;
+}
+
+.card-ghost[data-fresh] {
+  animation: fade-in var(--motion-base) var(--ease-out);
+}
+
+/* ---- The sheet that explains the mode ---- */
+.ghost-sheet {
+  display: grid;
+  gap: var(--space-16);
+  padding: var(--space-16) var(--space-16) var(--space-24);
+}
+
+.ghost-lead {
+  font-size: var(--text-16);
+  line-height: var(--line-16);
+  font-weight: var(--weight-500);
+}
+
+.ghost-points {
+  display: grid;
+  gap: var(--space-12);
+}
+
+/* One thing that changes: a small drawing, and one sentence beside it. */
+.ghost-point {
+  display: grid;
+  grid-template-columns: var(--icon-20) minmax(0, 1fr);
+  gap: var(--space-12);
+  text-wrap: pretty;
+}
+
+.ghost-point > svg {
+  color: var(--text-muted);
+}
+
+/* What stays as it is, set apart by a hairline. */
+.ghost-still {
+  padding-top: var(--space-16);
+  border-top: var(--border-width) solid var(--border);
+  text-wrap: pretty;
+}
+
+/* The one extra thing turning it on can do, beside the buttons, where it is seen as the choice is made. */
+.ghost-clear {
+  padding: var(--space-4) 0 var(--space-8);
+}
+
+.ghost-clear-what {
+  display: block;
+  font-size: var(--text-12);
+  line-height: var(--line-12);
+}
+
+.ghost-buttons {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-8);
+}
+
+/* ---- A link that leaves the site, in Ghost mode: a small arrow up and out ----
+   It takes the place of the drawing such a link may already end with, so a link never carries two. */
+.leaves-site {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-left: calc(var(--space-4) / 2);
+}
+
+a[data-leaves] > .lucide-external-link,
+a:has(> .leaves-site) > .lucide-external-link {
+  display: none;
+}
+
+/* A link that is a drawing alone (the three icon links, a coin's explorer link) has no line of words to end: the arrow stands at its corner, or in its place. */
+.social-link {
+  position: relative;
+}
+
+.social-link > .leaves-site {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin: 0;
+}
+
+.picker-link > .leaves-site {
+  margin: 0;
+}
+
+/* Under a finger the icon links are larger: the arrow keeps close to the drawing. */
+@media (pointer: coarse) {
+  .social-link > .leaves-site {
+    top: var(--space-4);
+    right: var(--space-4);
+  }
+}
+
+/* ---- Turning the mode on or off ----
+   The page changes cast as one short cross-fade: the browser fades a picture of the page as it was
+   out over the page as it is. Only opacity moves. Where less movement is asked for the page does
+   not start a fade at all (see stores/ghost.ts); these lines say the same for the stylesheet's part. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-base);
+  animation-timing-function: var(--ease-out);
+}
+
+/* The page is the same size before and after, so the frame the two pictures stand in has nothing to do: it is not animated at all. */
+::view-transition-group(root) {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
+
+  .ghost-switch,
+  .ghost-pill {
+    transition: none;
+  }
+
+  .ghost-dock[data-fresh]::before,
+  .ghost-dock[data-fresh] > .ghost-pill,
+  .card-ghost[data-fresh] {
+    animation: none;
+  }
+}

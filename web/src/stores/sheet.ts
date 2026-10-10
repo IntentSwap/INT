@@ -1,9 +1,10 @@
 // Only one sheet is ever open. Opening another replaces the first.
 // (The coin picker is not a sheet: it is a view of the swap card. See stores/picker.ts.)
+// "ghost" is the sheet that explains Ghost mode before it is turned on.
 
 import { create } from "zustand";
 
-export type SheetName = "review" | "menu" | "slippage";
+export type SheetName = "review" | "menu" | "slippage" | "ghost";
 
 interface SheetState {
   current: SheetName | null;

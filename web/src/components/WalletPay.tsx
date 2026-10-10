@@ -6,19 +6,24 @@ import { chainName, explorerTxUrl } from "../../../shared/chains.ts";
 import { api } from "../api.ts";
 import { clockSpan, clockTime, payAction, payMessage, paySecondary, payWindow, sendBy, startingPhase, type PayAction, type PayPhase } from "../lib/order-logic.ts";
 import { lastLook, watchReceipt, watchTransfer } from "../lib/transfer-watch.ts";
+import { useGhost } from "../stores/ghost.ts";
 import { doneAsking, forgetSent, rememberAsking, rememberSent, sentFor, wasAsking } from "../stores/sent.ts";
-import { useWallet } from "../stores/wallet.ts";
+import { useWallet, walletSoftware } from "../stores/wallet.ts";
 import { Address } from "./Address.tsx";
 import { PrimaryButton, TextButton } from "./Button.tsx";
+import { OutboundLink } from "./OutboundLink.tsx";
 import { PracticeLine } from "./PracticeLine.tsx";
 
 /**
  * Paying an order from a connected wallet. The wallet is opened only by a press of the button
  * here, and is asked for one thing: a plain transfer of the order's exact amount to the order's
  * deposit address. The address is shown in full first, so it can be matched in the wallet.
+ * In Ghost mode there is no wallet: an order that was made to be paid from one shows the other
+ * way to pay it, by sending it yourself, and nothing here that would reach for a wallet.
  */
 export function WalletPay({ order, now, onOrder, children }: { order: OrderView; now: number; onOrder(order: OrderView): void; children?: React.ReactNode }) {
   const wallet = useWallet();
+  const ghost = useGhost((state) => state.on);
   // A transfer sent before this page was opened is followed, not offered again. It is known from the
   // order itself (once the server has seen it on the chain) or from this browser's own note of having sent it.
   const [earlier] = useState(() => sentFor(order.id));
@@ -100,7 +105,9 @@ export function WalletPay({ order, now, onOrder, children }: { order: OrderView;
       return;
     }
     if (action.kind !== "switch" && action.kind !== "send") return;
-    const lib = await import("../wallet/index.ts");
+    // The wallet software comes through its one door, which is shut in Ghost mode.
+    const lib = await walletSoftware().catch(() => null);
+    if (lib === null) return;
     if (action.kind === "switch") {
       try {
         await lib.switchTo(from.chain);
@@ -156,7 +163,7 @@ export function WalletPay({ order, now, onOrder, children }: { order: OrderView;
   const link = hash !== null && (phase === "sent" || phase === "replaced") ? explorerTxUrl(from.chain, hash) : null;
   const secondary = paySecondary(phase, pendingMs);
 
-  if (!pay.open || order.depositAddress === null) return <>{children}</>;
+  if (ghost || !pay.open || order.depositAddress === null) return <>{children}</>;
 
   return (
     <PayPanel
@@ -250,11 +257,11 @@ export function PayPanel({
         {link !== null ? (
           <>
             {" "}
-            <a href={link} target="_blank" rel="noopener noreferrer" className="pay-link">
+            <OutboundLink href={link} className="pay-link">
               View it
               <ExternalLink size={16} strokeWidth={1.5} aria-hidden="true" />
               <span className="sr-only">(opens the block explorer)</span>
-            </a>
+            </OutboundLink>
           </>
         ) : null}
       </p>

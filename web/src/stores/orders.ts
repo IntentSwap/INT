@@ -2,12 +2,16 @@
 // list of anyone's orders, and nothing in this list is ever sent anywhere. An entry is the order's
 // ID, when it was made and its two coins: no amount and no address, so that nothing a person typed
 // into the swap card is ever kept in the browser.
+//
+// In Ghost mode there is no list: nothing is added to it, and what an earlier visit kept is neither
+// shown nor touched (lib/kept.ts reads as empty and writes nothing while the mode holds).
 
 import { create } from "zustand";
 import type { OrderView } from "../../../shared/api.ts";
 import { coinLogoName } from "../lib/icons.ts";
+import { dropKept, ghostHolds, KEPT, readKept, writeKept } from "../lib/kept.ts";
+import { useGhost } from "./ghost.ts";
 
-const KEY = "orders-v1";
 const MAX = 50;
 
 export interface RecentOrder {
@@ -52,24 +56,17 @@ export function withOrder(list: RecentOrder[], order: Pick<OrderView, "id" | "cr
 }
 
 function load(): RecentOrder[] {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const list = readRecent(raw);
-    // A list saved by an earlier version held amounts: it is written back at once without them.
-    if (raw !== null && raw.includes("amount")) save(list);
-    return list;
-  } catch {
-    return [];
-  }
+  const raw = readKept(KEPT.orders);
+  const list = readRecent(raw);
+  // A list saved by an earlier version held amounts: it is written back at once without them.
+  if (raw !== null && raw.includes("amount")) save(list);
+  return list;
 }
 
+/** Without storage the list lasts only as long as this page. */
 function save(list: RecentOrder[]): void {
-  try {
-    if (list.length === 0) localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, JSON.stringify(list));
-  } catch {
-    // No storage: the list lasts only as long as this page.
-  }
+  if (list.length === 0) dropKept(KEPT.orders);
+  else writeKept(KEPT.orders, JSON.stringify(list));
 }
 
 interface OrdersState {
@@ -86,11 +83,14 @@ interface OrdersState {
 export const useOrders = create<OrdersState>((set, get) => ({
   orders: load(),
   remember(order) {
+    // An order made in Ghost mode is on no list: it is reached by its own link, and by nothing kept here.
+    if (ghostHolds()) return;
     const orders = withOrder(get().orders, order);
     save(orders);
     set({ orders });
   },
   addOlder(more) {
+    if (ghostHolds()) return;
     const held = new Set(get().orders.map((order) => order.id));
     const fresh = more.filter((order) => !held.has(order.id));
     if (fresh.length === 0) return;
@@ -111,3 +111,8 @@ export const useOrders = create<OrdersState>((set, get) => ({
     set({ orders: [] });
   },
 }));
+
+// As Ghost mode turns on, the list on screen empties. What the browser holds of it is left as it was.
+useGhost.subscribe((ghost) => {
+  if (ghost.on && useOrders.getState().orders.length > 0) useOrders.setState({ orders: [] });
+});

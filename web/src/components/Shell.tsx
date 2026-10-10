@@ -1,15 +1,17 @@
-import { Menu, Moon, Sun, Wallet } from "lucide-react";
+import { Ghost, Menu, Moon, Sun, Wallet } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { BANNER_WORDS } from "../../../shared/banner.ts";
 import { shortAddress } from "../lib/swap-logic.ts";
 import { statsPageOn } from "../lib/stats-logic.ts";
 import { navFor, navigate, navItems, usePath } from "../router.ts";
 import { useApp } from "../stores/app.ts";
+import { useGhost } from "../stores/ghost.ts";
 import { useSheet } from "../stores/sheet.ts";
 import { useToast } from "../stores/toast.ts";
 import { useWallet } from "../stores/wallet.ts";
 import { setTheme, useTheme } from "../theme.ts";
 import { Wordmark } from "./Brand.tsx";
+import { GhostSheet } from "./GhostSheet.tsx";
 import { Link } from "./Link.tsx";
 import { SocialLinks } from "./Social.tsx";
 
@@ -36,13 +38,71 @@ export function ThemeMenuItem() {
   );
 }
 
+/**
+ * A press of the Ghost mode switch, wherever it stands. Off, and not turned on since the page was
+ * loaded: the sheet that explains the mode opens, and turning it on is its button. After that it
+ * switches at once. On: it turns off (and the page loads itself again, see stores/ghost.ts).
+ */
+function pressGhost(): void {
+  const ghost = useGhost.getState();
+  const sheet = useSheet.getState();
+  if (!ghost.on && !ghost.explained) {
+    sheet.open("ghost");
+    return;
+  }
+  // The phone's menu, when the press came from there, gives way: the change is to be seen.
+  sheet.close();
+  if (ghost.on) ghost.turnOff();
+  else void ghost.turnOn();
+}
+
+/**
+ * Ghost mode in the header. The switch stands beside the theme switch: a ghost, with its two words
+ * where the header has the room, and no tooltip. While the mode is on, the pill stands where Connect
+ * stood and stays in view at every width; the stylesheet draws the two as one capsule (ghost.css).
+ * On a phone the switch itself is a line of the menu, and the pill carries its own ghost.
+ */
+function GhostDock() {
+  const on = useGhost((state) => state.on);
+  const fresh = useGhost((state) => state.fresh);
+  return (
+    <div className="ghost-dock" data-on={on || undefined} data-fresh={(on && fresh) || undefined}>
+      <button type="button" className="ghost-switch" aria-pressed={on} aria-label="Ghost mode" onClick={pressGhost}>
+        <Ghost size={20} strokeWidth={1.5} aria-hidden="true" />
+        <span className="ghost-switch-words">Ghost mode</span>
+      </button>
+      {on ? (
+        // What is read aloud begins with the words that are shown, then says that the mode is on and what a press does.
+        <button type="button" className="ghost-pill" aria-label="Ghost mode is on. Turn off" onClick={pressGhost}>
+          <Ghost className="ghost-pill-glyph" size={16} strokeWidth={1.5} aria-hidden="true" />
+          Ghost mode
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The same switch as a line of the phone's menu, where the header has no room for it. It says in a word whether the mode is on. */
+export function GhostMenuItem() {
+  const on = useGhost((state) => state.on);
+  return (
+    <button type="button" className="menu-link menu-ghost" aria-pressed={on} onClick={pressGhost}>
+      Ghost mode
+      <span className="menu-ghost-state" aria-hidden="true">
+        {on ? "On" : "Off"}
+        <Ghost size={20} strokeWidth={1.5} />
+      </span>
+    </button>
+  );
+}
+
 function WalletButton() {
   const wallet = useWallet();
   if (wallet.status === "connected" && wallet.address !== null) {
     return (
       <button type="button" className="button-secondary button-wallet" onClick={() => void wallet.disconnect()} title={wallet.address}>
         <Wallet className="wide-only" size={16} strokeWidth={1.5} aria-hidden="true" />
-        {/* Six…six at every width, as everywhere else an address is shortened. On a phone the icon makes way for it. */}
+        {/* Six…six at every width, as everywhere else an address is shortened. Below 768 px the icon makes way for it. */}
         <span className="mono">{shortAddress(wallet.address)}</span>
         {/* The name read aloud begins with what is shown, then says what it is and what a press does. */}
         <span className="sr-only">, connected wallet. Disconnect</span>
@@ -100,19 +160,27 @@ export function Header({ extra }: { extra?: ReactNode }) {
   // On a narrow phone a wallet's address, or "Connecting…", takes the room the name would have (see shell.css).
   const walletStatus = useWallet((state) => state.status);
   const scrolled = useScrolled();
+  // In Ghost mode there is no wallet and nothing to connect: the mode's pill stands in Connect's place.
+  const ghost = useGhost((state) => state.on);
+  const explaining = useSheet((state) => state.current === "ghost");
   return (
-    <header className="header" data-wallet={walletStatus} data-scrolled={scrolled || undefined}>
-      <Wordmark />
-      {usable ? <HeaderNav /> : null}
-      {/* To the right: where IntentSwap is found elsewhere (on a phone these are in the menu), the theme, the wallet. */}
-      <div className="header-actions">
-        {extra}
-        {usable ? <SocialLinks where="header" /> : null}
-        <ThemeToggle />
-        {usable ? <WalletButton /> : null}
-        {usable ? <MenuButton /> : null}
-      </div>
-    </header>
+    <>
+      <header className="header" data-wallet={ghost ? "disconnected" : walletStatus} data-scrolled={scrolled || undefined}>
+        <Wordmark />
+        {usable ? <HeaderNav /> : null}
+        {/* To the right: where IntentSwap is found elsewhere (on a phone these are in the menu), the theme, Ghost mode, the wallet. */}
+        <div className="header-actions">
+          {extra}
+          {usable ? <SocialLinks where="header" /> : null}
+          <ThemeToggle />
+          <GhostDock />
+          {usable && !ghost ? <WalletButton /> : null}
+          {usable ? <MenuButton /> : null}
+        </div>
+      </header>
+      {/* The sheet that explains the mode before it is first turned on. Like every sheet, it lies over the whole page. */}
+      {explaining ? <GhostSheet /> : null}
+    </>
   );
 }
 

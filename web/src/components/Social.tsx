@@ -6,6 +6,7 @@
 import type { ReactNode } from "react";
 import { socialLinks, type SocialKey } from "../lib/site-logic.ts";
 import { useApp } from "../stores/app.ts";
+import { OutboundLink } from "./OutboundLink.tsx";
 
 /**
  * Each mark in one colour (the colour of the text around it), drawn in the same 20 px box and
@@ -44,9 +45,10 @@ export function SocialLinks({ where }: { where: "header" | "menu" | "footer" }) 
       {socialLinks(config).map((link) => (
         <li key={link.key}>
           {link.href !== null ? (
-            <a className="social-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label} title={link.label}>
+            // A link out like any other on the site: a new tab, and the other site told nothing (see OutboundLink).
+            <OutboundLink className="social-link" href={link.href} aria-label={link.label} title={link.label}>
               {SOCIAL_MARKS[link.key]}
-            </a>
+            </OutboundLink>
           ) : (
             // No address yet: a link with nowhere to go. It has no href, so a press does nothing at all (no jump to the top of the page, no new tab).
             <a className="social-link" role="link" aria-disabled="true" aria-label={link.label} title={link.label}>

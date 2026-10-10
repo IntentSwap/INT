@@ -11,6 +11,7 @@ import "./styles/shell.css";
 import "./styles/card.css";
 import "./styles/picker.css";
 import "./styles/sheet.css";
+import "./styles/ghost.css";
 
 watchKeys();
 // A page left open across a new version of the site loads itself again, once, when a part of the old version is gone.

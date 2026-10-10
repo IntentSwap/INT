@@ -5,6 +5,10 @@
 // is asked for two things only: its address and network, and (on a press of the pay button)
 // one plain transfer that has passed the gate in ./transfer.ts. It is never asked to approve,
 // to permit, or to sign a message.
+//
+// In Ghost mode this file is not fetched at all (the door to it is in stores/wallet.ts). If it is
+// already in the page when the mode is turned on, it sets nothing up from then on and reports
+// nothing more of the wallet, until the page is loaded again without it.
 
 import { createAppKit, type AppKit } from "@reown/appkit";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
@@ -16,9 +20,10 @@ import { http } from "viem";
 import { toChecksumAddress } from "../../../shared/addresses.ts";
 import { chainInfo, isWalletChain, WALLET_CHAIN_NODE, WALLET_CHAINS } from "../../../shared/chains.ts";
 import { api } from "../api.ts";
+import { dropNaming, ghostHolds } from "../lib/kept.ts";
 import { isContractCode } from "../lib/swap-logic.ts";
 import { useApp } from "../stores/app.ts";
-import { noBalances, useWallet } from "../stores/wallet.ts";
+import { noBalances, useWallet, walletSoftwareArrived } from "../stores/wallet.ts";
 import { getTheme, onThemeChange } from "../theme.ts";
 import { checkedTransfer, type PayableOrder } from "./transfer.ts";
 import { sessionRights, WINDOW_FEATURES } from "./session.ts";
@@ -77,6 +82,7 @@ function transport(key: string) {
 
 /** Makes the wallet window, once. Every other function here waits for it. */
 function setUp(): Promise<{ kit: AppKit; wagmi: Config }> {
+  if (ghostHolds()) return Promise.reject(new Error("In Ghost mode no wallet is connected."));
   ready ??= create().catch((error: unknown) => {
     ready = null;
     throw error;
@@ -139,7 +145,8 @@ async function create(): Promise<{ kit: AppKit; wagmi: Config }> {
 
   // The rest of the site learns about the wallet from here, and only from here.
   const sync = () => {
-    if (wagmi === null) return;
+    // Once Ghost mode holds, the store has no wallet in it, whatever the library goes on to report.
+    if (wagmi === null || ghostHolds()) return;
     const account = getAccount(wagmi);
     if (account.status === "connected" && account.address !== undefined) {
       const address = toChecksumAddress(account.address);
@@ -207,15 +214,7 @@ export async function disconnect(): Promise<void> {
 
 /** Takes out of this browser's storage for this site every entry that still names the address. */
 function forget(address: string | null): void {
-  if (address === null) return;
-  const named = address.slice(2).toLowerCase();
-  for (const kept of [window.localStorage, window.sessionStorage]) {
-    try {
-      for (const key of Object.keys(kept)) if ((kept.getItem(key) ?? "").toLowerCase().includes(named)) kept.removeItem(key);
-    } catch {
-      // Storage that cannot be read holds nothing that can be taken out.
-    }
-  }
+  if (address !== null) dropNaming(address.slice(2));
 }
 
 /**
@@ -252,3 +251,6 @@ export function wasRejected(error: unknown): boolean {
   }
   return false;
 }
+
+// The store keeps hold of this file once it is in the page, so that a wallet can be let go of without anything being fetched.
+walletSoftwareArrived({ disconnect });
