@@ -30,7 +30,7 @@ import { PracticeLine } from "../components/PracticeLine.tsx";
 import { Notice } from "../components/Shell.tsx";
 import { QrCode } from "../components/QrCode.tsx";
 import { WalletPay } from "../components/WalletPay.tsx";
-import { awaitsDeposit, clockSpan, clockTime, ending, ENDED_AS, LOOK_FOR, endingSaid, firstSent, gasDue, gasKept, gasLookAgain, gasOrderOf, gasPlaced, gasPollDelay, gasWords, ghostLookAgain, lookAgain, pageTitle, payWindow, pollDelay, sendBy, tabTitle, timeline, TWO_TRANSFERS, type SaidEnding, type Step } from "../lib/order-logic.ts";
+import { awaitsDeposit, clockSpan, clockTime, ending, ENDED_AS, LOOK_FOR, endingSaid, firstSent, gasDue, gasKept, gasLookAgain, gasOrderFor, gasOrderOf, gasPlaced, gasPollDelay, gasWords, ghostLookAgain, lookAgain, pageTitle, payWindow, pollDelay, sendBy, tabTitle, timeline, TWO_TRANSFERS, type SaidEnding, type Step } from "../lib/order-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { aboutMinutes, appFeeWords, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
 import { navigate } from "../router.ts";
@@ -363,8 +363,12 @@ function Summary({ order, privacyMode, gas = false, beside = false }: { order: O
  * page is then all that is left of it, and says so; there is no link worth copying any more.
  * `ended` is whether the page had seen how the order ended before that. Where it had not, it says
  * that too, and where to look.
+ *
+ * `gasOpen`: the gas order made with it is still running, and is shown beneath. The link then still
+ * leads somewhere, to that gas order, until it has finished too: the note says so, and does not
+ * say that the page will not load again.
  */
-function GhostNote({ link, gone, ended, how }: { link: string; gone: boolean; ended: boolean; how: SaidEnding | null }) {
+function GhostNote({ link, gone, ended, how, gasOpen }: { link: string; gone: boolean; ended: boolean; how: SaidEnding | null; gasOpen: boolean }) {
   const mark = <Ghost className="order-ghost-mark" size={20} strokeWidth={1.5} aria-hidden="true" />;
   /** The note as it reads while the record is there. `unseen`: drawn without being shown, only to keep the room it took. */
   const kept = (unseen: boolean) => (
@@ -384,7 +388,7 @@ function GhostNote({ link, gone, ended, how }: { link: string; gone: boolean; en
           {mark}
           <div className="order-ghost-text">
             <p className="order-ghost-lead">This order has finished and its record has been deleted from the server.</p>
-            <p className="order-ghost-sub muted">This page is all that is left of it; it will not load again.</p>
+            <p className="order-ghost-sub muted">{gasOpen ? "Its gas order is still open, below. This page's link is the way back to it until that has finished too." : "This page is all that is left of it; it will not load again."}</p>
             {/* Where the page had not seen the order end, it says how it ended if the server still says so, and otherwise where to look. */}
             {ended ? null : <p className="order-ghost-sub muted">{how !== null ? LOOK_FOR[how] : "How it ended was not seen here. If you sent the deposit, look for the delivery at your receiving address, or for a refund at your refund address: both are in the order details below."}</p>}
           </div>
@@ -404,10 +408,13 @@ function GhostNote({ link, gone, ended, how }: { link: string; gone: boolean; en
  * of the chain's own coin arrives while it may still arrive, and the gas order's own state in plain
  * words. Where gas could not be added it is one sentence. Marked as a step is marked, so the two
  * read alike. Once delivered, its delivery is linked as the swap's is.
+ *
+ * `belongs` is false for a gas order that is not the swap's own: the line is then the one sentence
+ * that says so, and nothing of that order is drawn with it.
  */
-function GasRow({ gas, now, hasContact }: { gas: GasLine; now: number; hasContact: boolean }) {
-  const line = gasWords(gas, now, hasContact);
-  const order = gasOrderOf(gas);
+function GasRow({ gas, now, hasContact, belongs = true }: { gas: GasLine; now: number; hasContact: boolean; belongs?: boolean }) {
+  const line = gasWords(gas, now, hasContact, belongs);
+  const order = belongs ? gasOrderOf(gas) : null;
   return (
     <div className="gas-line" data-state={line.mark}>
       <StepMark state={line.mark} />
@@ -464,6 +471,12 @@ function GasPay({ gasOrder, now, onGas, held }: { gasOrder: OrderView; now: numb
  * it, unless the page knows better), and `onGas` takes a fresh view of that order. The gas order is
  * an order of its own and is shown as one: its line, its deposit and its hash field follow its own
  * state, whatever the swap's is, and stay when the swap's record has gone and its own has not.
+ *
+ * The page holds the pair to itself. The gas order it shows and takes payment for must be this
+ * swap's own: the same receiving address, the same refund address, the same coin paid, the swap's
+ * receiving chain (gasBelongs). One that is not is offered no way to be paid, here or from a wallet:
+ * no deposit, no pay step, no hash field. The gas line says that it does not match, and the swap
+ * itself is paid and followed as any order is.
  */
 export function OrderContent({
   order,
@@ -494,9 +507,11 @@ export function OrderContent({
   const end = ending(order, contact !== null, !gone);
   const awaitingDeposit = awaitsDeposit(order);
   const running = end === null;
-  // The gas order, where there is one, and whether it is still to be paid.
-  const gasOrder = gasOrderOf(gas);
+  // The gas order, where there is one and it is this swap's own, and whether it is still to be paid.
+  const gasOrder = gasOrderFor(order, gas);
   const gasAwaits = gasOrder !== null && awaitsDeposit(gasOrder);
+  // A gas order is known, and it is not this swap's: nothing of it is offered, and the gas line says so.
+  const mismatch = gasOrder === null && gasOrderOf(gas) !== null;
   // The swap's deposit is named as the swap's wherever the gas order's stands beside it.
   const part = gasAwaits ? "swap" : undefined;
   // A transfer this browser sent for the swap: in this visit, or (by its own note) an earlier one. The gas order's is asked of a wallet only after it.
@@ -544,7 +559,7 @@ export function OrderContent({
         )}
       </header>
 
-      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} how={how} /> : null}
+      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} how={how} gasOpen={gasOrder !== null && gasPollDelay(gas) !== null} /> : null}
 
       <p className="order-reconnecting" role="status">
         {reconnecting ? "Reconnecting… Showing what was last known." : " "}
@@ -618,7 +633,7 @@ export function OrderContent({
       {order.details !== null ? <TxLinks label="Delivery" txs={order.details.destinationTxs} /> : null}
 
       {/* The gas order's line comes after everything of the swap's own progress, its transactions included: what is under the line is the gas order's. */}
-      {gas !== null ? <GasRow gas={gas} now={now} hasContact={contact !== null} /> : null}
+      {gas !== null ? <GasRow gas={gas} now={now} hasContact={contact !== null} belongs={!mismatch} /> : null}
 
       {order.status === "waiting" && !gone ? <HashField order={order} onOrder={onOrder} part={gasOrder !== null ? "swap" : undefined} /> : null}
       {gasOrder !== null && gasOrder.status === "waiting" ? <HashField order={gasOrder} onOrder={onGas} part="gas" /> : null}
@@ -657,6 +672,10 @@ export function OrderDeleted({ ended = null }: { ended?: SaidEnding | null }) {
  * order made with that swap is still known: the gas order, in the order page's own frame. Nothing of
  * the swap is here, for nothing of it is kept. The link is still the one way back to the gas order,
  * so its line is here, and its deposit and hash field while it waits to be paid.
+ *
+ * Here the gas order cannot be held against its swap (gasBelongs): the server has deleted the
+ * swap's record and says nothing of it but how it ended, so there is nothing to compare with. What
+ * is shown is the gas order as the server gives it under the swap's own link.
  */
 export function GasAlone({ gas, now, reconnecting, contact, onGas, children }: { gas: GasLine; now: number; reconnecting: boolean; contact: string | null; onGas(order: OrderView): void; children?: React.ReactNode }) {
   const gasOrder = gasOrderOf(gas);

@@ -91,15 +91,14 @@ export function gasAmountOf(usd: GasSize, decimals: number, priceScaled: bigint 
 export const GAS_DRIFT_BPS = 1_000n;
 
 /**
- * Whether an amount of the paying coin is a gas order's amount: at the list's price now, worth no
- * less than the smallest size and no more than the largest, give or take the drift above. The
- * server asks this of the amount an order request names, so that "gas" is never a way to make a
- * second order of any size.
+ * Whether an amount of the paying coin is the amount of a gas order of `usd` dollars: at the list's
+ * price now, worth that size, give or take the drift above. The server asks this of the amount an
+ * order request names, with the size of the receiving chain, so that "gas" is never a way to make
+ * a second order of any size: not of a larger size than that chain's, and not of a smaller one.
  */
-export function isGasAmount(raw: bigint, decimals: number, priceScaled: bigint | null): boolean {
+export function isGasAmount(usd: GasSize, raw: bigint, decimals: number, priceScaled: bigint | null): boolean {
   if (priceScaled === null || priceScaled <= 0n || raw <= 0n) return false;
   const worth = usdScaled(raw, decimals, priceScaled);
-  const least = (BigInt(GAS_SIZES_USD[0]) * USD_SCALE * (10_000n - GAS_DRIFT_BPS)) / 10_000n;
-  const most = (BigInt(GAS_SIZES_USD[GAS_SIZES_USD.length - 1] ?? GAS_USD) * USD_SCALE * (10_000n + GAS_DRIFT_BPS)) / 10_000n;
-  return worth >= least && worth <= most;
+  const size = BigInt(usd) * USD_SCALE;
+  return worth >= (size * (10_000n - GAS_DRIFT_BPS)) / 10_000n && worth <= (size * (10_000n + GAS_DRIFT_BPS)) / 10_000n;
 }

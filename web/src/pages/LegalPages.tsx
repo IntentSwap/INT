@@ -255,6 +255,8 @@ export function PrivacyPage() {
         <ul>
           <li>
             <strong>NEAR Intents 1Click</strong>, which executes the swap. It receives the coins, the amount, the slippage limit, your receiving and refund addresses, when you pay from a connected wallet that wallet's address, and the deposit's transaction hash once the server knows it. The server also asks it how the order is getting on. It is asked for price previews as well, from the moment an amount is entered and before anything is confirmed: a preview carries the coins, the amount and the slippage limit, any receiving or refund address already typed in full, and a connected wallet's address when paying from the wallet is chosen and the wallet is on the paying chain.
+            {/* Only where Add gas is offered: its preview needs no amount, so it is asked for earlier than a quote is. */}
+            {privateOn ? <> Where gas can be added to a swap, a preview of the gas order is asked for as well, from the moment a valid receiving address is on the swap card and before any amount is entered: it carries the two coins and that address, and a refund address and a connected wallet's address in the same way.</> : null}
           </li>
           <li>
             <strong>Railway</strong>, which hosts the site and its data. Like any host, it stands in front of the server and may keep its own record of each request for its own period: the time, your full network address and the address requested. For an order's page that address contains the order's ID. IntentSwap's own logs never hold either in full.

@@ -542,8 +542,9 @@ describe("POST /api/orders with gas: two orders, each made by the one path", () 
   it("gas is never a way to make a second order of any size: an amount outside the band of a gas order is not made, and the swap is", async () => {
     const h = await start({ limits: WIDE });
     const gas = askedFor(await gasFor(h));
-    // Worth $50, $500, $11.01 and $2.69 at the list's $2,500, and one unit.
-    for (const [i, amount] of ["20000000000000000", "200000000000000000", "4404000000000000", "1076000000000000", "1"].entries()) {
+    // The receiving chain's size is $3. Worth $50, $500, $3.31 and $2.69 at the list's $2,500, and one unit; then the
+    // amounts of the larger sizes, $5, $10 and $11: a gas order is of its own chain's size, and of no other.
+    for (const [i, amount] of ["20000000000000000", "200000000000000000", "1324000000000000", "1076000000000000", "1", "2000000000000000", "4000000000000000", "4400000000000000"].entries()) {
       const before = live(h).length;
       const order = asOrder(await h.order({ ...PEOPLE, gas: { ...gas, amount } }, { ip: `198.51.100.${i + 1}` }));
       expect(order, amount).toMatchObject({ status: "waiting", amountIn: SWAP_AMOUNT, gas: { made: false } });
@@ -552,8 +553,8 @@ describe("POST /api/orders with gas: two orders, each made by the one path", () 
       expect(live(h).slice(before), amount).toMatchObject([{ destinationAsset: ASSET.arbUsdc }]);
       expect(logged(h, "gas_not_made").at(-1), amount).toMatchObject({ order: hashId(order.id), reason: "amount" });
     }
-    // The edges of the band are a gas order's: $2.70 and $11 (with numbers reviewed for that amount).
-    for (const [i, amount] of ["1080000000000000", "4400000000000000"].entries()) {
+    // The edges of the band are a gas order's: $2.70 and $3.30 (with numbers reviewed for that amount).
+    for (const [i, amount] of ["1080000000000000", "1320000000000000"].entries()) {
       // The numbers a preview of that amount would give: the practice provider's are in proportion.
       const scaled = (value: string) => ((BigInt(value) * BigInt(amount)) / BigInt(GAS_AMOUNT)).toString();
       const reviewed = { ...gas.reviewed, amountOut: scaled(gas.reviewed.amountOut), minAmountOut: scaled(gas.reviewed.minAmountOut) };
@@ -1053,6 +1054,36 @@ describe("the swap's page is told of its gas order, and the gas order opens by i
     expect(forGas.body).toMatchObject({ id: gasId, gasOrder: true, depositTxHash: txHash("gas deposit"), depositProven: true });
     expect("gas" in forGas.body).toBe(false);
     expect((await read(h, order.id)).gas).toMatchObject({ made: true, order: { depositTxHash: txHash("gas deposit"), depositProven: true } });
+  });
+
+  it("a swap whose payer is on the sanctions list is kept, and its gas order is kept with it: made in Ghost mode, neither record is deleted at its end", async () => {
+    const payer = address("listed payer");
+    const h = await start({ sanctions: createStaticSanctions([payer], { now: () => NOON }) });
+    const order = asOrder(await pair(h, { ghost: true }));
+    const gasId = gasIdOf(order.id);
+    const session = await h.session();
+    // A transaction is named for the swap that a listed wallet paid. It is refused and the swap is marked; its gas order is marked with it.
+    putMined(h.rpc, txHash("listed deposit"), { from: payer, to: order.depositAddress, value: `0x${BigInt(SWAP_AMOUNT).toString(16)}`, input: "0x" });
+    expect((await h.post(`/api/orders/${order.id}/deposit`, { txHash: txHash("listed deposit") }, { session })).status).toBe(403);
+    expect(record(h, order.id)).toMatchObject({ ghost: true, held: true });
+    expect(record(h, gasId)).toMatchObject({ ghost: true, gasOrder: true, held: true });
+    // The gas order is paid and delivered. A Ghost order's record would go at once; this one is kept, as its swap's is.
+    await deliver(h, gasId, record(h, gasId).depositAddress);
+    expect(record(h, gasId)).toMatchObject({ held: true, state: { status: "delivered" } });
+    expect(h.store.wiped(gasId)).toBeNull();
+  });
+
+  it("a gas order whose own payer is on the list is kept by itself: it leads back to no swap, and the swap is left as it was", async () => {
+    const payer = address("listed gas payer");
+    const h = await start({ sanctions: createStaticSanctions([payer], { now: () => NOON }) });
+    const order = asOrder(await pair(h));
+    const gasId = gasIdOf(order.id);
+    putMined(h.rpc, txHash("listed gas deposit"), { from: payer, to: record(h, gasId).depositAddress, value: `0x${BigInt(GAS_AMOUNT).toString(16)}`, input: "0x" });
+    expect((await h.post(`/api/orders/${gasId}/deposit`, { txHash: txHash("listed gas deposit") }, { session: await h.session() })).status).toBe(403);
+    expect(record(h, gasId)).toMatchObject({ gasOrder: true, held: true });
+    expect(record(h, order.id).held).toBeUndefined();
+    // Nothing was made or marked at the ID a gas order of the gas order would have.
+    expect(h.store.get(gasIdOf(gasId))).toBeNull();
   });
 
   it("a gas order is never found by its deposit address: before it is paid, while it is under way and once it is delivered, its address is answered as an address that is no order's", async () => {

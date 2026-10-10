@@ -1,6 +1,7 @@
 // Pure rules behind the order page: what each step says, what an ended order says, and when
 // to look again. No browser APIs here, so every rule is unit-tested.
 
+import { sameAddress } from "../../../shared/addresses.ts";
 import { displayExact } from "../../../shared/amounts.ts";
 import { isEndState, type GasLine, type OrderStatus, type OrderView } from "../../../shared/api.ts";
 import { chainName, DEPOSIT_CLOSE_MS } from "../../../shared/chains.ts";
@@ -381,8 +382,41 @@ export function awaitsDeposit(order: Pick<OrderView, "status" | "depositProven">
   return order.status === "waiting" || (order.status === "deposit_seen" && !order.depositProven);
 }
 
+/**
+ * Whether a gas order is this swap's own: another order than the swap, paid with the swap's coin,
+ * delivering the receiving chain's own coin (one with no contract) on the swap's receiving chain, to
+ * the swap's own receiving address, and refunded to the swap's own refund address.
+ *
+ * The server makes every gas order so, from the swap's own request, and nothing a request says can
+ * change it. The page holds the pair to it all the same: it never asks for a payment to a gas order
+ * that would deliver anywhere but where the swap delivers. Addresses are compared as addresses of
+ * their chain, so letter-case alone never parts a pair.
+ */
+export function gasBelongs(swap: Pick<OrderView, "id" | "from" | "to" | "recipient" | "refundTo">, gasOrder: Pick<OrderView, "id" | "from" | "to" | "recipient" | "refundTo">): boolean {
+  if (gasOrder.id === swap.id) return false;
+  if (gasOrder.from.id !== swap.from.id) return false;
+  if (gasOrder.to.chain !== swap.to.chain) return false;
+  if (gasOrder.to.contract !== null) return false;
+  if (!sameAddress(swap.to.chain, gasOrder.recipient, swap.recipient)) return false;
+  if (!sameAddress(swap.from.chain, gasOrder.refundTo, swap.refundTo)) return false;
+  return true;
+}
+
+/**
+ * The gas order a swap's page shows as that swap's and takes payment for: the one its gas line
+ * carries, where that is the swap's own (see gasBelongs). Null where the line carries none, and
+ * where the one it carries is not the swap's.
+ */
+export function gasOrderFor(swap: Parameters<typeof gasBelongs>[0], gas: GasLine | null | undefined): OrderView | null {
+  const order = gasOrderOf(gas);
+  return order !== null && gasBelongs(swap, order) ? order : null;
+}
+
 /** The one line a swap's page says when gas was asked for and could not be added. */
 export const GAS_NOT_ADDED = "Gas was not added. Your swap is unaffected.";
+
+/** The one line it says of a gas order that is not the swap's own. Nothing of that order is shown beside it, and no way to pay it. */
+export const GAS_MISMATCH = "The gas order shown does not match this swap, and nothing should be sent to the gas order.";
 
 /** What stands above the two deposits, the swap's and the gas's, when both are on show. */
 export const TWO_TRANSFERS = "These are two separate transfers. Send each to its own address; do not combine them.";
@@ -407,12 +441,15 @@ const GAS_ENDED: Record<SaidEnding, string> = { delivered: "Delivered", refunded
 /**
  * The gas line of a swap's page: the gas order's own state in plain words, whatever that state is.
  * `now` is the server's clock. A gas order that ran out with nothing sent to it says so, and that
- * nothing is lost: that is how it ends when only the swap was paid.
+ * nothing is lost: that is how it ends when only the swap was paid. `belongs` is false for a gas
+ * order that is not the swap's own (see gasBelongs): the line then says that, whatever state that
+ * order is in.
  */
-export function gasWords(gas: GasLine, now: number, hasContact = true): GasWords {
+export function gasWords(gas: GasLine, now: number, hasContact = true, belongs = true): GasWords {
   if (!gas.made) return { mark: "stopped", state: null, text: GAS_NOT_ADDED };
   // Made in Ghost mode and finished: one word is all the server still says of it.
   if (gas.order === null) return { mark: gas.ended === "delivered" ? "done" : "stopped", state: GAS_ENDED[gas.ended], text: `${ENDED_AS[gas.ended]} It was made in Ghost mode, so its record was deleted when it finished.` };
+  if (!belongs) return { mark: "stopped", state: null, text: GAS_MISMATCH };
   const order = gas.order;
   const from = order.from;
   const paid = (raw: string) => displayExact(BigInt(raw), from.decimals);
@@ -501,10 +538,11 @@ export function firstSent(swap: Pick<OrderView, "status" | "depositTxHash">, sen
  * What the gas order beside a swap still needs of the coin the swap is paid with, in the coin's
  * smallest unit: its whole amount while it waits with nothing sent to it, and nothing otherwise.
  * The pay button of the swap adds it to the swap's own amount when it checks the wallet's balance.
+ * Only the swap's own gas order counts: one paid with another coin, or not the swap's at all, is no part of it.
  */
-export function gasDue(swap: Pick<OrderView, "from">, gas: GasLine | null | undefined): bigint {
-  const order = gasOrderOf(gas);
-  if (order === null || order.from.id !== swap.from.id) return 0n;
+export function gasDue(swap: Parameters<typeof gasBelongs>[0], gas: GasLine | null | undefined): bigint {
+  const order = gasOrderFor(swap, gas);
+  if (order === null) return 0n;
   return order.status === "waiting" && order.depositsOpen && order.depositTxHash === null ? BigInt(order.amountIn) : 0n;
 }
 

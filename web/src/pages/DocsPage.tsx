@@ -667,6 +667,12 @@ function AddGas() {
             <strong>The swap is privately routed.</strong> Gas is offered only beside a privately routed swap.
           </li>
           <li>
+            <strong>A valid receiving address is on the card.</strong> Gas is for that address, so the switch arrives once it is entered.
+          </li>
+          <li>
+            <strong>The coin you pay with is not the receiving chain's own coin.</strong> An order cannot swap a coin for itself.
+          </li>
+          <li>
             <strong>The swap service will take the small order just then.</strong>
           </li>
         </ul>
@@ -703,7 +709,7 @@ function AddGas() {
       <DocSection title="Where the gas goes" id="where">
         <p>Always to the swap's receiving address. No other address can be given for it.</p>
         <p>
-          The gas order is only ever routed privately, like the swap beside it. So the gas arrives by the same private route, and a new wallet needs no funding from an old one. Its deposit and its delivery are still public transfers, as the swap's are. Private routing is not anonymity. <PrivateRoutingLink />
+          The gas order is only ever routed privately, like the swap beside it. So the gas arrives by the same private route, and a new wallet needs no funding from an old one. Its deposit and its delivery are still public transfers, as the swap's are. With gas there are two of each, close together in time: two deposits from the paying wallet, and two deliveries to the receiving address. Private routing is not anonymity. <PrivateRoutingLink />
         </p>
       </DocSection>
       <DocSection title="What it costs" id="cost">

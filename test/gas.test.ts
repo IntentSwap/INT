@@ -91,29 +91,45 @@ describe("the amount of a gas order", () => {
     for (const usd of GAS_SIZES_USD) {
       const amount = gasAmountOf(usd, 6, dollars(1));
       expect(amount).not.toBeNull();
-      expect(isGasAmount(amount ?? 0n, 6, dollars(1))).toBe(true);
+      expect(isGasAmount(usd, amount ?? 0n, 6, dollars(1))).toBe(true);
     }
   });
 
   it("allows for the price moving a little between the review and the order, and no more", () => {
     expect(GAS_DRIFT_BPS).toBe(1_000n);
-    // Worth $2.70 and $11.00 at the price now: the edges.
-    expect(isGasAmount(2_700_000n, 6, dollars(1))).toBe(true);
-    expect(isGasAmount(11_000_000n, 6, dollars(1))).toBe(true);
-    expect(isGasAmount(2_699_999n, 6, dollars(1))).toBe(false);
-    expect(isGasAmount(11_000_001n, 6, dollars(1))).toBe(false);
+    // Worth $2.70 and $3.30 at the price now: the edges of a three-dollar order.
+    expect(isGasAmount(3, 2_700_000n, 6, dollars(1))).toBe(true);
+    expect(isGasAmount(3, 3_300_000n, 6, dollars(1))).toBe(true);
+    expect(isGasAmount(3, 2_699_999n, 6, dollars(1))).toBe(false);
+    expect(isGasAmount(3, 3_300_001n, 6, dollars(1))).toBe(false);
+    // And of a ten-dollar one: $9 and $11.
+    expect(isGasAmount(10, 9_000_000n, 6, dollars(1))).toBe(true);
+    expect(isGasAmount(10, 11_000_000n, 6, dollars(1))).toBe(true);
+    expect(isGasAmount(10, 8_999_999n, 6, dollars(1))).toBe(false);
+    expect(isGasAmount(10, 11_000_001n, 6, dollars(1))).toBe(false);
+  });
+
+  it("is held to the size it is asked about: a larger size's amount is not a smaller size's, nor the other way round", () => {
+    expect(isGasAmount(3, 5_000_000n, 6, dollars(1))).toBe(false);
+    expect(isGasAmount(3, 10_000_000n, 6, dollars(1))).toBe(false);
+    expect(isGasAmount(5, 3_000_000n, 6, dollars(1))).toBe(false);
+    expect(isGasAmount(5, 10_000_000n, 6, dollars(1))).toBe(false);
+    expect(isGasAmount(10, 3_000_000n, 6, dollars(1))).toBe(false);
+    expect(isGasAmount(10, 5_000_000n, 6, dollars(1))).toBe(false);
   });
 
   it("is never a way to make a second order of any size", () => {
-    expect(isGasAmount(1_000_000_000n, 6, dollars(1))).toBe(false);
-    expect(isGasAmount(50_000_000n, 6, dollars(1))).toBe(false);
-    expect(isGasAmount(1n, 6, dollars(1))).toBe(false);
-    expect(isGasAmount(0n, 6, dollars(1))).toBe(false);
-    expect(isGasAmount(-3_000_000n, 6, dollars(1))).toBe(false);
+    for (const usd of GAS_SIZES_USD) {
+      expect(isGasAmount(usd, 1_000_000_000n, 6, dollars(1))).toBe(false);
+      expect(isGasAmount(usd, 50_000_000n, 6, dollars(1))).toBe(false);
+      expect(isGasAmount(usd, 1n, 6, dollars(1))).toBe(false);
+      expect(isGasAmount(usd, 0n, 6, dollars(1))).toBe(false);
+      expect(isGasAmount(usd, -3_000_000n, 6, dollars(1))).toBe(false);
+    }
   });
 
   it("is refused where the coin has no price to judge it by", () => {
-    expect(isGasAmount(3_000_000n, 6, null)).toBe(false);
-    expect(isGasAmount(3_000_000n, 6, 0n)).toBe(false);
+    expect(isGasAmount(3, 3_000_000n, 6, null)).toBe(false);
+    expect(isGasAmount(3, 3_000_000n, 6, 0n)).toBe(false);
   });
 });

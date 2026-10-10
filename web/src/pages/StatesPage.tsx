@@ -224,6 +224,7 @@ const GAS_ORDERS: Array<{ label: string; order: OrderView; gone?: boolean }> = [
   { label: "The gas failed", order: withGas({ made: true, order: gasOrder({ status: "failed", ...PAID, depositTxHash: GAS_HASH }) }, SWAPPING) },
   { label: "Made in Ghost mode: the gas order finished first, and its record is deleted", order: withGas({ made: true, order: null, ended: "delivered" }, { ...SWAPPING, ghost: true }) },
   { label: "Made in Ghost mode: the swap's record is deleted while the page shows it, the gas order still waiting", order: withGas({ made: true, order: gasOrder({ ghost: true }) }, { ...(ORDERS.find((sample) => sample.label === "Delivered")?.order ?? {}), ghost: true }), gone: true },
+  { label: "A gas order that is not this swap's own (it would deliver to another address): one sentence, and no way to pay it", order: withGas({ made: true, order: gasOrder({ recipient: STELLAR_ADDRESS }) }) },
   { label: "The gas order opened by its own ID", order: gasOrder() },
 ];
 

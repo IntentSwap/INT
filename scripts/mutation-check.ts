@@ -2,8 +2,9 @@
 // Every change is made in a throwaway copy of the project, never in the project
 // itself, so an interrupted run cannot leave a protection switched off.
 //
-//   npx tsx scripts/mutation-check.ts            every protection (about half an hour: the whole test suite runs once for each)
+//   npx tsx scripts/mutation-check.ts            every protection (some hours: the test suite runs once for each, up to its first failure)
 //   npx tsx scripts/mutation-check.ts verify     only those whose file or label contains "verify" (several words may be given)
+//   npx tsx scripts/mutation-check.ts --part=2/4 the second quarter of them, so that the list can be gone through as several runs side by side
 //
 // A protection that can be removed without any test failing is reported as MISSED.
 
@@ -506,7 +507,7 @@ const M: Mutation[] = [
   { file: "web/src/components/RecentList.tsx", find: "  if (ghost) return <RecentHidden />;\n", replace: "", label: "in Ghost mode the list of orders is never drawn, whoever asks for it" },
   { file: "web/src/pages/OrderPage.tsx", find: "It was made in Ghost mode, so its record was deleted when it finished. Nothing more is kept of it here.\n      </p>", replace: "It was made in Ghost mode, so its record was deleted when it finished. It was delivered to your receiving address.\n      </p>", label: "the notice for a finished Ghost mode order shows nothing of the order" },
   { file: "web/src/pages/OrderPage.tsx", find: "  if (deleted && order === null) return <OrderDeleted ended={endedAs} />;\n", replace: "", label: "a fresh load of a finished Ghost mode order's link gets the notice alone" },
-  { file: "web/src/pages/OrderPage.tsx", find: "      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} how={how} /> : null}", replace: "      {null}", label: "a Ghost mode order says on its own page that its link is the only way back" },
+  { file: "web/src/pages/OrderPage.tsx", find: "      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} how={how} gasOpen={gasOrder !== null && gasPollDelay(gas) !== null} /> : null}", replace: "      {null}", label: "a Ghost mode order says on its own page that its link is the only way back" },
   { file: "web/src/pages/OrderPage.tsx", find: "  const ghost = order.ghost === true || gone;", replace: "  const ghost = true;", label: "only a Ghost mode order carries the note" },
   { file: "web/src/pages/OrderPage.tsx", find: "      {gone ? (\n        // The record is gone, and the deposit address with it: nothing more may be sent there.\n        awaitingDeposit ? (\n          <DepositsClosed />\n        ) : null\n      ) : awaitingDeposit && order.pay", replace: "      {awaitingDeposit && order.pay", label: "a Ghost mode order whose record is gone shows no deposit address" },
   { file: "web/src/pages/OrderPage.tsx", find: "      {gone && running ? null : (", replace: "      {false ? null : (", label: "a Ghost mode order that was still running when its record went shows no steps" },
@@ -752,7 +753,7 @@ const M: Mutation[] = [
   { file: "server/app.ts", find: "          if (amount === null || amount <= 0n || gasSeen === null) throw", replace: "          if (amount === null || gasSeen === null) throw", label: "Add gas: a gas amount of nothing is no gas order" },
   { file: "server/app.ts", find: "input.amount.toString(), gas === null ? null : gas.amount.toString(), input.pay,", replace: "input.amount.toString(), input.pay,", label: "Add gas: a retry key is tied to the gas asked for with its request" },
   { file: "server/app.ts", find: "              const gasInput = gasInputFor(input, snapshot.tokens, gas.amount);", replace: "              const gasInput = gasInputFor({ ...input, ...(body.gas as Partial<QuoteInput>) }, snapshot.tokens, gas.amount);", label: "Add gas: the gas order is made from the swap's own input, and nothing a request says of it is read" },
-  { file: "server/app.ts", find: "              else if (!isGasAmount(gas.amount, input.from.decimals, input.from.priceScaled)) reason = \"amount\";\n", replace: "", label: "Add gas: gas is never a way to make a second order of any size" },
+  { file: "server/app.ts", find: "              else if (!isGasAmount(gasSizeFor(gasInput.to.chain), gas.amount, input.from.decimals, input.from.priceScaled)) reason = \"amount\";\n", replace: "", label: "Add gas: gas is never a way to make a second order of any size" },
   { file: "server/app.ts", find: "              else if (gas.seen.routing !== routingOf(\"basic\")) reason = \"routing\";\n", replace: "", label: "Add gas: a gas order that was not reviewed as privately routed is not asked of the provider" },
   { file: "server/app.ts", find: "              if (err instanceof HttpError) reason = err.code;\n              else log.error(\"gas_order_failed\", { order: hashId(swap.id), kind: errorKind(err) });", replace: "              throw err;", label: "Add gas: whatever stops the gas order, the swap is made and its request is answered" },
   { file: "server/app.ts", find: "              if (err instanceof HttpError) reason = err.code;\n", replace: "              if (err instanceof HttpError) reason = err.message;\n", label: "Add gas: the log says why a gas order was not made in a fixed word, never a sentence" },
@@ -809,7 +810,7 @@ const M: Mutation[] = [
   { file: "server/stats.ts", find: "...(held.gasOnly === true && held.swaps === 0 ? { gasOnly: true as const } : {}) });", replace: "...(held.gasOnly === true ? { gasOnly: true as const } : {}) });", label: "Add gas: a chain with swaps counted for it is a chain that was used, whatever its mark says" },
 
   // ---- Add gas, the order's page and the wallet ----
-  { file: "web/src/pages/OrderPage.tsx", find: "      {gas !== null ? <GasRow gas={gas} now={now} hasContact={contact !== null} /> : null}", replace: "      {null}", label: "Add gas: a swap's page has a line for its gas order" },
+  { file: "web/src/pages/OrderPage.tsx", find: "      {gas !== null ? <GasRow gas={gas} now={now} hasContact={contact !== null} belongs={!mismatch} /> : null}", replace: "      {null}", label: "Add gas: a swap's page has a line for its gas order" },
   { file: "web/src/lib/order-logic.ts", find: "  if (!gas.made) return { mark: \"stopped\", state: null, text: GAS_NOT_ADDED };", replace: "  if (!gas.made) return { mark: \"stopped\", state: null, text: \"\" };", label: "Add gas: a page says that gas was not added, and that the swap is unaffected" },
   { file: "web/src/lib/order-logic.ts", find: "text: `${ENDED_AS[gas.ended]} It was made in Ghost mode, so its record was deleted when it finished.` };", replace: "text: ENDED_AS[gas.ended] };", label: "Add gas: a finished Ghost mode gas order's line says that its record was deleted" },
   { file: "web/src/lib/order-logic.ts", find: "text: payWindow(order, now).open ? \"Waiting for its deposit.\" : \"Its deposit is closed. Checking whether one arrived.\" };", replace: "text: \"Waiting for its deposit.\" };", label: "Add gas: the gas line stops saying that it waits once its deposit is closed" },
@@ -851,7 +852,7 @@ const M: Mutation[] = [
   { file: "web/src/lib/order-logic.ts", find: "  if (input.balance !== null && input.balance < BigInt(input.order.amountIn) + (input.alsoDue ?? 0n)) return", replace: "  if (false) return", label: "Add gas: the balance check counts both amounts" },
   { file: "web/src/pages/OrderPage.tsx", find: "alsoDue={gasDue(order, gas)}", replace: "alsoDue={0n}", label: "Add gas: the swap's pay step is told what the gas order still needs" },
   { file: "web/src/lib/order-logic.ts", find: "  return order.status === \"waiting\" && order.depositsOpen && order.depositTxHash === null ? BigInt(order.amountIn) : 0n;", replace: "  return BigInt(order.amountIn);", label: "Add gas: a gas order already paid for is not counted against the balance" },
-  { file: "web/src/lib/order-logic.ts", find: "  if (order === null || order.from.id !== swap.from.id) return 0n;", replace: "  if (order === null) return 0n;", label: "Add gas: a gas order paid in another coin is not counted against this coin's balance" },
+  { file: "web/src/lib/order-logic.ts", find: "  const order = gasOrderFor(swap, gas);", replace: "  const order = gasOrderOf(gas);", label: "Add gas: a gas order paid in another coin, or not the swap's own, is not counted against the balance" },
   { file: "web/src/lib/order-logic.ts", find: "  if (phase === \"rejected\") return { text: `You cancelled in your wallet. Nothing was sent for the gas, and your swap is unaffected. ${left}`, tone: \"plain\" };\n", replace: "", label: "Add gas: declining the gas transfer says that the swap is unaffected" },
   { file: "web/src/lib/order-logic.ts", find: "  const left = `You can send the gas until ${until}. Left unpaid, the gas order runs out by itself and nothing is lost.`;", replace: "  const left = `You can send the gas until ${until}.`;", label: "Add gas: the second step says that a gas order left unpaid runs out with nothing lost" },
   { file: "web/src/components/WalletPay.tsx", find: "part === \"second\" ? gasPayMessage(phase, network, pendingMs, clockTime(sendBy(order))) : part === \"first\"", replace: "part === \"first\"", label: "Add gas: the second step speaks the gas order's own words" },
@@ -859,10 +860,36 @@ const M: Mutation[] = [
   { file: "web/src/lib/order-logic.ts", find: "  return order.gasOrder === true ? `Gas: ${orderTitle(order)}` : orderTitle(order);", replace: "  return orderTitle(order);", label: "Add gas: a gas order's own page says in its title that it is the gas order" },
   { file: "web/src/pages/OrderPage.tsx", find: "      <Summary order={order} privacyMode={privacyMode} gas={order.gasOrder === true} />", replace: "      <Summary order={order} privacyMode={privacyMode} />", label: "Add gas: a gas order's own page names its details as the gas order's" },
   { file: "web/src/pages/OrderPage.tsx", find: "onClick={() => void api.practice(gasOrder.id, action).catch(() => undefined)}", replace: "onClick={() => void api.practice(swap?.id ?? gasOrder.id, action).catch(() => undefined)}", label: "Add gas: the practice controls of the gas order act on the gas order" },
+  { file: "web/src/lib/order-logic.ts", find: "  if (gasOrder.id === swap.id) return false;\n", replace: "", label: "Add gas: a swap is never shown as its own gas order" },
+  { file: "web/src/lib/order-logic.ts", find: "  if (gasOrder.from.id !== swap.from.id) return false;\n", replace: "", label: "Add gas: a gas order paid with another coin is not the swap's" },
+  { file: "web/src/lib/order-logic.ts", find: "  if (gasOrder.to.chain !== swap.to.chain) return false;\n", replace: "", label: "Add gas: a gas order delivering on another chain is not the swap's" },
+  { file: "web/src/lib/order-logic.ts", find: "  if (gasOrder.to.contract !== null) return false;\n", replace: "", label: "Add gas: a gas order delivering anything but the chain's own coin is not the swap's" },
+  { file: "web/src/lib/order-logic.ts", find: "  if (!sameAddress(swap.to.chain, gasOrder.recipient, swap.recipient)) return false;\n", replace: "", label: "Add gas: a gas order delivering to another address is not the swap's" },
+  { file: "web/src/lib/order-logic.ts", find: "  if (!sameAddress(swap.from.chain, gasOrder.refundTo, swap.refundTo)) return false;\n", replace: "", label: "Add gas: a gas order refunded to another address is not the swap's" },
+  { file: "web/src/lib/order-logic.ts", find: "  return order !== null && gasBelongs(swap, order) ? order : null;", replace: "  return order;", label: "Add gas: only a gas order that is the swap's own is taken as its gas order" },
+  { file: "web/src/pages/OrderPage.tsx", find: "  const gasOrder = gasOrderFor(order, gas);", replace: "  const gasOrder = gasOrderOf(gas);", label: "Add gas: the page offers no way to pay a gas order that is not the swap's own" },
+  { file: "web/src/lib/order-logic.ts", find: "  if (!belongs) return { mark: \"stopped\", state: null, text: GAS_MISMATCH };\n", replace: "", label: "Add gas: the gas line says of a gas order that is not the swap's that nothing should be sent to it" },
+  { file: "web/src/pages/OrderPage.tsx", find: "  const mismatch = gasOrder === null && gasOrderOf(gas) !== null;", replace: "  const mismatch = false;", label: "Add gas: the page tells the gas line when the gas order shown is not the swap's" },
+  { file: "web/src/pages/OrderPage.tsx", find: "  const order = belongs ? gasOrderOf(gas) : null;", replace: "  const order = gasOrderOf(gas);", label: "Add gas: no link of a gas order that is not the swap's is drawn" },
+  { file: "web/src/pages/OrderPage.tsx", find: "{gasOpen ? \"Its gas order is still open, below. This page's link is the way back to it until that has finished too.\" : \"This page is all that is left of it; it will not load again.\"}", replace: "{\"This page is all that is left of it; it will not load again.\"}", label: "Add gas: a deleted swap's note does not say that the page will not load again while its gas order is still open" },
+  { file: "web/src/pages/OrderPage.tsx", find: "{gasOpen ? \"Its gas order is still open, below.", replace: "{true ? \"Its gas order is still open, below.", label: "Add gas: with no gas order open, a deleted swap's note reads as it always did" },
+  { file: "web/src/pages/OrderPage.tsx", find: "gasOpen={gasOrder !== null && gasPollDelay(gas) !== null}", replace: "gasOpen={gasPollDelay(gas) !== null}", label: "Add gas: a deleted swap's note points to a gas order only where that order is the swap's own" },
+  { file: "web/src/pages/OrderPage.tsx", find: " && gasPollDelay(gas) !== null} /> : null}", replace: "} /> : null}", label: "Add gas: once the gas order has ended too, a deleted swap's note is as it was" },
+  // ---- Add gas: what the security look added ----
+  { file: "server/app.ts", find: "              if (record.gasOrder !== true) store.hold(gasIdOf(record.id));\n", replace: "", label: "Add gas: a held swap's gas order is kept with it" },
+  { file: "shared/gas.ts", find: "  return worth >= (size * (10_000n - GAS_DRIFT_BPS)) / 10_000n && worth <= (size * (10_000n + GAS_DRIFT_BPS)) / 10_000n;", replace: "  return worth >= (BigInt(GAS_SIZES_USD[0]) * USD_SCALE * (10_000n - GAS_DRIFT_BPS)) / 10_000n && worth <= (10n * USD_SCALE * (10_000n + GAS_DRIFT_BPS)) / 10_000n;", label: "Add gas: a gas amount is held to its own chain's size, not to any size" },
 ];
 
-const only = process.argv.slice(2);
-const chosen = only.length === 0 ? M : M.filter((m) => only.some((word) => m.file.includes(word) || m.label.includes(word)));
+const args = process.argv.slice(2);
+const only = args.filter((arg) => !arg.startsWith("--part="));
+const named = only.length === 0 ? M : M.filter((m) => only.some((word) => m.file.includes(word) || m.label.includes(word)));
+// One part of several: every n-th protection, counted from the i-th. The parts together are the whole list, and no two share one.
+const part = /^--part=([1-9]\d*)\/([1-9]\d*)$/.exec(args.find((arg) => arg.startsWith("--part=")) ?? "");
+if (part === null && args.some((arg) => arg.startsWith("--part="))) {
+  console.error("mutation-check: a part is given as --part=2/4");
+  process.exit(2);
+}
+const chosen = part === null ? named : named.filter((_, index) => index % Number(part[2]) === Number(part[1]) - 1);
 const missed: string[] = [];
 const notFound: string[] = [];
 let caught = 0;
@@ -882,7 +909,8 @@ fs.symlinkSync(path.join(root, "node_modules"), path.join(copy, "node_modules"),
 process.on("exit", () => fs.rmSync(copy, { recursive: true, force: true }));
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => process.exit(130));
 
-const testsPass = () => spawnSync("npx", ["vitest", "run"], { cwd: copy, encoding: "utf8" }).status === 0;
+// A run ends at the first test that fails. One failure is all that is asked about, and a run that finds one early is many times shorter.
+const testsPass = () => spawnSync("npx", ["vitest", "run", "--bail=1"], { cwd: copy, encoding: "utf8" }).status === 0;
 
 // The suite must pass before anything is changed, or a failure would prove nothing.
 if (!testsPass()) {

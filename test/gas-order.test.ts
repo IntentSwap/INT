@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isEndState, routingOf, type GasLine, type OrderStatus, type OrderView } from "../shared/api.ts";
 import { PayPanel } from "../web/src/components/WalletPay.tsx";
-import { awaitsDeposit, firstPayMessage, firstSent, GAS_NOT_ADDED, gasDue, gasKept, gasLookAgain, gasOrderOf, gasPayMessage, gasPlaced, gasPollDelay, gasWords, lookAgain, pageTitle, payAction, payMessage, payWords, pollDelay, tabTitle, TWO_TRANSFERS } from "../web/src/lib/order-logic.ts";
+import { awaitsDeposit, firstPayMessage, firstSent, GAS_MISMATCH, GAS_NOT_ADDED, gasBelongs, gasDue, gasKept, gasLookAgain, gasOrderFor, gasOrderOf, gasPayMessage, gasPlaced, gasPollDelay, gasWords, lookAgain, pageTitle, payAction, payMessage, payWords, pollDelay, tabTitle, TWO_TRANSFERS } from "../web/src/lib/order-logic.ts";
 import { DepositDetails, GasAlone, OrderContent } from "../web/src/pages/OrderPage.tsx";
 import { useApp } from "../web/src/stores/app.ts";
 import { useGhost } from "../web/src/stores/ghost.ts";
@@ -43,6 +43,9 @@ const GAS_DEPOSIT = "0x49195b6fEBa539EA20481AE9049eFCc59145bB86";
 const SWAP_HASH = "0xb00c146bf7c9d9bc6303c3f011a766d66befeb47b4e9c2eba3112e496fbfa5af";
 const GAS_HASH = "0x7fce8ef002b9a1a7c746d08dbf4164b2771bc17a6e1eb742d7c0ef986bbc9a16";
 const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+/** Two more of each kind, for an order that goes somewhere else. */
+const OTHER_SOL = "G5pvsDJuFhwa5ddLvSodg5PDCfhGipPWURq6jGEoycpW";
+const OTHER_EVM = "0x3b1c431E2318a0aA3e5311caeC1EDe14F35e73F6";
 const NOW = Date.parse("2026-10-10T12:10:00.000Z");
 const SWAP_ID = "Ex4mpleSwapIdForTheGasTests";
 const GAS_ID = "Ex4mpleGasIdForTheGasTests0";
@@ -198,6 +201,9 @@ const SWAP_PANEL = '<section class="deposit" aria-labelledby="pay-title">';
 const GAS_PANEL = '<section class="deposit" aria-labelledby="gas-pay-title">';
 const GAS_LINE = '<div class="gas-line"';
 const gasRow = (markup: string) => element(markup, GAS_LINE);
+/** The note an order made in Ghost mode carries under its title, as it is seen: without the part drawn only to keep its room. */
+const UNSEEN = '<div class="order-ghost-state" data-unseen="true" aria-hidden="true" inert="">';
+const note = (markup: string) => element(markup.replace(element(markup, UNSEEN) || "\u0000", ""), '<div class="order-ghost" role="note">');
 
 beforeEach(() => vi.stubGlobal("window", { location: { origin: "https://intentswap.example", search: "" } }));
 afterEach(() => vi.unstubAllGlobals());
@@ -488,6 +494,46 @@ describe("a Ghost mode swap whose record is deleted while its gas order is still
     expect(waiting).not.toContain(SWAP_BLOCK);
     expect(waiting).not.toContain('id="tx-hash"');
     expect(waiting).toContain(GAS_BLOCK);
+  });
+
+  describe("the note of a swap whose record is deleted says the truth of its link", () => {
+    const ALL_THAT_IS_LEFT = "This order has finished and its record has been deleted from the server. This page is all that is left of it; it will not load again.";
+    const GAS_STILL_OPEN = "This order has finished and its record has been deleted from the server. Its gas order is still open, below. This page's link is the way back to it until that has finished too.";
+    const ENDING_NOT_SEEN = "How it ended was not seen here. If you sent the deposit, look for the delivery at your receiving address, or for a refund at your refund address: both are in the order details below.";
+    /** A delivered Ghost mode swap, with what is known of its gas order, on a page that was showing it when its record went. */
+    const gone = (gas?: GasLine, overrides: Partial<OrderView> = {}) => page(swap({ ghost: true, status: "delivered", ...PAID, depositTxHash: SWAP_HASH, ...(gas === undefined ? {} : { gas }), ...overrides }), { gone: true });
+
+    it("with no gas order known, it is all that is left and will not load again, as ever", () => {
+      expect(words(note(gone()))).toBe(ALL_THAT_IS_LEFT);
+      // Gas that was never added is no gas order, and one that has gone too leaves nothing to come back to but how it ended.
+      expect(words(note(gone({ made: false })))).toBe(ALL_THAT_IS_LEFT);
+      for (const ended of ["delivered", "refunded", "expired"] as const) expect(words(note(gone({ made: true, order: null, ended }))), ended).toBe(ALL_THAT_IS_LEFT);
+    });
+
+    it("while its gas order is still open beneath it, says that the link is the way back to that, and never that the page will not load again", () => {
+      for (const status of ["waiting", "deposit_seen", "swapping", "deposit_too_small"] as const) {
+        const markup = gone(line({ ghost: true, status, ...(status === "waiting" ? {} : PAID) }));
+        expect(words(note(markup)), status).toBe(GAS_STILL_OPEN);
+        expect(words(markup), status).not.toMatch(/will not load again|all that is left/);
+        // What it points to is there: the gas order's line, beneath.
+        expect(markup.indexOf(GAS_LINE), status).toBeGreaterThan(markup.indexOf('class="order-ghost"'));
+      }
+      expect(note(gone(line({ ghost: true })))).toContain('<p class="order-ghost-sub muted">Its gas order is still open, below. This page&#x27;s link is the way back to it until that has finished too.</p>');
+      // Where the page had not seen how the swap ended, it still says that, after it.
+      const unseen = page(swap({ ghost: true, status: "swapping", ...PAID, gas: line({ ghost: true }) }), { gone: true });
+      expect(words(note(unseen))).toBe(`${GAS_STILL_OPEN} ${ENDING_NOT_SEEN}`);
+    });
+
+    it("once the gas order has ended too, is as it was", () => {
+      for (const status of ["delivered", "refunded", "failed", "expired"] as const) expect(words(note(gone(line({ ghost: true, status, ...PAID })))), status).toBe(ALL_THAT_IS_LEFT);
+    });
+
+    it("says nothing of a gas order while the swap's own record is there, and points to none that is not the swap's own", () => {
+      const kept = page(withGas(line({ ghost: true }), { ghost: true }));
+      expect(words(note(kept))).toBe("This is the only way back to this order. It is not saved anywhere. Its record is deleted from this site's server the moment it is delivered or refunded. Copy link to this order");
+      expect(words(note(gone(line({ ghost: true, recipient: OTHER_SOL }))))).toBe(ALL_THAT_IS_LEFT);
+      expect(source("pages/OrderPage.tsx")).toContain("      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} how={how} gasOpen={gasOrder !== null && gasPollDelay(gas) !== null} /> : null}");
+    });
   });
 
   it("the page's clock runs on for a gas order that is still running, and stops with it", () => {
@@ -937,6 +983,111 @@ describe("paying a swap with gas from a connected wallet", () => {
   });
 });
 
+// ---- The pair, held to itself ----
+describe("the gas order shown beneath a swap must be that swap's own", () => {
+  const usdc = { id: "base:USDC", symbol: "USDC", name: "USD Coin", chain: "base", decimals: 6, contract: USDC_BASE };
+  /** Each way a gas order can fail to be this swap's, one thing at a time. */
+  const MISMATCHES: [string, Partial<OrderView>][] = [
+    ["another receiving address", { recipient: OTHER_SOL }],
+    ["another refund address", { refundTo: OTHER_EVM }],
+    ["paid with another coin", { from: usdc, amountIn: "3000000" }],
+    ["delivering on another chain", { to: { id: "arb:ETH", symbol: "ETH", name: "Ethereum", chain: "arb", decimals: 18, contract: null } }],
+    ["delivering a token, where the chain's own coin is due", { to: { id: "sol:USDC", symbol: "USDC", name: "USD Coin", chain: "sol", decimals: 6, contract: "y" } }],
+    ["the swap's own ID", { id: SWAP_ID }],
+  ];
+
+  it("is the swap's when it is another order, paid with the same coin, delivering the receiving chain's own coin to the same address, refunded to the same address", () => {
+    expect(gasBelongs(swap(), gasOrder())).toBe(true);
+    expect(gasOrderFor(swap(), line())?.id).toBe(GAS_ID);
+    for (const [what, change] of MISMATCHES) {
+      expect(gasBelongs(swap(), gasOrder(change)), what).toBe(false);
+      expect(gasOrderFor(swap(), line(change)), what).toBeNull();
+      // And it is no part of what the wallet must hold.
+      expect(gasDue(swap(), line(change)), what).toBe(0n);
+    }
+    // Whatever state either is in, and however it is paid, makes no difference to whose it is.
+    for (const status of STATUSES) expect(gasBelongs(swap({ status }), gasOrder({ status, pay: "wallet" })), status).toBe(true);
+    for (const none of [undefined, null, { made: false } as const, { made: true, order: null, ended: "delivered" } as const]) expect(gasOrderFor(swap(), none)).toBeNull();
+  });
+
+  it("compares addresses as addresses of their chain: letter-case alone never parts a pair, and only where the chain reads it so", () => {
+    // Receiving on a chain whose addresses read the same in either case, and refunded on one.
+    const toArb = swap({ to: { id: "arb:USDC", symbol: "USDC", name: "USD Coin", chain: "arb", decimals: 6, contract: "0xaf88d065e77c8cc2239327c5edb3a432268e5831" }, recipient: EVM_ADDRESS });
+    const gasOnArb = (change: Partial<OrderView> = {}) => gasOrder({ to: { id: "arb:ETH", symbol: "ETH", name: "Ethereum", chain: "arb", decimals: 18, contract: null }, recipient: EVM_ADDRESS, ...change });
+    expect(gasBelongs(toArb, gasOnArb())).toBe(true);
+    expect(gasBelongs(toArb, gasOnArb({ recipient: EVM_ADDRESS.toLowerCase(), refundTo: EVM_ADDRESS.toLowerCase() }))).toBe(true);
+    expect(gasBelongs(toArb, gasOnArb({ recipient: OTHER_EVM }))).toBe(false);
+    expect(gasBelongs(toArb, gasOnArb({ refundTo: OTHER_EVM }))).toBe(false);
+    // On Solana a letter in another case is another address.
+    expect(gasBelongs(swap(), gasOrder({ recipient: SOL_ADDRESS.toLowerCase() }))).toBe(false);
+  });
+
+  it("where it is not, the page offers no way to pay it: no deposit, no pay step, no hash field, and nothing of it but one sentence", () => {
+    expect(GAS_MISMATCH).toBe("The gas order shown does not match this swap, and nothing should be sent to the gas order.");
+    for (const [what, change] of MISMATCHES) {
+      const markup = page(withGas(line(change)));
+      expect(markup, what).not.toMatch(/gas-deposit-title|gas-pay-title|gas-tx-hash|pay-pair|Gas order details|gas-line-head/);
+      expect(gasRow(markup), what).toMatch(/^<div class="gas-line" data-state="stopped"><span class="step-mark" data-state="stopped">.*?<\/span><div class="step-body"><p class="step-text">The gas order shown does not match this swap, and nothing should be sent to the gas order\.<\/p><\/div><\/div>$/);
+      // Not its deposit address, not its amount to send, not its ID.
+      expect(addresses(markup), what).not.toContain(GAS_DEPOSIT);
+      expect(words(markup), what).not.toMatch(/0\.00118565|Gas deposit|Already sent the gas/);
+      if (change.id === undefined) expect(markup, what).not.toContain(GAS_ID);
+      // The swap itself is paid and followed as any order is.
+      expect(words(element(markup, SWAP_BLOCK)), what).toMatch(/^Send your deposit .* Amount 0\.5 ETH /);
+      expect(words(markup), what).toContain("Already sent? Add the transaction hash");
+      expect(markup.match(/<li class="step"/g), what).toHaveLength(4);
+    }
+  });
+
+  it("the same from a connected wallet: one transfer, the swap's, and no second step before or after it is sent", () => {
+    for (const [what, change] of MISMATCHES) {
+      // The wallet need hold the swap's amount and no more, and the step is no first of two.
+      const before = page(fromWallet(change), { wallet: holding(BigInt(SWAP_AMOUNT)) });
+      const panel = element(before, SWAP_PANEL);
+      expect(words(panel), what).toMatch(/^Pay from your wallet .* Your wallet will ask you to confirm one transfer and nothing else\./);
+      expect(payButton(panel), what).toEqual({ label: "Send 0.5 ETH", disabled: false });
+      expect(before, what).not.toMatch(/gas-pay-title|gas-deposit-title|gas-tx-hash/);
+      expect(before.match(/<button type="button" class="button-primary"/g), what).toHaveLength(1);
+      // Once the swap's transfer is sent, and once the swap has moved on, there is still nothing to send for it.
+      for (const later of [{ depositTxHash: SWAP_HASH }, { status: "swapping" as const, ...PAID, depositTxHash: SWAP_HASH }]) {
+        const after = page(fromWallet(change, later), { wallet: RICH });
+        expect(after, what).not.toMatch(/gas-pay-title|gas-deposit-title|gas-tx-hash|Now send the gas/);
+        expect(addresses(after), what).not.toContain(GAS_DEPOSIT);
+        expect(words(gasRow(after)), what).toBe(`Stopped: ${GAS_MISMATCH}`);
+      }
+    }
+  });
+
+  it("says so whatever state that gas order is in, and draws no link of it", () => {
+    for (const status of STATUSES) expect(gasWords(line({ status, recipient: OTHER_SOL }), NOW, true, false), status).toEqual({ mark: "stopped", state: null, text: GAS_MISMATCH });
+    // Where gas was not added, or the gas order is gone, there is nothing to hold against the swap, and the line says what it always says.
+    expect(gasWords({ made: false }, NOW, true, false).text).toBe(GAS_NOT_ADDED);
+    expect(gasWords({ made: true, order: null, ended: "delivered" }, NOW, true, false).state).toBe("Delivered");
+    const delivery = "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW";
+    const done = line({ status: "delivered", ...PAID, recipient: OTHER_SOL, depositTxHash: GAS_HASH, depositTxUrl: `https://basescan.org/tx/${GAS_HASH}`, details: details({ destinationTxs: [{ hash: delivery, url: `https://solscan.io/tx/${delivery}` }] }) });
+    const row = gasRow(page(withGas(done, { status: "delivered", ...PAID })));
+    expect(words(row)).toBe(`Stopped: ${GAS_MISMATCH}`);
+    expect(row).not.toMatch(/order-tx|href=/);
+  });
+
+  it("a matching pair is as it was, and the page asks the rule before it shows anything of the gas order", () => {
+    const markup = page(withGas(line()));
+    expect(markup).toContain(GAS_BLOCK);
+    expect(markup).toContain('id="gas-tx-hash"');
+    expect(words(gasRow(markup))).toBe("Now: Gas about 0.02014 SOL 0.02014531 SOL Waiting Waiting for its deposit.");
+    const code = source("pages/OrderPage.tsx");
+    expect(code).toContain("  const gasOrder = gasOrderFor(order, gas);\n  const gasAwaits = gasOrder !== null && awaitsDeposit(gasOrder);");
+    expect(code).toContain("  const mismatch = gasOrder === null && gasOrderOf(gas) !== null;");
+    expect(code).toContain("      {gas !== null ? <GasRow gas={gas} now={now} hasContact={contact !== null} belongs={!mismatch} /> : null}");
+    // Everything that could ask for a payment to the gas order is drawn from that one checked order.
+    for (const drawn of ["{gasOrder !== null && gasAwaits ? <GasPay gasOrder={gasOrder}", '{gasOrder !== null && gasOrder.status === "waiting" ? <HashField order={gasOrder}', "{gasOrder !== null ? <Summary order={gasOrder}"]) expect(code, drawn).toContain(drawn);
+    // A page that was showing the swap when its record went still holds the gas order against what it last showed of the swap.
+    const gone = page(withGas(line({ ghost: true, recipient: OTHER_SOL }), { ghost: true, status: "delivered", ...PAID }), { gone: true });
+    expect(gone).not.toMatch(/gas-deposit-title|gas-tx-hash/);
+    expect(words(gasRow(gone))).toBe(`Stopped: ${GAS_MISMATCH}`);
+  });
+});
+
 // ---- Ghost mode ----
 describe("a swap with gas in Ghost mode", () => {
   it("is paid by deposit address, both orders: no step that would reach for a wallet is drawn for either", () => {
@@ -1087,6 +1238,9 @@ describe("the page of component states", () => {
     expect(words(group)).toContain("Gas Ran out It ran out unpaid: nothing was sent to it and nothing is lost.");
     expect(group).toContain('<h1 id="order-title" class="order-title">Gas: 0.00118565 ETH to SOL</h1>');
     expect(group).toContain('<section class="order" aria-labelledby="gas-alone-title">');
+    // The two that are never meant to be seen on the live site: a gas order that is not the swap's, and the note of a deleted swap whose gas order is still open.
+    expect(group).toContain(`<p class="step-text">${GAS_MISMATCH}</p>`);
+    expect(words(group)).toContain("Its gas order is still open, below. This page's link is the way back to it until that has finished too.");
     // The two steps of paying from a wallet, among the states of the pay step.
     expect(words(html)).toContain("Send the swap: 1 of 2");
     expect(words(html)).toContain("Now send the gas: 2 of 2");

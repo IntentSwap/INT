@@ -219,11 +219,13 @@ describe("the Docs' page on Add gas", () => {
   it("says when the switch is there, and that where it is not offered there is none", () => {
     const markup = draw(gasDocs);
     const when = section(markup, "when");
-    expect(markup.match(/<h2 id="when"[\s\S]*?<\/ul>/)?.[0].match(/<li>/g)).toHaveLength(3);
+    expect(markup.match(/<h2 id="when"[\s\S]*?<\/ul>/)?.[0].match(/<li>/g)).toHaveLength(5);
     for (const sentence of [
       "The switch is on the swap card, under the receiving address. It is offered when all of these are so:",
       "The coin you receive is not its chain's own coin. USDC on Solana is one such: fees there are paid in SOL.",
       "The swap is privately routed. Gas is offered only beside a privately routed swap.",
+      "A valid receiving address is on the card. Gas is for that address, so the switch arrives once it is entered.",
+      "The coin you pay with is not the receiving chain's own coin. An order cannot swap a coin for itself.",
       "The swap service will take the small order just then.",
       "Where it is not offered, there is no switch.",
     ])
@@ -258,7 +260,7 @@ describe("the Docs' page on Add gas", () => {
   it("says that the gas goes only to the swap's receiving address, only ever by private routing, and that this is not anonymity", () => {
     const markup = draw(gasDocs);
     expect(section(markup, "where")).toBe(
-      "Where the gas goes Always to the swap's receiving address. No other address can be given for it. The gas order is only ever routed privately, like the swap beside it. So the gas arrives by the same private route, and a new wallet needs no funding from an old one. Its deposit and its delivery are still public transfers, as the swap's are. Private routing is not anonymity. How private routing works",
+      "Where the gas goes Always to the swap's receiving address. No other address can be given for it. The gas order is only ever routed privately, like the swap beside it. So the gas arrives by the same private route, and a new wallet needs no funding from an old one. Its deposit and its delivery are still public transfers, as the swap's are. With gas there are two of each, close together in time: two deposits from the paying wallet, and two deliveries to the receiving address. Private routing is not anonymity. How private routing works",
     );
     expect(markup).toMatch(/<h2 id="where"[\s\S]*?<a href="\/docs\/private">How private routing works<\/a>/);
   });
@@ -441,7 +443,7 @@ describe("what the site says of Add gas, taken together", () => {
     expect(words(body(draw(gasDocs)))).toContain("So the gas arrives by the same private route, and a new wallet needs no funding from an old one.");
     expect(FAQ_ANSWER).toContain("by the same private route as the swap, so the new wallet needs no funding from an old one");
     // Wherever a page speaks of that route, the same page says that private routing is not anonymity, and that both ends are still public.
-    expect(words(body(draw(gasDocs)))).toContain("Its deposit and its delivery are still public transfers, as the swap's are. Private routing is not anonymity.");
+    expect(words(body(draw(gasDocs)))).toContain("Its deposit and its delivery are still public transfers, as the swap's are. With gas there are two of each, close together in time: two deposits from the paying wallet, and two deliveries to the receiving address. Private routing is not anonymity.");
     for (const page of [faq, docsPage("faq"), home]) expect(words(draw(page))).toContain("Private routing is not anonymity");
     // A check that can fail.
     for (const sentence of [
