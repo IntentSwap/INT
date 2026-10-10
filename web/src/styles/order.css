@@ -533,3 +533,73 @@
 .order-title-row .order-title {
   min-width: 0;
 }
+
+/* ---- An order made in Ghost mode: its own note, under its title ----
+   Drawn as the page's other notes are, with a rule down its side and a quiet tint, and in no
+   warning colour: it states a fact about the order, it does not warn. The words, and beside them
+   the button that copies the link; on a phone the button sits under the words, at their left edge.
+
+   What the note says and (once the order's record is gone) what it said before, unseen, lie in the
+   same place: the note is as tall as the taller of the two, so its words can change without
+   anything under it moving. */
+.order-ghost {
+  display: grid;
+  padding: var(--space-12) var(--space-16);
+  border-left: var(--rule-height) solid var(--border-strong);
+  border-radius: 0 var(--radius-8) var(--radius-8) 0;
+  background: var(--tint-neutral);
+}
+
+.order-ghost-state {
+  grid-area: 1 / 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: start;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.order-ghost-state[data-unseen] {
+  visibility: hidden;
+}
+
+.order-ghost-mark {
+  color: var(--text-muted);
+}
+
+.order-ghost-text {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.order-ghost-lead {
+  font-weight: var(--weight-500);
+  text-wrap: pretty;
+}
+
+.order-ghost-sub {
+  text-wrap: pretty;
+}
+
+.order-ghost-state .button-chip {
+  grid-column: 2;
+  justify-self: start;
+}
+
+@media (min-width: 480px) {
+  .order-ghost-state {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .order-ghost-state .button-chip {
+    grid-column: 3;
+    align-self: center;
+  }
+
+  /* Where the lines are long enough, the first sentence is set as two even lines. */
+  .order-ghost-lead {
+    text-wrap: balance;
+  }
+}

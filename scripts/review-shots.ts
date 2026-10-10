@@ -411,7 +411,7 @@ const SCENARIOS: Scenario[] = [
       // The section's own heading. (The stage above it has an item of the same name.)
       await page.getByRole("heading", { name: "The $INT token", level: 2 }).waitFor();
       const items = await page.locator(".stage-tab-title").allInnerTexts();
-      if (items.length !== 4 || items[3]?.trim() !== "The $INT token") throw new Error(`with the token set the stage's items are ${JSON.stringify(items)}`);
+      if (items.length !== 5 || items[4]?.trim() !== "The $INT token") throw new Error(`with the token set the stage's items are ${JSON.stringify(items)}`);
     },
   },
   {
@@ -516,6 +516,7 @@ const SCENARIOS: Scenario[] = [
     [
       ["refunds", "Refunds and deadlines"],
       ["safety", "Staying safe"],
+      ["ghost-mode", "Ghost mode"],
       ["rewards", "Points and weekly rewards"],
       ["faq", "Questions"],
     ] as const

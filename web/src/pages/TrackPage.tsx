@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api.ts";
 import { PrimaryButton } from "../components/Button.tsx";
-import { RecentList } from "../components/RecentList.tsx";
+import { RecentHidden, RecentList } from "../components/RecentList.tsx";
 import { Reveal } from "../components/Reveal.tsx";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { statsPageOn } from "../lib/stats-logic.ts";
 import { findOrder, readTrackInput, TRACK_WORDS, type TrackOutcome } from "../lib/track-logic.ts";
 import { navigate } from "../router.ts";
 import { useApp } from "../stores/app.ts";
+import { useGhost } from "../stores/ghost.ts";
 import { useOrders } from "../stores/orders.ts";
 import "../styles/home.css";
 
@@ -23,6 +24,7 @@ function outcome(error: unknown): TrackOutcome {
 /**
  * One field: an order's link or ID, or the deposit address that was paid. It leads to that order's
  * page and shows nothing itself. Under it, the orders made in this browser, when there are any.
+ * In Ghost mode that list is not drawn, whatever this browser holds: one line stands in its place.
  */
 export default function TrackPage() {
   const [text, setText] = useState("");
@@ -35,6 +37,8 @@ export default function TrackPage() {
   const privateOn = useApp((state) => isPrivateMode(state.config));
   // Where the Stats page lists deposits, a delivered order is not found from its deposit address either.
   const statsOn = useApp((state) => statsPageOn(state.config));
+  // Known from the first drawing, so the page is drawn once, with the list or with the line.
+  const ghost = useGhost((state) => state.on);
   // Grow with the text, so that what was pasted wraps instead of running out of sight.
   useEffect(() => {
     const element = area.current;
@@ -55,7 +59,8 @@ export default function TrackPage() {
         api
           .order(id, AbortSignal.timeout(15_000))
           .then((): TrackOutcome => ({ kind: "found", id }))
-          .catch(outcome),
+          // An order made in Ghost mode that has finished: its own page says so, and that is where this leads.
+          .catch((error: unknown) => (error instanceof ApiError && error.code === "order_deleted" ? { kind: "found", id } : outcome(error))),
       byAddress: (address) =>
         api
           .track(address)
@@ -75,7 +80,7 @@ export default function TrackPage() {
           Track an order
         </h1>
         <p className="focus-lead muted">
-          Paste the order's link or ID, or the deposit address you sent to. It opens that order's page.{privateOn && statsOn ? <> A privately routed order, and any order once it has been delivered, opens from its link or ID only.</> : privateOn ? <> A privately routed order opens from its link or ID only.</> : statsOn ? <> Once an order has been delivered, it opens from its link or ID only.</> : null}
+          Paste the order's link or ID, or the deposit address you sent to. It opens that order's page.{privateOn && statsOn ? <> A privately routed order, and any order once it has been delivered, opens from its link or ID only.</> : privateOn ? <> A privately routed order opens from its link or ID only.</> : statsOn ? <> Once an order has been delivered, it opens from its link or ID only.</> : null} An order made in Ghost mode opens from its own link only.
         </p>
       </Reveal>
       {/* The one thing on the page: a field, with a soft light behind it. */}
@@ -120,8 +125,10 @@ export default function TrackPage() {
           </PrimaryButton>
         </form>
       </div>
-      {/* The orders made in this browser. Not drawn at all while there are none. */}
-      {orders.length > 0 ? (
+      {/* The orders made in this browser. Not drawn at all while there are none, and never in Ghost mode. */}
+      {ghost ? (
+        <RecentHidden />
+      ) : orders.length > 0 ? (
         <section className="track-recent" aria-labelledby="track-recent-title">
           <h2 id="track-recent-title" className="track-recent-title">
             Orders made in this browser

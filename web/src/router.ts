@@ -48,7 +48,8 @@ export function matchRoute(pathname: string): Route {
   if (order) return { page: "order", id: order[1] ?? "" };
   if (pathname === "/track") return { page: "track" };
   if (pathname === "/docs") return { page: "docs", slug: null };
-  const doc = /^\/docs\/([a-z]+)$/.exec(pathname);
+  // A page's own part of the address is one word, or words joined by single hyphens ("ghost-mode").
+  const doc = /^\/docs\/([a-z]+(?:-[a-z]+)*)$/.exec(pathname);
   if (doc && isDocSlug(doc[1] ?? "")) return { page: "docs", slug: doc[1] as DocSlug };
   if (pathname === "/rewards") return { page: "rewards" };
   if (pathname === "/stats") return { page: "stats" };

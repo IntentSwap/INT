@@ -804,7 +804,7 @@ describe("site serving", () => {
   });
 
   it("serves the app shell for its own routes", async () => {
-    for (const route of ["/", "/track", "/docs", "/docs/fees", "/docs/chains", "/docs/refunds", "/docs/safety", "/docs/rewards", "/docs/faq", "/rewards", "/terms", "/privacy", `/order/${"A".repeat(27)}`]) {
+    for (const route of ["/", "/track", "/docs", "/docs/fees", "/docs/chains", "/docs/refunds", "/docs/safety", "/docs/ghost-mode", "/docs/rewards", "/docs/faq", "/rewards", "/terms", "/privacy", `/order/${"A".repeat(27)}`]) {
       const res = await fetch(url + route);
       expect(res.status, route).toBe(200);
       expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
@@ -1020,8 +1020,10 @@ describe("site serving", () => {
     expect(page.body).toContain('<div id="root">');
     // Its address is exact, and it brings no other page with it.
     for (const near of ["/docs/private/", "/docs/Private", "/docs/private/more", "/docs/privately", "/private", "/states", "/token"]) expect((await answer({ privateRouting: true }, near)).status, near).toBe(404);
-    // Every other page of the documentation is there either way.
-    for (const privateRouting of [false, true]) for (const route of ["/docs", "/docs/fees", "/docs/chains", "/docs/refunds", "/docs/safety", "/docs/rewards", "/docs/faq"]) expect((await answer({ privateRouting }, route)).status, route).toBe(200);
+    // Every other page of the documentation is there either way, the page on Ghost mode among them.
+    for (const privateRouting of [false, true]) for (const route of ["/docs", "/docs/fees", "/docs/chains", "/docs/refunds", "/docs/safety", "/docs/ghost-mode", "/docs/rewards", "/docs/faq"]) expect((await answer({ privateRouting }, route)).status, route).toBe(200);
+    // Its address is exact too.
+    for (const privateRouting of [false, true]) for (const near of ["/docs/ghost", "/docs/ghost-mode/", "/docs/Ghost-mode", "/docs/ghost-modes", "/ghost-mode"]) expect((await answer({ privateRouting }, near)).status, near).toBe(404);
   });
 
   it("the server tells the site which it is: the page it serves and the settings it gives agree", async () => {

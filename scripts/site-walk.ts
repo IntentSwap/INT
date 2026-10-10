@@ -177,11 +177,11 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     }).length);
     expectThat(boxed === 0, `${boxed} of the facts, statements and questions have a border on all four sides`);
 
-    // What IntentSwap does: one stage, three things (four once the token has an address), one on show at a time.
+    // What IntentSwap does: one stage, four things (five once the token has an address), one on show at a time.
     const stage = desk.locator(".stage");
     await stage.scrollIntoViewIfNeeded();
     const tabs = stage.getByRole("tab");
-    expectThat(JSON.stringify(await stage.locator(".stage-tab-title").allInnerTexts()) === JSON.stringify(["Cross-chain swaps", "Order tracking and automatic refunds", "Points and weekly rewards"]), `the stage's items are ${JSON.stringify(await stage.locator(".stage-tab-title").allInnerTexts())}`);
+    expectThat(JSON.stringify(await stage.locator(".stage-tab-title").allInnerTexts()) === JSON.stringify(["Cross-chain swaps", "Order tracking and automatic refunds", "Points and weekly rewards", "Ghost mode"]), `the stage's items are ${JSON.stringify(await stage.locator(".stage-tab-title").allInnerTexts())}`);
     expectThat((await stage.getByText(/^(Live|Planned|Paused|Soon)$/).count()) === 0, "an item of the stage carries a tag");
     const onShow = async () => (await stage.locator('.stage-panel[data-active] .stage-title').innerText()).trim();
     const selected = async () => tabs.evaluateAll((all) => all.findIndex((tab) => tab.getAttribute("aria-selected") === "true"));
@@ -203,9 +203,9 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     await stage.getByRole("button", { name: "Previous" }).click();
     await desk.waitForTimeout(800);
     expectThat((await onShow()) === "Order tracking and automatic refunds", `after Previous the stage shows "${await onShow()}"`);
-    // The arrow keys, on its row of items: right, right (round to the first), left (round to the last), Home.
+    // The arrow keys, on its row of items: right, right, right (round to the first), left (round to the last), Home.
     await tabs.nth(1).focus();
-    for (const [key, title] of [["ArrowRight", "Points and weekly rewards"], ["ArrowRight", "Cross-chain swaps"], ["ArrowLeft", "Points and weekly rewards"], ["Home", "Cross-chain swaps"]] as const) {
+    for (const [key, title] of [["ArrowRight", "Points and weekly rewards"], ["ArrowRight", "Ghost mode"], ["ArrowRight", "Cross-chain swaps"], ["ArrowLeft", "Ghost mode"], ["Home", "Cross-chain swaps"]] as const) {
       await desk.keyboard.press(key);
       await desk.waitForTimeout(700);
       expectThat((await onShow()) === title, `after ${key} the stage shows "${await onShow()}", not "${title}"`);
@@ -265,7 +265,7 @@ export async function siteWalk(browser: Browser, options: { baseUrl: string; pra
     const [contentsBox, docsBody, hereBox] = [await contents.boundingBox(), await boxOf(desk, ".docs-body"), await here.boundingBox()];
     expectThat(contentsBox !== null && docsBody !== null && hereBox !== null && contentsBox.x + contentsBox.width <= docsBody.x && docsBody.x + docsBody.width <= hereBox.x, "on a wide screen the docs are not laid out as contents, text, this page's headings");
     expectThat(docsBody !== null && docsBody.width <= 600, `the docs' reading column is ${Math.round(docsBody?.width ?? 0)} px wide: too long a line to read`);
-    expectThat(JSON.stringify(await contents.locator(".docs-page-link").allInnerTexts()) === JSON.stringify(["How it works", "Fees", "Supported chains", "Refunds and deadlines", "Staying safe", "Points and weekly rewards", "Questions", "Terms of Use", "Privacy Policy"]), `the docs' contents are ${JSON.stringify(await contents.locator(".docs-page-link").allInnerTexts())}`);
+    expectThat(JSON.stringify(await contents.locator(".docs-page-link").allInnerTexts()) === JSON.stringify(["How it works", "Fees", "Supported chains", "Refunds and deadlines", "Staying safe", "Ghost mode", "Points and weekly rewards", "Questions", "Terms of Use", "Privacy Policy"]), `the docs' contents are ${JSON.stringify(await contents.locator(".docs-page-link").allInnerTexts())}`);
     expectThat((await contents.locator('.docs-page-link[aria-current="page"]').innerText()) === "How it works", "the docs' contents do not mark the page being read");
     // Next, at the foot of the page, leads to the next page; Previous leads back.
     await desk.getByRole("navigation", { name: "More pages" }).getByRole("link", { name: /Next/ }).click();

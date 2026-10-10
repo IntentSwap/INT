@@ -1,4 +1,5 @@
 import { chainName } from "../../../shared/chains.ts";
+import { useGhost } from "../stores/ghost.ts";
 import type { RecentOrder } from "../stores/orders.ts";
 import { SecondaryButton } from "./Button.tsx";
 import { CoinIcon } from "./CoinIcon.tsx";
@@ -11,8 +12,18 @@ function when(iso: string): string {
   return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}, ${two(date.getHours())}:${two(date.getMinutes())}`;
 }
 
-/** The orders made in this browser, newest first, or the one line that says there are none. The list is kept in this browser and nowhere else. It is shown on the Track order page. */
+/** What stands in the list's place while Ghost mode is on: one quiet line, and nothing of any order. */
+export function RecentHidden() {
+  return <p className="recent-hidden muted">Orders made in this browser are not shown in Ghost mode.</p>;
+}
+
+/**
+ * The orders made in this browser, newest first, or the one line that says there are none. The list is kept in this browser and nowhere else. It is shown on the Track order page.
+ * In Ghost mode it is not drawn at all, whoever asks for it: no row, no count, no "Clear history".
+ */
 export function RecentList({ orders, onOpen, onClear }: { orders: RecentOrder[]; onOpen(id: string): void; onClear(): void }) {
+  const ghost = useGhost((state) => state.on);
+  if (ghost) return <RecentHidden />;
   return (
     <div className="recent">
       {orders.length === 0 ? (

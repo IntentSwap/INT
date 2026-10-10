@@ -662,6 +662,19 @@
   animation: art-land var(--motion-draw) var(--ease-out) calc(var(--motion-base) + var(--motion-draw) / 2) both;
 }
 
+/* Three kept things go out one after another, leaving the dashed outline of where each stood; the ghost comes up beside them. */
+.art-kept[data-kept="1"] {
+  --i: 1;
+}
+
+.art-kept[data-kept="2"] {
+  --i: 2;
+}
+
+.stage[data-seen] [data-active] .art-kept {
+  animation: art-off var(--motion-base) var(--ease-out) calc(var(--motion-base) + var(--stagger) * 3 * var(--i)) both;
+}
+
 /* ---- How it works: three steps, a line drawn between them, and one drawing lit part by part ---- */
 .how {
   display: grid;
@@ -1035,6 +1048,12 @@
   padding: 0;
 }
 
+/* In Ghost mode the list is not drawn: one quiet line stands where it would be. */
+.recent-hidden {
+  max-width: var(--prose-width);
+  text-wrap: pretty;
+}
+
 /* ---- The Help button ----
    It floats in the corner of every page at every width: as an icon below 1024 px, with its label
    above that. Two exceptions, both on a phone, both because it must never lie over a control or
@@ -1335,6 +1354,7 @@
   .stage[data-seen] [data-active] .art-traveller,
   .stage[data-seen] [data-active] .art-fill-line,
   .stage[data-seen] [data-active] .art-bar,
+  .stage[data-seen] [data-active] .art-kept,
   .stage[data-seen] [data-active] .art-tick,
   .stage[data-seen] [data-active] .art-count {
     animation-duration: var(--motion-instant);

@@ -79,7 +79,34 @@ function TokenArt() {
   );
 }
 
-const ART: Record<Feature["key"], () => React.JSX.Element> = { swaps: SwapArt, tracking: TrackArt, rewards: PointsArt, token: TokenArt };
+/**
+ * Ghost mode: three things a site would keep go out one after another, each leaving only the
+ * dashed outline of where it stood, and the ghost comes up beside them.
+ */
+function GhostArt() {
+  const ghost = "M212 60a32 32 0 0 0-32 32v48l12-12 10 10 10-10 10 10 10-10 12 12V92a32 32 0 0 0-32-32z";
+  return (
+    <svg className="art" viewBox="0 0 280 200" aria-hidden="true" focusable="false">
+      {[58, 100, 142].map((y, index) => (
+        <g key={y}>
+          <rect className="art-quiet" x="36" y={y - 14} width="96" height="28" rx="14" strokeDasharray="2 8" />
+          <g className="art-kept" data-kept={index}>
+            <rect className="art-line" x="36" y={y - 14} width="96" height="28" rx="14" />
+            <circle className="art-line" cx="54" cy={y} r="4" />
+            <path className="art-line" d={`M68 ${y}h${index === 1 ? 32 : 48}`} />
+          </g>
+        </g>
+      ))}
+      <path className="art-line" d={ghost} />
+      <g className="art-count">
+        <path className="art-accent" d={ghost} />
+        <path className="art-accent" d="M200 90v6M224 90v6" />
+      </g>
+    </svg>
+  );
+}
+
+const ART: Record<Feature["key"], () => React.JSX.Element> = { swaps: SwapArt, tracking: TrackArt, rewards: PointsArt, ghost: GhostArt, token: TokenArt };
 
 /** A swipe has to travel this far, in pixels, to count as one. */
 const SWIPE = 40;

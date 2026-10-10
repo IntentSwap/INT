@@ -14,6 +14,7 @@ import DocsPage from "../web/src/pages/DocsPage.tsx";
 import { PrivacyPage, TermsPage } from "../web/src/pages/LegalPages.tsx";
 import TrackPage from "../web/src/pages/TrackPage.tsx";
 import { useApp } from "../web/src/stores/app.ts";
+import { NEVER } from "./words.ts";
 
 // The site is finished. Nothing on it may say or imply
 // that something is not ready, and practice mode is not shown as a feature of the site.
@@ -195,24 +196,6 @@ describe("the words never used, of private routing or of anything else", () => {
   // stylesheets and the page of component states included, whichever way swaps are routed.
   const all = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? all(path.join(dir, entry.name)) : /\.(tsx?|html|css)$/.test(entry.name) ? [path.join(dir, entry.name)] : []));
   const SITE = [...all(root), ...all(path.resolve("shared")), path.resolve("web", "index.html")];
-  const NEVER = new RegExp(
-    [
-      // The words themselves, in any form.
-      "\\b(?:anonym\\w*|pseudonym\\w*|untrac(?:e|k)ab\\w*|unlinkab\\w*|invisib\\w*|guarant\\w*|mixers?|tumbl(?:er|ers|ing))\\b",
-      "hidden from (?:the )?(?:authorit|regulator|government|police|law|tax)",
-      // Stronger than the provider's own word: nobody promises that a swap cannot be followed.
-      "can(?:not|'t| not) be (?:traced|tracked|matched|linked|followed|identified|seen)",
-      "impossible to (?:trace|track|match|link|follow|identify)",
-      "(?:no one|nobody|no-one) (?:can|will) (?:see|know|trace|track|tell)",
-      "(?:fully|completely|totally|truly|100%) (?:private|confidential|hidden)",
-      "leaves? no trace|without (?:a )?trace",
-      // Getting round the law, screening or sanctions.
-      "\\b(?:evad\\w*|evasion|launder\\w*|circumvent\\w*)\\b",
-      "\\bno[- ]kyc\\b|without (?:kyc|id checks?|identity checks?)|no questions asked|off the record",
-      "(?:avoid|escape|beat|dodge|skip|bypass)(?:s|ing)? (?:the )?(?:sanctions|screening|regulators?|the law|taxes|tax|checks)",
-    ].join("|"),
-    "i",
-  );
   /** What is read of a file: its words without its comments, and without the three sentences above where each may stand. */
   const read = (file: string, text: string) => {
     const kept = text.replace(NOT_ANONYMITY, "").replace(NO_PROMISE, "");
@@ -331,8 +314,8 @@ const track = () => createElement(TrackPage);
 const PAGES: (readonly [string, () => ReactElement])[] = [["the headline", headline], ["the home page", home], ["the questions", faq], ["Track order", track], ["Docs, How it works", docs(null)], ...docSlugs(false).map((slug) => [`Docs, ${slug}`, docs(slug)] as const), ["the Terms", terms], ["the Privacy Policy", privacy]];
 const PRIVATE_PAGE = ["Docs, private", docs(PRIVATE_DOC_SLUG)] as const;
 
-/** The questions as they have always been, in order. */
-const QUESTIONS = ["what-is-intentswap", "cost", "time", "wallet", "failed", "wrong-amount", "exchange", "public", "points", "signature", "find-order", "help"];
+/** The questions asked everywhere, in order. The one on Ghost mode follows the one on who can see a swap. */
+const QUESTIONS = ["what-is-intentswap", "cost", "time", "wallet", "failed", "wrong-amount", "exchange", "public", "ghost-mode", "points", "signature", "find-order", "help"];
 
 describe("private wording is shown only where swaps are routed privately", () => {
   // The rule: what the site says follows what the server
@@ -415,7 +398,7 @@ describe("private wording is shown only where swaps are routed privately", () =>
       expect(wordsOf(homeMarkup)).toContain("Swaps are public on-chain: this is not a privacy tool. Anyone can see the transactions on the chains involved.");
       expect(wordsOf(homeMarkup)).not.toContain("What private means here");
       expect(wordsOf(homeMarkup)).toContain(features(false)[0]?.text);
-      // The questions: the twelve there have always been, and the plain answer to who can see a swap.
+      // The questions: the thirteen that are asked everywhere, and the plain answer to who can see a swap.
       expect(questions(false).map((item) => item.id)).toEqual(QUESTIONS);
       const faqMarkup = drawnWith(config, faq);
       expect(faqMarkup.match(/<details class="faq-item"/g)).toHaveLength(QUESTIONS.length);
@@ -580,24 +563,24 @@ describe("private wording is shown only where swaps are routed privately", () =>
 });
 
 describe("what the Stats page lists of a swap is said where a person would look for it, wherever the site has that page", () => {
-  const PRIVACY = "Every delivered swap is listed on the Stats page for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Which swap was delivered where is not listed or kept for that page: no row names the coin received, its amount, the receiving address or the delivery transaction.";
-  const DOCS = "The Stats page lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. Totals of the coins received are shown there too; which swap was delivered where is not.";
+  const PRIVACY = "Every delivered swap, except one made in Ghost mode, is listed on the Stats page for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Which swap was delivered where is not listed or kept for that page: no row names the coin received, its amount, the receiving address or the delivery transaction.";
+  const DOCS = "The Stats page lists the deposit transaction of every delivered swap, privately routed or not, except one made in Ghost mode: the coin, the amount, the time and a link to it. Totals of the coins received are shown there too; which swap was delivered where is not.";
   const withStats = (config: object, statsPage: boolean) => ({ ...config, statsPage });
 
-  it("the Privacy Policy says that every delivered swap's deposit is listed, that the deposit shows who sent it, and that nothing of the delivery is listed or kept; where the site has no Stats page it says what is kept and that it is shown nowhere", () => {
+  it("the Privacy Policy says that every delivered swap's deposit is listed, but for one made in Ghost mode, that the deposit shows who sent it, and that nothing of the delivery is listed or kept; where the site has no Stats page it says what is kept and that it is shown nowhere", () => {
     for (const config of [{ ...SETTINGS, privacyMode: "public" }, ROUTED_PRIVATELY]) {
       const on = wordsOf(drawnWith(withStats(config, true), privacy));
       expect(on).toContain(`Stats. ${PRIVACY} Beside those rows the server keeps running totals: how many swaps there were, their value in US dollars by coin sent, by chain and by hour, and the value in US dollars of each coin received, as a total by coin.`);
       expect(drawnWith(withStats(config, true), privacy)).toContain('<a href="/stats">Stats page</a>');
       const off = wordsOf(drawnWith(withStats(config, false), privacy));
       expect(off).not.toMatch(/listed on the Stats page|Stats page/);
-      expect(off).toContain("Stats. The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Beside them it keeps the value in US dollars of each coin received, as a total by coin. Which swap was delivered where is not kept, and no page of this site shows any of this.");
+      expect(off).toContain("Stats. The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap, except one made in Ghost mode: the coin sent, the amount sent, the time and the hash of its deposit transaction. Beside them it keeps the value in US dollars of each coin received, as a total by coin. Which swap was delivered where is not kept, and no page of this site shows any of this.");
       // What used to be said of this page is said no longer, by either.
       for (const text of [on, off]) expect(text).not.toMatch(/no transaction hash|no exact amount|no exact time|rounded row|size band|quarter of an hour/);
     }
   });
 
-  it("the page on private routing counts the Stats page among who can still see a swap: the deposit of every delivered swap, and not the delivery", () => {
+  it("the page on private routing counts the Stats page among who can still see a swap: the deposit of every delivered swap but one made in Ghost mode, and not the delivery", () => {
     const section = (markup: string) => wordsOf(/<h2 id="who"[\s\S]*?(?=<h2 id="not")/.exec(markup)?.[0] ?? "");
     const on = section(drawnWith(withStats(ROUTED_PRIVATELY, true), PRIVATE_PAGE[1]));
     expect(on).toContain("Who can still see a swap");

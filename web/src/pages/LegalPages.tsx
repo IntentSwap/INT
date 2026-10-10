@@ -4,13 +4,18 @@
 //
 // Where the server routes swaps privately, the Terms have one section more ("Private routing") and
 // the Privacy Policy says what private routing changes about what is public. Where it does not,
-// both read as they always have.
+// neither says anything of private routing.
+//
+// The Privacy Policy says what Ghost mode changes about what is kept, on the server and in the
+// browser, and what it leaves as it is. That is said everywhere: the mode is on every site.
 
 import type { ReactNode } from "react";
 import { TERMS_VERSION } from "../../../shared/api.ts";
+import { GHOST_DOC_SLUG } from "../../../shared/pages.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { DocSection, DocsLayout } from "../components/DocsLayout.tsx";
 import { Link } from "../components/Link.tsx";
+import { docHref } from "../lib/docs-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { statsPageOn } from "../lib/stats-logic.ts";
 import { useApp } from "../stores/app.ts";
@@ -181,7 +186,7 @@ export function PrivacyPage() {
       <Section title="2. What is kept on the server, and for how long">
         <ul>
           <li>
-            <strong>Orders.</strong> When you confirm a swap, the server keeps the order: when it was made; the two coins; the amounts, the fees and the slippage limit; your receiving and refund addresses; the paying wallet's address if you connected one; the rewards address, if the order has one; the deposit address, and the memo where an order has one; the deadline; the provider's signed quote for the order, as it was given; the order's status and when it last changed; the transaction hashes of the deposit and of the delivery or refund, whether you gave them or the provider reported them, with the amounts that arrived, were delivered or were refunded and the reason for a refund; the version of the Terms you accepted; and the result of the sanctions check, with when it was made and which list it was made against. An order that was never paid is deleted 24 hours after its deadline. Other orders are deleted 30 days after they finish. An unfinished order that has coins in it is kept until it has been dealt with.
+            <strong>Orders.</strong> When you confirm a swap, the server keeps the order: when it was made; the two coins; the amounts, the fees and the slippage limit; your receiving and refund addresses; the paying wallet's address if you connected one; the rewards address, if the order has one; the deposit address, and the memo where an order has one; the deadline; the provider's signed quote for the order, as it was given; the order's status and when it last changed; the transaction hashes of the deposit and of the delivery or refund, whether you gave them or the provider reported them, with the amounts that arrived, were delivered or were refunded and the reason for a refund; the version of the Terms you accepted; and the result of the sanctions check, with when it was made and which list it was made against. An order that was never paid is deleted 24 hours after its deadline. Other orders are deleted 30 days after they finish. An order made in Ghost mode is deleted sooner than either: the moment it finishes (see Ghost mode, below). An unfinished order that has coins in it is kept until it has been dealt with.
           </li>
           <li>
             <strong>Access log.</strong> For each request to the site's data routes: the time, the route and the kind of request, the outcome, how long it took, a shortened network address (not the full one), {regionBlock ? <>the country, </> : null}a one-way fingerprint of the order ID, the outcome of the sanctions check when an order is made, and the provider's reference number for the request when there is one. No wallet address and no order link is written to it. It is deleted after 14 days.
@@ -195,11 +200,11 @@ export function PrivacyPage() {
           <li>
             {statsOn ? (
               <>
-                <strong>Stats.</strong> Every delivered swap is listed on the <Link href="/stats">Stats page</Link> for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Which swap was delivered where is not listed or kept for that page: no row names the coin received, its amount, the receiving address or the delivery transaction. Beside those rows the server keeps running totals: how many swaps there were, their value in US dollars by coin sent, by chain and by hour, and the value in US dollars of each coin received, as a total by coin.
+                <strong>Stats.</strong> Every delivered swap, except one made in Ghost mode, is listed on the <Link href="/stats">Stats page</Link> for as long as its order's record is kept, which is 30 days after it finishes, with the coin sent, the amount sent, the time and a link to its deposit transaction. The deposit transaction shows the address that sent it, as any transaction on a public chain does. Which swap was delivered where is not listed or kept for that page: no row names the coin received, its amount, the receiving address or the delivery transaction. Beside those rows the server keeps running totals: how many swaps there were, their value in US dollars by coin sent, by chain and by hour, and the value in US dollars of each coin received, as a total by coin.
               </>
             ) : (
               <>
-                <strong>Stats.</strong> The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap: the coin sent, the amount sent, the time and the hash of its deposit transaction. Beside them it keeps the value in US dollars of each coin received, as a total by coin. Which swap was delivered where is not kept, and no page of this site shows any of this.
+                <strong>Stats.</strong> The server keeps running totals of what delivered swaps sent (how many there were, and their value in US dollars by coin, by chain and by hour) and, for as long as its order's record is kept, which is 30 days after it finishes, one row for each delivered swap, except one made in Ghost mode: the coin sent, the amount sent, the time and the hash of its deposit transaction. Beside them it keeps the value in US dollars of each coin received, as a total by coin. Which swap was delivered where is not kept, and no page of this site shows any of this.
               </>
             )}
           </li>
@@ -215,6 +220,9 @@ export function PrivacyPage() {
           <li>
             <strong>Your network address.</strong> It is used in memory to apply rate limits{regionBlock ? <>, and to work out your country and region</> : null}. Only the shortened form is written down.
           </li>
+          <li>
+            <strong>Ghost mode.</strong> An order made in <Link href={docHref(GHOST_DOC_SLUG)}>Ghost mode</Link> is marked as one. While it runs, the server keeps it as it keeps any order. The moment it finishes (it is delivered or refunded, or its deadline passes unpaid) its record is deleted; one that fails with coins still in it is kept until it has been dealt with, as any order is. After the deletion the server still holds three things of it: a one-way fingerprint of the order's ID, for 30 days, so that the order's link can say that the order finished; its place in the running totals, {statsOn ? <>with no row among the Stats page's recent swaps and no listing of its deposit transaction</> : <>with no row kept for it</>}; and, if the order has a rewards address, its points, which are written down before the record is deleted and kept as set out under Points. The logs name it by a one-way fingerprint, as they name any order, and hold neither an address nor a transaction hash of it. It is never found from its deposit address. Ghost mode changes nothing else on this page: the access log and your network address are treated as for any visit, the host keeps its own record of each request, the swap service receives what it does for any swap and keeps its own records, and every transfer is public on its blockchain.
+          </li>
         </ul>
       </Section>
 
@@ -226,6 +234,7 @@ export function PrivacyPage() {
           <li>A note that the page loaded itself again after the site was updated, so that it does so once only. It is kept until the tab is closed.</li>
           <li>The Rewards page's sign-in is held in that page's memory only. It is not written to your browser's storage, and it ends when the page is closed or reloaded.</li>
           <li>When you connect a wallet: the wallet-connection software keeps its own notes in your browser, among them your wallet's address and the link to your wallet, so that the connection lasts from one page to the next. Disconnecting removes the connection.</li>
+          <li>While Ghost mode is on, none of the above is written. One thing is kept: a flag for this tab that says the mode is on, so that loading the page again does not turn it off. It ends when the tab is closed. The list of orders you made earlier is not shown while the mode is on, and is still there when you turn it off, unless you chose to clear what this browser already holds. No wallet-connection software is loaded, and the notes it left from an earlier connection are removed.</li>
         </ul>
       </Section>
 

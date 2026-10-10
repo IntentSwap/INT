@@ -8,6 +8,9 @@
 // by the server and read here as they come.
 // To see one's own, the wallet is asked to sign one plain message; the page says so before the
 // wallet opens.
+//
+// In Ghost mode no wallet is loaded, so there is no sign-in: one line stands in its place, and the
+// page touches nothing of the wallet. The week, its total, the pool and the rules show as always.
 
 import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -24,6 +27,7 @@ import { Link } from "../components/Link.tsx";
 import { Reveal } from "../components/Reveal.tsx";
 import { countdownText, ESTIMATE_NOTE, momentText, pairText, reasonWords, RULES_IN_SHORT, shareText, totalPoints, usdMicroText, usdText, weekDates, weekName } from "../lib/rewards-logic.ts";
 import { shortAddress } from "../lib/swap-logic.ts";
+import { useGhost } from "../stores/ghost.ts";
 import { useRewards } from "../stores/rewards.ts";
 import { useWallet } from "../stores/wallet.ts";
 import "../styles/home.css";
@@ -99,10 +103,18 @@ function Week({ summary, offset }: { summary: RewardsPublic | null; offset: numb
  * Beside the week: an invitation to connect and sign in, or the signed-in address's points, with
  * its share of the week's points and what that share of the pool comes to. Both come from the
  * server with the address's own points: nothing here works them out.
+ *
+ * This is the only part of the page that looks at the wallet, and it is not drawn in Ghost mode.
  */
 function Mine({ mine }: { mine: RewardsView | null }) {
   const wallet = useWallet();
   const rewards = useRewards();
+  const { signOut } = rewards;
+  // A sign-in belongs to the wallet that made it. When that wallet goes, or another takes its place, it ends.
+  const signedAs = rewards.session?.address ?? null;
+  useEffect(() => {
+    if (signedAs !== null && (wallet.address === null || wallet.address.toLowerCase() !== signedAs.toLowerCase())) signOut();
+  }, [wallet.address, signedAs, signOut]);
   const signedIn = rewards.session !== null && mine !== null;
   if (signedIn) {
     const carried = BigInt(mine.week.carriedInMicro);
@@ -169,6 +181,19 @@ function Mine({ mine }: { mine: RewardsView | null }) {
       <p className="rewards-message" role="status">
         {rewards.error ?? " "}
       </p>
+    </div>
+  );
+}
+
+/**
+ * What stands beside the week in Ghost mode: one line, and nothing of the sign-in. Signing in
+ * needs a wallet, and in Ghost mode none is loaded.
+ */
+function SignInOff() {
+  return (
+    <div className="rewards-mine">
+      <p className="rewards-label mono">Your points</p>
+      <p className="rewards-ask">Sign-in is off in Ghost mode. Turn it off to see your points.</p>
     </div>
   );
 }
@@ -350,7 +375,8 @@ function walletInPage(): string | null {
 }
 
 export default function RewardsPage() {
-  const wallet = useWallet();
+  // Known from the first drawing, so the page is drawn once, as the one or the other.
+  const ghost = useGhost((state) => state.on);
   const rewards = useRewards();
   const { loadSummary, refresh, signOut } = rewards;
 
@@ -364,13 +390,12 @@ export default function RewardsPage() {
     return () => clearInterval(timer);
   }, [loadSummary, refresh]);
 
-  // A sign-in belongs to the wallet that made it. When that wallet goes, or another takes its place, it ends.
-  const signedAs = rewards.session?.address ?? null;
+  // Nobody is signed in while Ghost mode is on: a sign-in made before it was turned on ends with it.
   useEffect(() => {
-    if (signedAs !== null && (wallet.address === null || wallet.address.toLowerCase() !== signedAs.toLowerCase())) signOut();
-  }, [wallet.address, signedAs, signOut]);
+    if (ghost) signOut();
+  }, [ghost, signOut]);
 
-  const mine = rewards.session !== null ? rewards.mine : null;
+  const mine = !ghost && rewards.session !== null ? rewards.mine : null;
   const pool = rewards.summary?.pool ?? null;
   // Before the answer: the wallet the page itself names. After it: the answer's own, or none.
   const poolAddress = rewards.summary !== null ? (pool?.address ?? null) : rewards.summaryFailed ? null : walletInPage();
@@ -387,7 +412,7 @@ export default function RewardsPage() {
       {/* The one thing on the page: this week, and beside it your part in it. */}
       <Reveal className="rewards-week">
         <Week summary={rewards.summary} offset={rewards.clockOffset} />
-        <Mine mine={mine} />
+        {ghost ? <SignInOff /> : <Mine mine={mine} />}
       </Reveal>
 
       {/* Only where a reserve wallet is set. Where none is, there is no such part and nothing in its place. */}

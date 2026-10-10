@@ -1,7 +1,13 @@
 // The order page. It works from its address alone: after a reload, in another browser, on
 // another device. Everything on it comes from the order as the server holds it.
+//
+// An order made in Ghost mode says so near the top, with a Copy link button: its link is the only
+// way back to it, and its record is deleted from the server the moment it finishes. Once that has
+// happened the server answers "deleted". A page that was showing the order keeps what it last
+// showed, and says that this is all that is left; a fresh load of the link gets one plain notice
+// and nothing of the order.
 
-import { Check, ChevronDown, Circle, CircleDot, ExternalLink, Minus, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, Circle, CircleDot, ExternalLink, Ghost, Minus, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { isValidTxHash } from "../../../shared/addresses.ts";
 import { displayBps, displayExact } from "../../../shared/amounts.ts";
@@ -18,11 +24,12 @@ import { PracticeLine } from "../components/PracticeLine.tsx";
 import { Notice } from "../components/Shell.tsx";
 import { QrCode } from "../components/QrCode.tsx";
 import { WalletPay } from "../components/WalletPay.tsx";
-import { clockSpan, clockTime, ending, payWindow, pollDelay, sendBy, tabTitle, orderTitle, timeline, type Step } from "../lib/order-logic.ts";
+import { clockSpan, clockTime, ending, ghostLookAgain, payWindow, pollDelay, sendBy, tabTitle, orderTitle, timeline, type Step } from "../lib/order-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { aboutMinutes, appFeeWords, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
 import { navigate } from "../router.ts";
 import { serverNow, useApp } from "../stores/app.ts";
+import { ghostOn, useGhost } from "../stores/ghost.ts";
 import { useOrders } from "../stores/orders.ts";
 import { useWallet } from "../stores/wallet.ts";
 import "../styles/order.css";
@@ -66,6 +73,16 @@ function TxLinks({ label, txs }: { label: string; txs: TxRef[] }) {
   );
 }
 
+/** What stands where the deposit details were, once nothing more should be sent. */
+function DepositsClosed() {
+  return (
+    <div className="notice notice-warning" role="note">
+      <TriangleAlert size={16} strokeWidth={1.5} aria-hidden="true" />
+      <span>Deposits for this order are closed. Do not send now: a payment sent after the deadline may be lost.</span>
+    </div>
+  );
+}
+
 /** What to send, where, and by when. Shown only while the order still accepts a deposit. */
 export function DepositDetails({ order, now, ticked = false }: { order: OrderView; now: number; ticked?: boolean }) {
   const [sure, setSure] = useState(ticked);
@@ -73,14 +90,7 @@ export function DepositDetails({ order, now, ticked = false }: { order: OrderVie
   const amount = displayExact(BigInt(order.amountIn), order.from.decimals);
   const pay = payWindow(order, now);
 
-  if (!pay.open || order.depositAddress === null) {
-    return (
-      <div className="notice notice-warning" role="note">
-        <TriangleAlert size={16} strokeWidth={1.5} aria-hidden="true" />
-        <span>Deposits for this order are closed. Do not send now: a payment sent after the deadline may be lost.</span>
-      </div>
-    );
-  }
+  if (!pay.open || order.depositAddress === null) return <DepositsClosed />;
 
   return (
     <section className="deposit" aria-labelledby="deposit-title">
@@ -309,16 +319,72 @@ function Summary({ order, privacyMode }: { order: OrderView; privacyMode: Privac
 }
 
 /**
+ * What an order made in Ghost mode says of itself, right under its title, in the plain manner of
+ * the page's own notes and in no warning colour.
+ *
+ * While its record is on the server: that this page's link is the only way back, with the button
+ * that copies it, and that the record is deleted the moment the order finishes.
+ *
+ * `gone`: the server has said the record was deleted while this page was showing the order. The
+ * page is then all that is left of it, and says so; there is no link worth copying any more.
+ * `ended` is whether the page had seen how the order ended before that. Where it had not, it says
+ * that too, and where to look.
+ */
+function GhostNote({ link, gone, ended }: { link: string; gone: boolean; ended: boolean }) {
+  const mark = <Ghost className="order-ghost-mark" size={20} strokeWidth={1.5} aria-hidden="true" />;
+  /** The note as it reads while the record is there. `unseen`: drawn without being shown, only to keep the room it took. */
+  const kept = (unseen: boolean) => (
+    <div className="order-ghost-state" data-unseen={unseen || undefined} aria-hidden={unseen || undefined} inert={unseen}>
+      {mark}
+      <div className="order-ghost-text">
+        <p className="order-ghost-lead">This is the only way back to this order. It is not saved anywhere.</p>
+        <p className="order-ghost-sub muted">Its record is deleted from this site's server the moment it finishes.</p>
+      </div>
+      <CopyButton value={link} label="Copy link" what="to this order" />
+    </div>
+  );
+  return (
+    <div className="order-ghost" role="note">
+      {gone ? (
+        <div className="order-ghost-state">
+          {mark}
+          <div className="order-ghost-text">
+            <p className="order-ghost-lead">This order has finished and its record has been deleted from the server.</p>
+            <p className="order-ghost-sub muted">This page is all that is left of it; it will not load again.</p>
+            {ended ? null : <p className="order-ghost-sub muted">How it ended was not seen here. If you sent the deposit, look for the delivery at your receiving address, or for a refund at your refund address: both are in the order details below.</p>}
+          </div>
+        </div>
+      ) : (
+        kept(false)
+      )}
+      {/* Where the page had seen the order end, the note's words change where they stand and the
+          room they had is kept: nothing under the note moves while the ending is being read. */}
+      {gone && ended ? kept(true) : null}
+    </div>
+  );
+}
+
+/**
  * An order as it stands: how it ended (if it has), the four steps, what to send while a deposit
  * is awaited, and its details. Everything shown comes from the order the server holds.
  * `privacyMode` is how the server routes swaps now: with it "basic", a public order's details say
  * that it was public. An order made privately says so whatever the setting is now.
+ *
+ * An order made in Ghost mode carries its own note under its title, whatever mode this tab is in:
+ * the link may be opened later in an ordinary tab, and the order is a Ghost order all the same.
+ * `gone` is for such an order once the server has said its record was deleted: the page keeps what
+ * it last showed and takes away everything that would ask for something more (the deposit details,
+ * the steps of an order that was still running, the hash field, the buttons that copy the link).
  */
-export function OrderContent({ order, now, reconnecting, contact, onOrder, privacyMode = null, children }: { order: OrderView; now: number; reconnecting: boolean; contact: string | null; onOrder(order: OrderView): void; privacyMode?: PrivacyMode; children?: React.ReactNode }) {
+export function OrderContent({ order, now, reconnecting, contact, onOrder, privacyMode = null, gone = false, children }: { order: OrderView; now: number; reconnecting: boolean; contact: string | null; onOrder(order: OrderView): void; privacyMode?: PrivacyMode; gone?: boolean; children?: React.ReactNode }) {
   const steps = timeline(order, now);
-  const end = ending(order, contact !== null);
+  const end = ending(order, contact !== null, !gone);
   const awaitingDeposit = order.status === "waiting" || (order.status === "deposit_seen" && !order.depositProven);
   const running = end === null;
+  // An order whose record is gone is a Ghost order, whether or not its last answer said so.
+  const ghost = order.ghost === true || gone;
+  // In Ghost mode no wallet is loaded: every order is paid by sending to its deposit address.
+  const ghostTab = useGhost((state) => state.on);
   const link = `${window.location.origin}/order/${order.id}`;
   const contactHref = contact === null ? null : contact.startsWith("https://") ? contact : /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact) ? `mailto:${contact}` : null;
   const title = (
@@ -350,10 +416,15 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
             {chainName(order.from.chain)} to {chainName(order.to.chain)}
           </p>
         </div>
-        <span className="order-copy">
-          <CopyButton value={link} label="Copy link" what="to this order" />
-        </span>
+        {/* A Ghost order's link is copied from its own note, just below, where the reason is said. */}
+        {ghost ? null : (
+          <span className="order-copy">
+            <CopyButton value={link} label="Copy link" what="to this order" />
+          </span>
+        )}
       </header>
+
+      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} /> : null}
 
       <p className="order-reconnecting" role="status">
         {reconnecting ? "Reconnecting… Showing what was last known." : " "}
@@ -374,14 +445,19 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
             <a className="button-secondary" href={contactHref} rel="noopener noreferrer">
               Contact support
             </a>
-          ) : (
+          ) : ghost ? null : (
             <CopyButton value={link} label="Copy link" what="to this order" />
           )}
         </div>
       ) : null}
 
       {/* While the order waits to be paid, paying is the next thing to do: it comes before the list of steps. */}
-      {awaitingDeposit && order.pay === "wallet" && isWalletChain(order.from.chain) ? (
+      {gone ? (
+        // The record is gone, and the deposit address with it: nothing more may be sent there.
+        awaitingDeposit ? (
+          <DepositsClosed />
+        ) : null
+      ) : awaitingDeposit && order.pay === "wallet" && isWalletChain(order.from.chain) && !ghostTab ? (
         <WalletPay order={order} now={now} onOrder={onOrder}>
           <DepositDetails order={order} now={now} />
         </WalletPay>
@@ -389,34 +465,38 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
         <DepositDetails order={order} now={now} />
       ) : null}
 
-      <ol className="steps">
-        {steps.map((step) => (
-          <li key={step.key} className="step" data-state={step.state} aria-current={step.state === "current" ? "step" : undefined}>
-            <StepMark state={step.state} />
-            <div className="step-body">
-              <p className="step-title">{step.title}</p>
-              {step.text !== "" ? <p className="step-text muted">{step.text}</p> : null}
-              {step.state === "current" && running ? (
-                <p className="step-time muted">
-                  <span className="mono">{clockSpan(now - Date.parse(order.statusSince))}</span> elapsed
-                  {step.key === "swapping" ? <> · estimate {aboutMinutes(order.timeEstimate)}</> : null}
-                </p>
-              ) : null}
-            </div>
-          </li>
-        ))}
-      </ol>
+      {/* The steps of an order that was still running when its record went are not kept: how it went on from there was never seen. */}
+      {gone && running ? null : (
+        <ol className="steps">
+          {steps.map((step) => (
+            <li key={step.key} className="step" data-state={step.state} aria-current={step.state === "current" ? "step" : undefined}>
+              <StepMark state={step.state} />
+              <div className="step-body">
+                <p className="step-title">{step.title}</p>
+                {step.text !== "" ? <p className="step-text muted">{step.text}</p> : null}
+                {step.state === "current" && running ? (
+                  <p className="step-time muted">
+                    <span className="mono">{clockSpan(now - Date.parse(order.statusSince))}</span> elapsed
+                    {step.key === "swapping" ? <> · estimate {aboutMinutes(order.timeEstimate)}</> : null}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
 
       {order.depositTxUrl !== null && order.depositTxHash !== null ? <TxLinks label="Your deposit" txs={[{ hash: order.depositTxHash, url: order.depositTxUrl }]} /> : null}
       {order.details !== null && order.depositTxUrl === null ? <TxLinks label="Deposit" txs={order.details.originTxs} /> : null}
       {order.details !== null ? <TxLinks label="Delivery" txs={order.details.destinationTxs} /> : null}
 
-      {order.status === "waiting" ? <HashField order={order} onOrder={onOrder} /> : null}
+      {order.status === "waiting" && !gone ? <HashField order={order} onOrder={onOrder} /> : null}
 
       <Summary order={order} privacyMode={privacyMode} />
 
       <p className="order-foot muted">
-        Order <span className="mono">{order.id}</span>. Keep this page's link: it is the only way back to this order.
+        {/* A Ghost order has said what its link is worth at the top of the page, and says it once. */}
+        Order <span className="mono">{order.id}</span>.{ghost ? null : <> Keep this page's link: it is the only way back to this order.</>}
       </p>
 
       {children}
@@ -424,9 +504,24 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
   );
 }
 
+/**
+ * What a fresh load of a finished Ghost order's link gets: one calm notice in the page's own frame,
+ * and one way on. It is given nothing of the order and so can show nothing of it: no status, no
+ * amount, no address. The server holds nothing more to say.
+ */
+export function OrderDeleted() {
+  return (
+    <Notice title="This order finished." action={<SecondaryButton onClick={() => navigate("/")}>Go to the swap page</SecondaryButton>}>
+      <p>It was made in Ghost mode, so its record was deleted when it finished. Nothing more is kept of it here.</p>
+    </Notice>
+  );
+}
+
 export default function OrderPage({ id }: { id: string }) {
   const [order, setOrder] = useState<OrderView | null>(null);
   const [missing, setMissing] = useState(false);
+  // The server has said that the order's record was deleted: an order made in Ghost mode, once it has finished.
+  const [deleted, setDeleted] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [now, setNow] = useState(() => serverNow());
   const practice = useApp((state) => state.config?.practice ?? false);
@@ -435,15 +530,19 @@ export default function OrderPage({ id }: { id: string }) {
   const failures = useRef(0);
 
   // Ask the server, then again after a pause that depends on what it said. Nothing is asked while
-  // the tab is hidden, and nothing more once the order has ended.
+  // the tab is hidden, and nothing more once the order has ended. (An order made in Ghost mode is
+  // looked at a few times more after it has ended, until the server says its record is deleted.)
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     // What the order was when this page last looked.
     let seen: OrderView["status"] | null = null;
+    // How many times an ended Ghost order has been looked at again.
+    let looksAfterEnd = 0;
     setOrder(null);
     setMissing(false);
+    setDeleted(false);
     failures.current = 0;
 
     const look = async () => {
@@ -460,15 +559,24 @@ export default function OrderPage({ id }: { id: string }) {
         setReconnecting(false);
         setOrder(fresh);
         // An order seen to be delivered has changed what a connected wallet holds of its two coins: both are read afresh.
-        if (fresh.status === "delivered" && seen !== null && seen !== "delivered") void useWallet.getState().loadBalances([fresh.from, fresh.to], 0);
+        // (Not in Ghost mode: there is no wallet there, and no balance is read.)
+        if (fresh.status === "delivered" && seen !== null && seen !== "delivered" && !ghostOn()) void useWallet.getState().loadBalances([fresh.from, fresh.to], 0);
         seen = fresh.status;
         useApp.setState({ clockOffset: Date.parse(fresh.serverNow) - Date.now() });
         next = pollDelay(fresh.status, 0);
+        if (next === null && fresh.ghost === true) next = ghostLookAgain(looksAfterEnd++);
       } catch (err) {
         if (stopped || (err instanceof DOMException && err.name === "AbortError")) return;
+        if (err instanceof ApiError && err.code === "order_deleted") {
+          // An order made in Ghost mode has finished and its record is gone. There is nothing more to ask.
+          setReconnecting(false);
+          setDeleted(true);
+          return;
+        }
         if (err instanceof ApiError && err.code === "not_found") {
           // The server no longer has it, so this browser's own list lets go of it too.
-          useOrders.getState().forget(id);
+          // (Not in Ghost mode, where nothing on this page writes to the browser: the list is left as it is.)
+          if (!ghostOn()) useOrders.getState().forget(id);
           setMissing(true);
           return;
         }
@@ -487,10 +595,12 @@ export default function OrderPage({ id }: { id: string }) {
     };
   }, [id]);
 
+  // The page's clock. It stops with the order: once the record is gone, what is on screen is what was last seen.
   useEffect(() => {
+    if (deleted) return;
     const timer = setInterval(() => setNow(serverNow()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [deleted]);
 
   // The tab's title tells how the order ended, for anyone who left it open in the background.
   useEffect(() => {
@@ -508,6 +618,9 @@ export default function OrderPage({ id }: { id: string }) {
       </Notice>
     );
   }
+
+  // The record was already gone when this page first asked: the notice, alone.
+  if (deleted && order === null) return <OrderDeleted />;
 
   if (order === null) {
     return (
@@ -530,8 +643,8 @@ export default function OrderPage({ id }: { id: string }) {
 
   const running = ending(order) === null;
   return (
-    <OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode}>
-      {practice && running ? (
+    <OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted}>
+      {practice && running && !deleted ? (
         <details className="order-practice">
           {/* The operator's tool for moving a practice order along. It says nothing of itself and stays folded until asked for. */}
           <summary>Test controls</summary>

@@ -1,7 +1,7 @@
 // The contract between the browser and our server.
 // Amounts are always raw integer strings in the coin's smallest unit.
 
-export const TERMS_VERSION = "2026-10-09";
+export const TERMS_VERSION = "2026-10-10";
 
 export type PayMethod = "wallet" | "manual";
 

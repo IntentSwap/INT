@@ -129,10 +129,15 @@ const REFUND_REASONS: Record<string, string> = {
   INCOMPLETE_DEPOSIT: "Less than the full amount was sent.",
 };
 
-/** How an order ended: a headline, one line of cause, and the one thing worth doing next. Null while it is still running. */
-export function ending(order: OrderView, hasContact = true): Ending | null {
+/**
+ * How an order ended: a headline, one line of cause, and the one thing worth doing next. Null while it is still running.
+ * `linkLeads` is false for an order whose record the server has deleted (an order made in Ghost mode, once it has
+ * finished): its page's link leads nowhere any more, so what is worth keeping is named as the order's ID.
+ */
+export function ending(order: OrderView, hasContact = true, linkLeads = true): Ending | null {
   // "Contact support" is only said where there is a contact to give. (A site that takes real swaps always has one: the server will not switch swaps on without it.)
   const andWrite = hasContact ? ", and contact support" : "";
+  const thisLink = linkLeads ? "this page's link" : "this order's ID";
   const from = order.from;
   const amount = (raw: string | null | undefined, fallback: string, decimals: number) => displayExact(BigInt(raw ?? fallback), decimals);
   switch (order.status) {
@@ -165,7 +170,7 @@ export function ending(order: OrderView, hasContact = true): Ending | null {
     case "failed":
       return {
         headline: "Swap failed",
-        cause: `The swap could not be completed. Keep this page's link and your deposit transaction hash${andWrite}.`,
+        cause: `The swap could not be completed. Keep ${thisLink} and your deposit transaction hash${andWrite}.`,
         action: "contact",
         tone: "attention",
       };
@@ -174,8 +179,8 @@ export function ending(order: OrderView, hasContact = true): Ending | null {
         headline: "Expired",
         cause:
           order.depositTxHash !== null
-            ? `No deposit was confirmed before the deadline. Keep this page's link and your deposit transaction hash${andWrite}.`
-            : `No deposit arrived before the deadline. If you did send coins, keep the transaction hash and this page's link${andWrite}.`,
+            ? `No deposit was confirmed before the deadline. Keep ${thisLink} and your deposit transaction hash${andWrite}.`
+            : `No deposit arrived before the deadline. If you did send coins, keep the transaction hash and ${thisLink}${andWrite}.`,
         action: order.depositTxHash !== null ? "contact" : "swap-again",
         tone: "plain",
       };
@@ -190,6 +195,17 @@ export function pollDelay(status: OrderStatus, failures: number): number | null 
   // After a failed attempt: 5 s, 10 s, 20 s, then every 30 s.
   if (failures > 0) return Math.min(30_000, 5000 * 2 ** (failures - 1));
   return status === "deposit_too_small" ? 30_000 : 5000;
+}
+
+/**
+ * An order made in Ghost mode is looked at a few more times after it has ended. Its record is
+ * deleted from the server the moment it finishes, and the order's page says so only once the
+ * server has said it. `looks` is how many such looks have been made already. Null when no more are
+ * made: an order that ended with coins still in it is kept until that has been dealt with, and
+ * there is then nothing to wait for.
+ */
+export function ghostLookAgain(looks: number): number | null {
+  return [2000, 5000, 10_000, 20_000, 30_000][looks] ?? null;
 }
 
 /** The browser tab's title: the ending, when there is one. */

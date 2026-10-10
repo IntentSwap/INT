@@ -5,7 +5,7 @@ import { chainInfo, chainName } from "../../../shared/chains.ts";
 import { CHAIN_ORDER } from "../config.ts";
 
 export interface Feature {
-  key: "swaps" | "tracking" | "rewards" | "token";
+  key: "swaps" | "tracking" | "rewards" | "ghost" | "token";
   title: string;
   text: string;
   /** Where to go to use it or to read more. */
@@ -34,6 +34,9 @@ export function isPrivateMode(config: { privacyMode?: unknown } | null | undefin
  * Where swaps are routed privately the first item says so. Where they are not, the list is the one
  * it always was. What is said of points is the same either way: a privately routed swap adds them
  * as any other does.
+ *
+ * Ghost mode is on the list everywhere: its switch is in the header however swaps are routed. What
+ * is said of it here is what it does and, in the last sentence, the first thing it does not.
  */
 export function features(tokenSet: boolean, privateRouting = false): readonly Feature[] {
   const all: Feature[] = [
@@ -42,6 +45,7 @@ export function features(tokenSet: boolean, privateRouting = false): readonly Fe
       : { key: "swaps", title: "Cross-chain swaps", text: "Swap a coin on one chain for a coin on another. Quotes, orders and delivery run on NEAR Intents, and every fee is shown before you confirm.", link: { href: "/docs", label: "How a swap works" } },
     { key: "tracking", title: "Order tracking and automatic refunds", text: "Every order has its own page, which follows the deposit, the swap and the delivery. If a swap fails, the provider sends your coins back to your refund address.", link: { href: "/track", label: "Track an order" } },
     { key: "rewards", title: "Points and weekly rewards", text: "Each delivered swap adds points to the wallet behind it: 10 for each $1 swapped. Each week a payout is shared out by points. Payouts are at IntentSwap's discretion and can change.", link: { href: "/rewards", label: "See your points" } },
+    { key: "ghost", title: "Ghost mode", text: "One switch in the header. While it is on, the site loads no wallet and keeps nothing in your browser but the switch itself, and your order's record is deleted from the server the moment it finishes. Your deposit and your delivery are still public on-chain.", link: { href: "/docs/ghost-mode", label: "How Ghost mode works" } },
   ];
   if (tokenSet) all.push({ key: "token", title: "The $INT token", text: "The token's contract address, its chain and its trading pair are shown on this site, each with a link to the chain's own explorer.", link: { href: "/token", label: "The token's facts" } });
   return all;

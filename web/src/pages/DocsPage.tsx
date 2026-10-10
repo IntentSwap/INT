@@ -5,13 +5,16 @@
 //
 // Where the server routes swaps privately there is one page more, "Private routing", and the
 // other pages say what it changes for them, each in a sentence or two. Where it does not, none of
-// that is shown and every page reads as it always has.
+// that is shown and nothing on any page speaks of private routing.
+//
+// One page is about Ghost mode. It is a page everywhere, and says in as many sections what the
+// mode does, what it does not, and what is still kept.
 
 import { useEffect, useMemo, useState } from "react";
 import { displayAmount, displayBps, parseAmount } from "../../../shared/amounts.ts";
 import { SLIPPAGE, type QuoteView, type TokenView } from "../../../shared/api.ts";
 import { chainName, DEPOSIT_CLOSE_MS, isWalletChain, sendWindowMs } from "../../../shared/chains.ts";
-import { PRIVATE_DOC_SLUG, type DocSlug } from "../../../shared/pages.ts";
+import { GHOST_DOC_SLUG, PRIVATE_DOC_SLUG, type DocSlug } from "../../../shared/pages.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { api } from "../api.ts";
 import { Callout, DocSection, DocsLayout, TableFrame } from "../components/DocsLayout.tsx";
@@ -87,7 +90,7 @@ function HowItWorks() {
       <DocSection title="Track">
         <p>
           The order has its own page. It follows the deposit, the swap and the delivery, and links to the transactions. <Link href="/track">Track order</Link> finds that page again from the order's ID or its deposit address.{privateOn ? <> A privately routed order is found from its link or ID only, never from its deposit address: the address is public, and the order's page shows both ends of the swap.</> : null}
-          {statsOn ? <> Once any order has been delivered it is found from its link or ID only: its deposit is listed on the Stats page, and the order's page shows both ends of the swap.</> : null}
+          {statsOn ? <> Once any order has been delivered it is found from its link or ID only: its deposit is listed on the Stats page, and the order's page shows both ends of the swap.</> : null} An order made in <Link href={docHref(GHOST_DOC_SLUG)}>Ghost mode</Link> is found from its own link only, and only until it finishes.
         </p>
       </DocSection>
       {privateOn ? (
@@ -462,7 +465,7 @@ function PrivateRouting() {
           </li>
           {statsOn ? (
             <li>
-              <strong>Anyone, for the deposit alone.</strong> The <Link href="/stats">Stats page</Link> lists the deposit transaction of every delivered swap, privately routed or not: the coin, the amount, the time and a link to it. Totals of the coins received are shown there too; which swap was delivered where is not.
+              <strong>Anyone, for the deposit alone.</strong> The <Link href="/stats">Stats page</Link> lists the deposit transaction of every delivered swap, privately routed or not, except one made in Ghost mode: the coin, the amount, the time and a link to it. Totals of the coins received are shown there too; which swap was delivered where is not.
             </li>
           ) : null}
         </ul>
@@ -502,7 +505,109 @@ function PrivateRouting() {
   );
 }
 
-const PAGES: Record<DocSlug, () => React.JSX.Element> = { fees: Fees, chains: Chains, refunds: Refunds, safety: Safety, private: PrivateRouting, rewards: Rewards, faq: Questions };
+/**
+ * Ghost mode, in plain words: the one switch, the five things it does while it is on, what it does
+ * not do, what is still kept of an order made in it, and how to turn it on and off. Every sentence
+ * here states what the site and its server do; none says more of a swap than is so, and what the
+ * mode leaves as it was (the public transfers, the swap service, the network address) has a
+ * section of its own.
+ *
+ * A page everywhere. Where swaps are routed privately it also says how the two sit side by side.
+ */
+function GhostMode() {
+  const privateOn = usePrivateRouting();
+  // Where the site has its Stats page, the totals an order is counted in are the ones shown there.
+  const statsOn = useApp((state) => statsPageOn(state.config));
+  return (
+    <DocsLayout href={docHref(GHOST_DOC_SLUG)} title="Ghost mode" lead="One switch in the header. While it is on, this site loads no wallet software, asks nothing of any other site and keeps nothing in your browser but the switch itself, and the record of an order you make is deleted from its server when the order finishes. This page says what that covers, and what it does not.">
+      <DocSection title="What it is" id="what">
+        <p>Ghost mode is one switch, in the header. With it on, a swap works as it always does: a quote, a review, an order, a deposit, a delivery. What changes is what the site loads, what it asks of other sites, and what it and your browser keep.</p>
+        <p>It changes how the site is used, not the swap. The swap itself is the same, and as public as any other.</p>
+      </DocSection>
+      <DocSection title="What it does" id="does">
+        <p>Five things, for as long as the switch is on.</p>
+        <ul>
+          <li>
+            <strong>The switch is the one thing remembered.</strong> It is kept as a single on/off flag for this tab, so that loading the page again does not turn Ghost mode off. It ends when the tab is closed.
+          </li>
+          <li>
+            <strong>No wallet is loaded.</strong> The wallet software is not fetched at all, so there is no Connect and no balance is read. A wallet that was connected is disconnected, and what its software left in your browser is removed. You pay by sending to the order's deposit address, from any wallet. The <Link href="/rewards">Rewards</Link> sign-in needs a wallet, so it is off too.
+          </li>
+          <li>
+            <strong>Nothing is asked of any other site.</strong> The page asks nothing of any address but this site's own, and tells your browser to refuse anything else. A link that leaves the site still works as a plain link: it opens in a new tab, carries a small mark that says it leaves this site, and does not tell the other site where you came from.
+          </li>
+          <li>
+            <strong>Nothing is kept in your browser.</strong> No list of your orders, no copy of the coin list, no note of any kind: only the switch itself. Orders you made earlier, in normal mode, are not shown while Ghost mode is on. They are there again when you turn it off, unless you chose "Also clear what this browser already holds" when you turned it on.
+          </li>
+          <li>
+            <strong>An order's record is deleted when it finishes.</strong> An order made in Ghost mode is marked as one. The moment it is delivered or refunded, or its deadline passes unpaid, its record is deleted from the server. Until then its own link is the only way back to it: it is on no list, and it is never found from its deposit address. After that the link says only that the order finished.
+          </li>
+        </ul>
+        <Callout tone="tip" title="Keep the order's link.">
+          <p>It is the only way back to an order made in Ghost mode, and it is not saved anywhere. The order's page has a Copy link button.</p>
+        </Callout>
+      </DocSection>
+      <DocSection title="What it does not do" id="not">
+        <Callout tone="warning" title="Ghost mode does not make a swap less public.">
+          <p>It is about what this site and your browser keep. It changes nothing on any blockchain.</p>
+        </Callout>
+        <ul>
+          <li>
+            <strong>The deposit and the delivery are still public.</strong> Each is an ordinary transfer on its own chain, where anyone can see the addresses and the amounts. So is a refund.
+          </li>
+          <li>
+            <strong>The swap service still carries out the swap.</strong> NEAR Intents receives what it does for any swap (the coins, the amounts and your addresses) and keeps its own records.
+          </li>
+          <li>
+            <strong>Your network address is still seen.</strong> By your own network, and by this site's host, which stands in front of the server and may keep its own record of each request. This site's own access log is kept as for any visit, with the address in a shortened form. The <Link href="/privacy">Privacy Policy</Link> says what each holds.
+          </li>
+          <li>
+            <strong>Your browser's own history is not cleared.</strong> The browser lists the pages you open, an order's link among them, as it does for any site. That list is the browser's, not this site's.
+          </li>
+        </ul>
+      </DocSection>
+      <DocSection title="What is still kept" id="kept">
+        <p>Once an order made in Ghost mode has finished, this is all the server still holds of it.</p>
+        <ul>
+          <li>
+            <strong>A one-way fingerprint of the order's ID, for 30 days.</strong> It is there so that the order's link can say that the order finished, where it would otherwise say that there is no such order. The ID itself is not kept.
+          </li>
+          <li>
+            <strong>Its place in the totals.</strong> {statsOn ? <>The <Link href="/stats">Stats page</Link> counts it in its totals: the swaps, the volume, the chains and the coins. It has no row among the recent swaps, and its deposit transaction is never listed.</> : <>The server's running totals count it: the swaps, the volume, the chains and the coins. No row is kept for it.</>}
+          </li>
+          <li>
+            <strong>Its points, if you named a rewards address.</strong> They are counted before the record is deleted, and kept as any points are: a one-way fingerprint of the order's ID, the rewards address, the swap's value in US dollars, its two coins and their chains, and the time. Leave the rewards address empty and the swap adds no points, and none of this is kept.
+          </li>
+          <li>
+            <strong>Lines in the logs.</strong> The server's logs name an order by a one-way fingerprint only, and are kept as for any order. For an order made in Ghost mode they carry no address and no transaction hash.
+          </li>
+        </ul>
+        <p>One kind of order is kept longer. An order that fails with coins still in it is kept until that has been dealt with, as any order is, and deleted then.</p>
+        <Callout tone="warning" title="Pay before the order's deadline.">
+          <p>A deposit sent after the deadline may be lost, as for any order. With the record deleted, there is no deposit address and no amount left here to check a late payment against.</p>
+        </Callout>
+      </DocSection>
+      <DocSection title="What it does not change" id="same">
+        <p>Ghost mode switches off no check and adds no fee. The quote and the provider's signature on it are checked, the limits apply, and every address is screened against the sanctions list, as for any order.</p>
+        <p>A swap costs what it costs in normal mode, and its quote shows every fee before you confirm.</p>
+      </DocSection>
+      {privateOn ? (
+        <DocSection title="Ghost mode and private routing" id="private-routing">
+          <p>
+            They are two separate things. Private routing is how the swap service routes a swap. Ghost mode is what this site and this browser keep. Either can be on without the other. Swaps on this site are routed privately, so an order made in Ghost mode is routed privately too. <PrivateRoutingLink />
+          </p>
+        </DocSection>
+      ) : null}
+      <DocSection title="Turning it on and off" id="switch">
+        <p>Press the Ghost mode button in the header. The first time since the page was loaded, a short sheet says what the mode does and asks "Turn on" or "Not now". The same sheet offers "Also clear what this browser already holds", which removes what the site kept here in normal mode.</p>
+        <p>While it is on, the header shows "Ghost mode" where Connect would be. Press that to turn it off. The page then loads itself again, in normal mode.</p>
+        <p>Closing the tab turns it off as well.</p>
+      </DocSection>
+    </DocsLayout>
+  );
+}
+
+const PAGES: Record<DocSlug, () => React.JSX.Element> = { fees: Fees, chains: Chains, refunds: Refunds, safety: Safety, private: PrivateRouting, "ghost-mode": GhostMode, rewards: Rewards, faq: Questions };
 
 export default function DocsPage({ slug }: { slug: DocSlug | null }) {
   const Page = slug === null ? HowItWorks : PAGES[slug];

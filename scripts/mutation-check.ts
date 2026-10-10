@@ -498,6 +498,22 @@ const M: Mutation[] = [
   { file: "server/stats.ts", find: "(record.state.depositVerified === true ? record.state.depositTxHash : null);", replace: "record.state.depositTxHash;", label: "a hash that was only announced is not listed as a swap's deposit" },
   { file: "server/stats.ts", find: "      if (!claim()) return false;", replace: "      claim();", label: "an order is added to the site's totals once" },
   { file: "server/app.ts", find: "    ...(config.statsPage ? [statsRoute] : []),", replace: "    statsRoute,", label: "the Stats page's data route is gone where the page is switched off" },
+
+  // ---- Ghost mode on the pages ----
+  { file: "web/src/pages/RewardsPage.tsx", find: "        {ghost ? <SignInOff /> : <Mine mine={mine} />}", replace: "        <Mine mine={mine} />", label: "in Ghost mode the Rewards page draws no sign-in" },
+  { file: "web/src/pages/RewardsPage.tsx", find: "  const mine = !ghost && rewards.session !== null ? rewards.mine : null;", replace: "  const mine = rewards.session !== null ? rewards.mine : null;", label: "in Ghost mode the Rewards page shows nobody's own points" },
+  { file: "web/src/pages/TrackPage.tsx", find: "      {ghost ? (\n        <RecentHidden />\n      ) : orders.length > 0 ? (", replace: "      {orders.length > 0 ? (", label: "in Ghost mode the Track order page draws no list of the orders made in this browser" },
+  { file: "web/src/components/RecentList.tsx", find: "  if (ghost) return <RecentHidden />;\n", replace: "", label: "in Ghost mode the list of orders is never drawn, whoever asks for it" },
+  { file: "web/src/pages/OrderPage.tsx", find: "      <p>It was made in Ghost mode, so its record was deleted when it finished. Nothing more is kept of it here.</p>", replace: "      <p>It was made in Ghost mode, so its record was deleted when it finished. It was delivered to your receiving address.</p>", label: "the notice for a finished Ghost mode order shows nothing of the order" },
+  { file: "web/src/pages/OrderPage.tsx", find: "  if (deleted && order === null) return <OrderDeleted />;\n", replace: "", label: "a fresh load of a finished Ghost mode order's link gets the notice alone" },
+  { file: "web/src/pages/OrderPage.tsx", find: "      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} /> : null}", replace: "      {null}", label: "a Ghost mode order says on its own page that its link is the only way back" },
+  { file: "web/src/pages/OrderPage.tsx", find: "  const ghost = order.ghost === true || gone;", replace: "  const ghost = true;", label: "only a Ghost mode order carries the note" },
+  { file: "web/src/pages/OrderPage.tsx", find: "      {gone ? (\n        // The record is gone, and the deposit address with it: nothing more may be sent there.\n        awaitingDeposit ? (\n          <DepositsClosed />\n        ) : null\n      ) : awaitingDeposit && order.pay", replace: "      {awaitingDeposit && order.pay", label: "a Ghost mode order whose record is gone shows no deposit address" },
+  { file: "web/src/pages/OrderPage.tsx", find: "      {gone && running ? null : (", replace: "      {false ? null : (", label: "a Ghost mode order that was still running when its record went shows no steps" },
+  { file: "web/src/pages/OrderPage.tsx", find: " && isWalletChain(order.from.chain) && !ghostTab ? (", replace: " && isWalletChain(order.from.chain) ? (", label: "in Ghost mode an order is never paid from a wallet" },
+  { file: "web/src/pages/OrderPage.tsx", find: "          if (!ghostOn()) useOrders.getState().forget(id);", replace: "          useOrders.getState().forget(id);", label: "in Ghost mode the order's page leaves the browser's own list as it is" },
+  { file: "web/src/pages/DocsPage.tsx", find: "      {privateOn ? (\n        <DocSection title=\"Ghost mode and private routing\" id=\"private-routing\">", replace: "      {true ? (\n        <DocSection title=\"Ghost mode and private routing\" id=\"private-routing\">", label: "the Docs' page on Ghost mode speaks of private routing only where swaps are routed privately" },
+  { file: "web/src/lib/order-logic.ts", find: "  return [2000, 5000, 10_000, 20_000, 30_000][looks] ?? null;", replace: "  return 5000;", label: "an ended Ghost mode order is looked at again only a few times" },
 ];
 
 const only = process.argv.slice(2);

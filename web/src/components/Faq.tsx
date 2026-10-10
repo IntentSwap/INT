@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
-import { PRIVATE_DOC_SLUG } from "../../../shared/pages.ts";
+import { GHOST_DOC_SLUG, PRIVATE_DOC_SLUG } from "../../../shared/pages.ts";
 import { REWARDS } from "../../../shared/rewards.ts";
 import { docHref } from "../lib/docs-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
@@ -25,7 +25,10 @@ export interface Question {
  *
  * Where swaps are routed privately there is one question more, and three answers say what private
  * routing changes: what others can see, what a swap costs, and what adds points. Where they are
- * not, the list and every answer on it are the ones they always were (see `questions`).
+ * not, nothing on the list speaks of private routing (see `questions`).
+ *
+ * One question is about Ghost mode, and is asked everywhere: what it does, what it does not, and
+ * where the rest is written.
  */
 const FAQ: readonly Question[] = [
   {
@@ -91,6 +94,15 @@ const FAQ: readonly Question[] = [
       ),
   },
   {
+    id: "ghost-mode",
+    question: "What is Ghost mode?",
+    answer: () => (
+      <p>
+        A switch in the header. While it is on, this site loads no wallet software and keeps nothing in your browser but the switch itself, and the record of an order you make is deleted from its server the moment the order finishes. It does not make a swap less public: the deposit and the delivery are still public transfers, the swap service still carries out the swap, and your network and this site's host still see your network address. <Link href={docHref(GHOST_DOC_SLUG)}>How Ghost mode works</Link>
+      </p>
+    ),
+  },
+  {
     id: "points",
     question: "What are points?",
     answer: (_contact, privateRouting) => (
@@ -107,7 +119,7 @@ const FAQ: readonly Question[] = [
   {
     id: "find-order",
     question: "How do I find my order again?",
-    answer: () => <p>Each order has its own link. Keep it: it opens the order on any device. Orders made in this browser are also listed on the Track order page.</p>,
+    answer: () => <p>Each order has its own link. Keep it: it opens the order on any device. Orders made in this browser are also listed on the Track order page. An order made in Ghost mode is on no list: its own link is the only way back to it.</p>,
   },
   {
     id: "help",

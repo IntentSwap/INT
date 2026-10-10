@@ -22,6 +22,7 @@ export const DOC_PAGES: readonly DocPage[] = [
   { href: "/docs/chains", title: "Supported chains", group: "Guide" },
   { href: "/docs/refunds", title: "Refunds and deadlines", group: "Guide" },
   { href: "/docs/safety", title: "Staying safe", group: "Guide" },
+  { href: "/docs/ghost-mode", title: "Ghost mode", group: "Guide" },
   { href: "/docs/rewards", title: "Points and weekly rewards", group: "Guide" },
   { href: "/docs/faq", title: "Questions", group: "Guide" },
   { href: "/terms", title: "Terms of Use", group: "Legal" },

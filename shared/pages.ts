@@ -1,7 +1,7 @@
 // The pages of the documentation, by the last part of their address. One list, used by the server
 // (which answers these addresses with the site's page and no others) and by the site's own router.
 
-export const DOC_SLUGS = ["fees", "chains", "refunds", "safety", "private", "rewards", "faq"] as const;
+export const DOC_SLUGS = ["fees", "chains", "refunds", "safety", "private", "ghost-mode", "rewards", "faq"] as const;
 export type DocSlug = (typeof DOC_SLUGS)[number];
 
 /**
@@ -10,6 +10,9 @@ export type DocSlug = (typeof DOC_SLUGS)[number];
  * found", the site shows "Page not found.", and nothing links to it.
  */
 export const PRIVATE_DOC_SLUG: DocSlug = "private";
+
+/** The page that explains Ghost mode. It is a page everywhere: the switch is in the header however swaps are routed. */
+export const GHOST_DOC_SLUG: DocSlug = "ghost-mode";
 
 export function isDocSlug(value: string): value is DocSlug {
   return (DOC_SLUGS as readonly string[]).includes(value);
