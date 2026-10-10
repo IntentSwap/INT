@@ -233,6 +233,17 @@ describe("configuration", () => {
     expect(loadConfig({ NODE_ENV: "development", SWAPS_PAUSED: "false" }).supportContact).toBeNull();
   });
 
+  it("ADD_GAS is on unless it is set to off, in every place a server runs", () => {
+    for (const env of [production(), { NODE_ENV: "development" }, { NODE_ENV: "test" }]) {
+      expect(loadConfig(env)).toMatchObject({ addGas: true });
+      expect(loadConfig({ ...env, ADD_GAS: "on" }).addGas).toBe(true);
+      expect(loadConfig({ ...env, ADD_GAS: "off" }).addGas).toBe(false);
+    }
+    for (const wrong of ["false", "0", "no", "OFF", "none"]) expect(problem(production({ ADD_GAS: wrong })), wrong).toBe('ADD_GAS: must be "on" or "off"');
+    expect(describeConfig(loadConfig(production({ ADD_GAS: "off" })))).toMatchObject({ addGas: false });
+    expect(describeConfig(loadConfig(production()))).toMatchObject({ addGas: true });
+  });
+
   it("STATS_PAGE is on unless it is set to off, in every place a server runs", () => {
     for (const env of [production(), { NODE_ENV: "development" }, { NODE_ENV: "test" }]) {
       expect(loadConfig(env)).toMatchObject({ statsPage: true });

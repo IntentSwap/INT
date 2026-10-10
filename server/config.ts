@@ -51,6 +51,8 @@ export interface Config {
   blockedCountries: ReadonlySet<string>;
   /** Whether the site has its Stats page (STATS_PAGE, on unless it is set to "off"). Off, the link, the page's address and its data route are all gone. */
   statsPage: boolean;
+  /** Whether gas may be added beside a swap (ADD_GAS, on unless it is set to "off"). Off, a preview of gas answers "not offered" and no gas order is made; swaps are as ever. */
+  addGas: boolean;
   /** How many swaps the site must have delivered before the Stats page lists the coins received. */
   statsReceivedMin: number;
   rpcUrls: Readonly<Record<WalletChain | "sol", string>>;
@@ -292,6 +294,12 @@ export function loadConfig(env: Env = process.env): Config {
   const statsPage = statsAsked !== "off";
   const statsReceivedMin = int(env, "STATS_RECEIVED_MIN", 1, 1, 1_000_000);
 
+  // "Add gas" is a switch, and it is on unless set to "off". Off, the page is never offered gas and no
+  // gas order is made, whatever a request asks for. Swaps themselves are untouched by it either way.
+  const gasAsked = read(env, "ADD_GAS");
+  if (gasAsked !== null && gasAsked !== "on" && gasAsked !== "off") fail("ADD_GAS", 'must be "on" or "off"');
+  const addGas = gasAsked !== "off";
+
   const excludedChains = new Set(DEFAULT_EXCLUDED_CHAINS);
   const excluded = read(env, "EXCLUDED_CHAINS");
   if (excluded !== null) {
@@ -413,6 +421,7 @@ export function loadConfig(env: Env = process.env): Config {
     regionBlock,
     blockedCountries: blocked,
     statsPage,
+    addGas,
     statsReceivedMin,
     rpcUrls: Object.freeze(rpcUrls),
     reownProjectId,
@@ -449,6 +458,7 @@ export function describeConfig(config: Config): Record<string, unknown> {
     regionBlock: config.regionBlock,
     blockedCountries: config.regionBlock ? config.blockedCountries.size : 0,
     statsPage: config.statsPage,
+    addGas: config.addGas,
     rpcHosts: Object.fromEntries(Object.entries(config.rpcUrls).map(([chain, url]) => [chain, new URL(url).host])),
     tokenPage: config.tokenAddress !== null,
     reserve: config.reserveAddress !== null,

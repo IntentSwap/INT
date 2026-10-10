@@ -645,6 +645,8 @@ export function createApp(deps: AppDeps): RequestListener {
         if (!isRecord(body)) throw new HttpError(400, "bad_request", "The request could not be read.");
         const snapshot = await snapshotOrFail();
         const notOffered = (): { status: number; body: GasResponse } => ({ status: 200, body: { gas: null, serverNow: new Date(now()).toISOString() } });
+        // Add gas can be switched off as a whole (ADD_GAS=off): the provider is asked nothing, and the page shows no switch.
+        if (!config.addGas) return notOffered();
         const from = typeof body.from === "string" ? snapshot.byId.get(body.from) : undefined;
         const to = typeof body.to === "string" ? snapshot.byId.get(body.to) : undefined;
         // How much of the paying coin a gas order to that chain is, at the list's price. Where a
@@ -923,8 +925,9 @@ export function createApp(deps: AppDeps): RequestListener {
             try {
               // Its input is made from the swap's own input, as that was checked, and from nothing
               // of the request: where it delivers, where it refunds and how it is routed are the server's.
-              const gasInput = gasInputFor(input, snapshot.tokens, gas.amount);
-              if (gasInput === null) reason = "not_offered";
+              // Where Add gas is switched off as a whole, none is made, whatever the request asks for.
+              const gasInput = config.addGas ? gasInputFor(input, snapshot.tokens, gas.amount) : null;
+              if (gasInput === null) reason = config.addGas ? "not_offered" : "off";
               // "Gas" is never a way to make a second order of any size: at the list's price now, the amount is that of a gas order to this chain, or it is refused.
               else if (!isGasAmount(gasSizeFor(gasInput.to.chain), gas.amount, input.from.decimals, input.from.priceScaled)) reason = "amount";
               // Reviewed as privately routed, or the provider is not asked for it at all.

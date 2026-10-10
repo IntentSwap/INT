@@ -539,6 +539,26 @@ describe("POST /api/orders with gas: two orders, each made by the one path", () 
     expect(open2.tap.quotes.every((sent) => sent.confidentiality === "public")).toBe(true);
   });
 
+  it("switched off as a whole (ADD_GAS=off): the preview answers not offered and asks the provider nothing, and a request that asks for gas all the same gets its swap and no gas order", async () => {
+    // What a page left open from before the switch would still send: a preview made while gas was on.
+    const on = await start();
+    const gas = askedFor(await gasFor(on));
+    const h = await start({ env: { ADD_GAS: "off" } });
+    const asked = h.tap.quotes.length;
+    const reply = await askGas(h);
+    expect([reply.status, reply.body.gas]).toEqual([200, null]);
+    expect(h.tap.quotes.length).toBe(asked);
+    const order = asOrder(await h.order({ ...PEOPLE, gas }));
+    expect(order).toMatchObject({ status: "waiting", amountIn: SWAP_AMOUNT, gas: { made: false } });
+    expect(h.store.get(gasIdOf(order.id))).toBeNull();
+    // The provider was asked for the swap alone.
+    expect(live(h)).toMatchObject([{ destinationAsset: ASSET.arbUsdc }]);
+    expect(logged(h, "gas_not_made").at(-1)).toMatchObject({ order: hashId(order.id), reason: "off" });
+    // A swap asked for without gas is as ever.
+    const plain = asOrder(await h.order({ ...PEOPLE }, { ip: "198.51.100.9" }));
+    expect("gas" in plain).toBe(false);
+  });
+
   it("gas is never a way to make a second order of any size: an amount outside the band of a gas order is not made, and the swap is", async () => {
     const h = await start({ limits: WIDE });
     const gas = askedFor(await gasFor(h));
