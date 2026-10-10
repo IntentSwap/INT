@@ -17,7 +17,7 @@ import { Faq, questions } from "../web/src/components/Faq.tsx";
 import { HomeSections } from "../web/src/components/Home.tsx";
 import { RecentHidden, RecentList } from "../web/src/components/RecentList.tsx";
 import { DOC_PAGES, docExists, docHref, docPages } from "../web/src/lib/docs-logic.ts";
-import { ending, ghostLookAgain, pollDelay } from "../web/src/lib/order-logic.ts";
+import { ending, endingSaid, ghostLookAgain, pollDelay } from "../web/src/lib/order-logic.ts";
 import { features } from "../web/src/lib/site-logic.ts";
 import DocsPage from "../web/src/pages/DocsPage.tsx";
 import { PrivacyPage, TermsPage } from "../web/src/pages/LegalPages.tsx";
@@ -455,10 +455,17 @@ describe("an order made in Ghost mode, on its own page", () => {
       expect(text).not.toMatch(/Delivered|Refunded|Expired|Failed|Swapping|Waiting|deposit|refund|sent|received|ETH|USDT|\bto your\b|address|0x|Track|ID\b|link/i);
       // It is given nothing of the order to show, and the page draws it alone.
       const code = shown("pages/OrderPage.tsx");
-      expect(code).toContain("export function OrderDeleted() {");
-      expect(part(code, "export function OrderDeleted()")).not.toMatch(/\border\.|\{order\b|\bid\b|props|window|location|use[A-Z]\w*\(/);
-      expect(code).toContain("if (deleted && order === null) return <OrderDeleted />;");
-      expect(code.indexOf("if (deleted && order === null) return <OrderDeleted />;")).toBeLessThan(code.indexOf("if (order === null) {"));
+      // It is handed one thing: how the order ended, one of three words, which is all the server still says of it.
+      expect(code).toContain("export function OrderDeleted({ ended = null }: { ended?: SaidEnding | null }) {");
+      expect(part(code, "export function OrderDeleted(")).not.toMatch(/\border\.|\{order\b|\bid\b|props|window|location|use[A-Z]\w*\(/);
+      expect(code).toContain("if (deleted && order === null) return <OrderDeleted ended={endedAs} />;");
+      expect(code.indexOf("if (deleted && order === null) return <OrderDeleted ended={endedAs} />;")).toBeLessThan(code.indexOf("if (order === null) {"));
+      // With the word, the notice says it in one sentence before the rest, and still nothing else of the order.
+      for (const [ended, said] of [["delivered", "It was delivered."], ["refunded", "It was refunded."], ["expired", "It ran out without being paid."]] as const) {
+        expect(words(draw(() => createElement(OrderDeleted, { ended })))).toContain(`This order finished. ${said} It was made in Ghost mode, so its record was deleted when it finished. Nothing more is kept of it here.`);
+      }
+      expect(endingSaid({ ended: "delivered" })).toBe("delivered");
+      for (const odd of [undefined, null, {}, { ended: "swapping" }, { ended: 1 }, { ended: "Delivered" }]) expect(endingSaid(odd as Record<string, unknown>)).toBeNull();
     });
 
     it("is the same in both modes", () => {
@@ -471,11 +478,11 @@ describe("an order made in Ghost mode, on its own page", () => {
 
     it("takes the server's answer that the record is deleted, stops asking, and stops its clock", () => {
       // The answer is known by its code, as the server's errors are; nothing more is asked after it.
-      expect(code).toMatch(/if \(err instanceof ApiError && err\.code === "order_deleted"\) \{\s*\/\/[^\n]*\n\s*setReconnecting\(false\);\s*setDeleted\(true\);\s*return;\s*\}/);
+      expect(code).toMatch(/if \(err instanceof ApiError && err\.code === "order_deleted"\) \{\s*\/\/[^\n]*\n\s*setReconnecting\(false\);\s*setEndedAs\(endingSaid\(err\.detail\)\);\s*setDeleted\(true\);\s*return;\s*\}/);
       // It comes before the look that would count as a failed try, so the page never says "Reconnecting" of an order that is gone.
       expect(code.indexOf('err.code === "order_deleted"')).toBeLessThan(code.indexOf("failures.current += 1;"));
       // The order the page was showing is kept as it was, and handed on as gone.
-      expect(code).toContain("<OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted}>");
+      expect(code).toContain("<OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted} how={endedAs}>");
       expect(code).toMatch(/useEffect\(\(\) => \{\s*if \(deleted\) return;\s*const timer = setInterval\(\(\) => setNow\(serverNow\(\)\), 1000\);/);
       // Another order opened in the same tab starts afresh.
       expect(code).toMatch(/setOrder\(null\);\s*setMissing\(false\);\s*setDeleted\(false\);/);

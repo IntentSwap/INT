@@ -24,7 +24,7 @@ import { PracticeLine } from "../components/PracticeLine.tsx";
 import { Notice } from "../components/Shell.tsx";
 import { QrCode } from "../components/QrCode.tsx";
 import { WalletPay } from "../components/WalletPay.tsx";
-import { clockSpan, clockTime, ending, ghostLookAgain, payWindow, pollDelay, sendBy, tabTitle, orderTitle, timeline, type Step } from "../lib/order-logic.ts";
+import { clockSpan, clockTime, ending, ENDED_AS, LOOK_FOR, endingSaid, ghostLookAgain, payWindow, pollDelay, sendBy, tabTitle, orderTitle, timeline, type SaidEnding, type Step } from "../lib/order-logic.ts";
 import { isPrivateMode } from "../lib/site-logic.ts";
 import { aboutMinutes, appFeeWords, routingNote, type PrivacyMode } from "../lib/swap-logic.ts";
 import { navigate } from "../router.ts";
@@ -330,7 +330,7 @@ function Summary({ order, privacyMode }: { order: OrderView; privacyMode: Privac
  * `ended` is whether the page had seen how the order ended before that. Where it had not, it says
  * that too, and where to look.
  */
-function GhostNote({ link, gone, ended }: { link: string; gone: boolean; ended: boolean }) {
+function GhostNote({ link, gone, ended, how }: { link: string; gone: boolean; ended: boolean; how: SaidEnding | null }) {
   const mark = <Ghost className="order-ghost-mark" size={20} strokeWidth={1.5} aria-hidden="true" />;
   /** The note as it reads while the record is there. `unseen`: drawn without being shown, only to keep the room it took. */
   const kept = (unseen: boolean) => (
@@ -351,7 +351,8 @@ function GhostNote({ link, gone, ended }: { link: string; gone: boolean; ended: 
           <div className="order-ghost-text">
             <p className="order-ghost-lead">This order has finished and its record has been deleted from the server.</p>
             <p className="order-ghost-sub muted">This page is all that is left of it; it will not load again.</p>
-            {ended ? null : <p className="order-ghost-sub muted">How it ended was not seen here. If you sent the deposit, look for the delivery at your receiving address, or for a refund at your refund address: both are in the order details below.</p>}
+            {/* Where the page had not seen the order end, it says how it ended if the server still says so, and otherwise where to look. */}
+            {ended ? null : <p className="order-ghost-sub muted">{how !== null ? LOOK_FOR[how] : "How it ended was not seen here. If you sent the deposit, look for the delivery at your receiving address, or for a refund at your refund address: both are in the order details below."}</p>}
           </div>
         </div>
       ) : (
@@ -376,7 +377,7 @@ function GhostNote({ link, gone, ended }: { link: string; gone: boolean; ended: 
  * it last showed and takes away everything that would ask for something more (the deposit details,
  * the steps of an order that was still running, the hash field, the buttons that copy the link).
  */
-export function OrderContent({ order, now, reconnecting, contact, onOrder, privacyMode = null, gone = false, children }: { order: OrderView; now: number; reconnecting: boolean; contact: string | null; onOrder(order: OrderView): void; privacyMode?: PrivacyMode; gone?: boolean; children?: React.ReactNode }) {
+export function OrderContent({ order, now, reconnecting, contact, onOrder, privacyMode = null, gone = false, how = null, children }: { order: OrderView; now: number; reconnecting: boolean; contact: string | null; onOrder(order: OrderView): void; privacyMode?: PrivacyMode; gone?: boolean; how?: SaidEnding | null; children?: React.ReactNode }) {
   const steps = timeline(order, now);
   const end = ending(order, contact !== null, !gone);
   const awaitingDeposit = order.status === "waiting" || (order.status === "deposit_seen" && !order.depositProven);
@@ -424,7 +425,7 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
         )}
       </header>
 
-      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} /> : null}
+      {ghost ? <GhostNote link={link} gone={gone} ended={end !== null} how={how} /> : null}
 
       <p className="order-reconnecting" role="status">
         {reconnecting ? "Reconnecting… Showing what was last known." : " "}
@@ -509,10 +510,13 @@ export function OrderContent({ order, now, reconnecting, contact, onOrder, priva
  * and one way on. It is given nothing of the order and so can show nothing of it: no status, no
  * amount, no address. The server holds nothing more to say.
  */
-export function OrderDeleted() {
+export function OrderDeleted({ ended = null }: { ended?: SaidEnding | null }) {
   return (
     <Notice title="This order finished." action={<SecondaryButton onClick={() => navigate("/")}>Go to the swap page</SecondaryButton>}>
-      <p>It was made in Ghost mode, so its record was deleted when it finished. Nothing more is kept of it here.</p>
+      {/* How it ended is the one thing the server still says of it, where it says anything. */}
+      <p>
+        {ended !== null ? <>{ENDED_AS[ended]} </> : null}It was made in Ghost mode, so its record was deleted when it finished. Nothing more is kept of it here.
+      </p>
     </Notice>
   );
 }
@@ -522,6 +526,8 @@ export default function OrderPage({ id }: { id: string }) {
   const [missing, setMissing] = useState(false);
   // The server has said that the order's record was deleted: an order made in Ghost mode, once it has finished.
   const [deleted, setDeleted] = useState(false);
+  // How it ended, where the server said so with that answer: one word, and all it still knows of the order.
+  const [endedAs, setEndedAs] = useState<SaidEnding | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [now, setNow] = useState(() => serverNow());
   const practice = useApp((state) => state.config?.practice ?? false);
@@ -543,6 +549,7 @@ export default function OrderPage({ id }: { id: string }) {
     setOrder(null);
     setMissing(false);
     setDeleted(false);
+    setEndedAs(null);
     failures.current = 0;
 
     const look = async () => {
@@ -570,6 +577,7 @@ export default function OrderPage({ id }: { id: string }) {
         if (err instanceof ApiError && err.code === "order_deleted") {
           // An order made in Ghost mode has finished and its record is gone. There is nothing more to ask.
           setReconnecting(false);
+          setEndedAs(endingSaid(err.detail));
           setDeleted(true);
           return;
         }
@@ -620,7 +628,7 @@ export default function OrderPage({ id }: { id: string }) {
   }
 
   // The record was already gone when this page first asked: the notice, alone.
-  if (deleted && order === null) return <OrderDeleted />;
+  if (deleted && order === null) return <OrderDeleted ended={endedAs} />;
 
   if (order === null) {
     return (
@@ -643,7 +651,7 @@ export default function OrderPage({ id }: { id: string }) {
 
   const running = ending(order) === null;
   return (
-    <OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted}>
+    <OrderContent order={order} now={now} reconnecting={reconnecting} contact={contact} onOrder={setOrder} privacyMode={privacyMode} gone={deleted} how={endedAs}>
       {practice && running && !deleted ? (
         <details className="order-practice">
           {/* The operator's tool for moving a practice order along. It says nothing of itself and stays folded until asked for. */}

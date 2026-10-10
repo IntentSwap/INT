@@ -333,3 +333,27 @@ export function paySecondary(phase: PayPhase, pendingMs: number): string | null 
   if (phase === "sent" && pendingMs > 60_000) return "My wallet shows it failed or was cancelled";
   return null;
 }
+
+/** How an order made in Ghost mode ended, as the server says it of one whose record it has deleted: one word, and all it still knows. */
+export type SaidEnding = "delivered" | "refunded" | "expired";
+
+/** That word, from what came with the server's "deleted" answer. Null when it said none, or anything else. */
+export function endingSaid(detail: Record<string, unknown> | null | undefined): SaidEnding | null {
+  const ended = detail?.ended;
+  return ended === "delivered" || ended === "refunded" || ended === "expired" ? ended : null;
+}
+
+/** The one sentence that says it. */
+export const ENDED_AS: Record<SaidEnding, string> = {
+  delivered: "It was delivered.",
+  refunded: "It was refunded.",
+  expired: "It ran out without being paid.",
+};
+
+/** Where to look for what a finished order sent back, when the page did not see it end. */
+export const LOOK_FOR: Record<SaidEnding, string> = {
+  delivered: "It was delivered: look for the delivery at your receiving address, in the order details below.",
+  refunded: "It was refunded: look for the refund at your refund address, in the order details below.",
+  expired: "It ran out without being paid.",
+};
+
