@@ -28,14 +28,14 @@ import { axeProblems } from "./axe.ts";
 import { freshSol, headerFits, orderPace, settle, testControl } from "./order-walk.ts";
 
 // Made up from fixed text, so they are nobody's.
-const WALLET = "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83";
+export const WALLET = "0xb5590d9FE0D0902ebe80D5191DCeA6Fc4D35eC83";
 /** Another made-up address of the same kind, in its standard spelling, for the walk that changes the refund address in the review. */
 const OTHER_REFUND = getAddress(`0x${"5e".repeat(20)}`);
-const HASH = `0x${"ab".repeat(32)}`;
+export const HASH = `0x${"ab".repeat(32)}`;
 const NONCE = 7;
-const ALLOWED_HOSTS = new Set(["api.web3modal.org", "relay.walletconnect.org", "verify.walletconnect.org"]);
+export const ALLOWED_HOSTS = new Set(["api.web3modal.org", "relay.walletconnect.org", "verify.walletconnect.org"]);
 /** What a wallet may be asked on this site. Anything else is a failure, whatever it is. */
-const ALLOWED_ASKS = new Set([
+export const ALLOWED_ASKS = new Set([
   "eth_requestAccounts",
   "eth_accounts",
   "eth_chainId",
@@ -47,7 +47,7 @@ const ALLOWED_ASKS = new Set([
   "wallet_addEthereumChain",
   "eth_sendTransaction",
 ]);
-const APPROVE = "0x095ea7b3";
+export const APPROVE = "0x095ea7b3";
 const NETWORKS: Record<number, { name: string; node: string }> = {
   1: { name: "Ethereum", node: "https://ethereum-rpc.publicnode.com" },
   56: { name: "BNB Chain", node: "https://bsc-dataseed.bnbchain.org" },
@@ -64,10 +64,17 @@ interface WalletWindow {
   __wallet: { mode: string; log: Ask[]; held: { yes(): void; no(): void } | null };
 }
 
-/** The pretend wallet. Plain text, because it runs in the page before anything else does. */
-function pretendWallet(address: string, chainId: number, trusted: boolean, knows: number[]): string {
+/**
+ * The pretend wallet. Plain text, because it runs in the page before anything else does.
+ * `hashes` are what it answers its transfers with, one after the other, the last of them for every
+ * transfer after that: a walk that has the wallet send two transfers gives it two, as a real wallet would.
+ */
+export function pretendWallet(address: string, chainId: number, trusted: boolean, knows: number[], hashes: readonly string[] = [HASH]): string {
   return `(() => {
     const state = { chain: ${chainId}, mode: "accept", log: [], held: null, trusted: ${String(trusted)}, knows: ${JSON.stringify(knows)} };
+    const hashes = ${JSON.stringify(hashes)};
+    let sent = 0;
+    const nextHash = () => hashes[Math.min(sent++, hashes.length - 1)];
     window.__wallet = state;
     const listeners = {};
     const emit = (name, value) => (listeners[name] || []).slice().forEach((fn) => fn(value));
@@ -111,8 +118,8 @@ function pretendWallet(address: string, chainId: number, trusted: boolean, knows
           }
           case "eth_sendTransaction":
             if (state.mode === "reject") throw refuse();
-            if (state.mode === "hold") return new Promise((resolve, reject) => { state.held = { yes: () => resolve("${HASH}"), no: () => reject(refuse()) }; });
-            return "${HASH}";
+            if (state.mode === "hold") return new Promise((resolve, reject) => { state.held = { yes: () => resolve(nextHash()), no: () => reject(refuse()) }; });
+            return nextHash();
           default:
             throw Object.assign(new Error("Unsupported: " + method), { code: 4200 });
         }
@@ -128,7 +135,7 @@ function pretendWallet(address: string, chainId: number, trusted: boolean, knows
 }
 
 /** What the made-up chain currently says. Changed by the walk as it goes. */
-interface ChainState {
+export interface ChainState {
   /** The sent transfer's receipt: none yet, a success, or a failure. */
   receipt: "none" | "success" | "failed";
   /** How many of the wallet's transactions are in blocks. The sent transfer is number 7. */
@@ -139,8 +146,11 @@ interface ChainState {
   code: boolean;
 }
 
-/** Answers for the chain, made up: a wallet with funds and no code, and a transfer whose fate the walk decides. */
-function pretendChain(state: ChainState) {
+/**
+ * Answers for the chain, made up: a wallet with funds and no code, and a transfer whose fate the walk decides.
+ * `hashes` are the transfers it knows of (those the pretend wallet answers with): they share the one fate.
+ */
+export function pretendChain(state: ChainState, hashes: readonly string[] = [HASH]) {
   return async (route: Route): Promise<void> => {
     if (state.down) {
       await route.abort();
@@ -196,13 +206,13 @@ function pretendChain(state: ChainState) {
         break;
       }
       case "eth_getTransactionReceipt":
-        if (params[0] !== HASH) answered = false;
+        if (typeof params[0] !== "string" || !hashes.includes(params[0])) answered = false;
         else if (state.receipt === "none") result = null;
-        else result = { transactionHash: HASH, transactionIndex: "0x0", blockHash: `0x${"cd".repeat(32)}`, blockNumber: "0x1000", from: WALLET.toLowerCase(), to: null, cumulativeGasUsed: "0x5208", gasUsed: "0x5208", effectiveGasPrice: "0x1", contractAddress: null, logs: [], logsBloom: `0x${"00".repeat(256)}`, status: state.receipt === "success" ? "0x1" : "0x0", type: "0x2" };
+        else result = { transactionHash: params[0], transactionIndex: "0x0", blockHash: `0x${"cd".repeat(32)}`, blockNumber: "0x1000", from: WALLET.toLowerCase(), to: null, cumulativeGasUsed: "0x5208", gasUsed: "0x5208", effectiveGasPrice: "0x1", contractAddress: null, logs: [], logsBloom: `0x${"00".repeat(256)}`, status: state.receipt === "success" ? "0x1" : "0x0", type: "0x2" };
         break;
       case "eth_getTransactionByHash":
-        if (params[0] !== HASH) answered = false;
-        else result = { hash: HASH, from: WALLET.toLowerCase(), nonce: `0x${NONCE.toString(16)}`, blockNumber: null };
+        if (typeof params[0] !== "string" || !hashes.includes(params[0])) answered = false;
+        else result = { hash: params[0], from: WALLET.toLowerCase(), nonce: `0x${NONCE.toString(16)}`, blockNumber: null };
         break;
       case "eth_getTransactionCount":
         result = `0x${state.count.toString(16)}`;
@@ -314,8 +324,9 @@ export async function walletWalk(browser: Browser, options: { baseUrl: string; p
       for (const problem of await axeProblems(page)) complaints.push(`wallet ${setup.name} ${name}: ${problem}`);
     };
     const otherSites = () => [...new Set(requests.map((url) => new URL(url).host).filter((host) => host !== ownHost))];
-    // Scripts of this site that the page itself does not name, other than the pages that are fetched when first opened.
-    const walletCode = () => requests.filter((url) => new URL(url).host === ownHost && /\/assets\/[^/]+\.js$/.test(new URL(url).pathname) && !firstLoad.has(new URL(url).pathname) && !/\/assets\/(OrderPage|LegalPages|StatesPage|QrCode|Address|WalletPay)-/.test(url));
+    // Scripts of this site that the page itself does not name, other than the pages that are fetched when first opened
+    // and the review, whose code travels apart and is fetched as soon as the card holds a quote.
+    const walletCode = () => requests.filter((url) => new URL(url).host === ownHost && /\/assets\/[^/]+\.js$/.test(new URL(url).pathname) && !firstLoad.has(new URL(url).pathname) && !/\/assets\/(OrderPage|LegalPages|StatesPage|QrCode|Address|WalletPay|ReviewSheet)-/.test(url));
     // One story is walked by keyboard alone from Connect to the pay button: every control is reached
     // with Tab and worked with Enter or Space. The others use the pointer or a finger.
     const byKeyboard = setup.keys === true || setup.story === "fail-then-succeed";

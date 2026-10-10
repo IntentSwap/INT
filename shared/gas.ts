@@ -73,17 +73,24 @@ export function gasCoinFor<T extends Listed>(from: Listed, to: Listed, coins: It
   return own === null || own.id === from.id ? null : own;
 }
 
+/** How many figures of a gas order's amount are kept: the rest are zeros. */
+export const GAS_AMOUNT_FIGURES = 6;
+
 /**
  * How much of the paying coin a gas order of `usd` dollars is, in the coin's smallest unit, at the
- * list's price for it (scaled by 10^18). Whole numbers throughout, rounded down. Null where the
- * coin has no price, or the amount would come to nothing.
+ * list's price for it (scaled by 10^18). Whole numbers throughout, rounded down, to six figures.
+ * Null where the coin has no price, or the amount would come to nothing.
  *
  * The price decides only how big the order is. What it buys is the provider's quote, verified like
  * any quote, and the person reviews the exact amount before anything is made.
  */
 export function gasAmountOf(usd: GasSize, decimals: number, priceScaled: bigint | null): bigint | null {
   if (priceScaled === null || priceScaled <= 0n) return null;
-  const raw = (BigInt(usd) * USD_SCALE * 10n ** BigInt(decimals)) / priceScaled;
+  const exact = (BigInt(usd) * USD_SCALE * 10n ** BigInt(decimals)) / priceScaled;
+  // Six figures of it are kept and the rest rounded down, so that the amount can be read, and typed
+  // by someone sending it themselves: 0.00120237 of a coin, not eighteen decimal places of it.
+  const spare = exact.toString().length - GAS_AMOUNT_FIGURES;
+  const raw = spare > 0 ? (exact / 10n ** BigInt(spare)) * 10n ** BigInt(spare) : exact;
   return raw > 0n ? raw : null;
 }
 

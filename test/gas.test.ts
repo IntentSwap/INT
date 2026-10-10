@@ -1,7 +1,7 @@
 // "Add gas": what the page and the server agree on (shared/gas.ts).
 import { describe, expect, it } from "vitest";
 import { USD_SCALE } from "../shared/amounts.ts";
-import { GAS_DRIFT_BPS, GAS_SIZES_USD, GAS_USD, gasAmountOf, gasCoinFor, gasSizeFor, isGasAmount, isGasSize, ownCoinOf } from "../shared/gas.ts";
+import { GAS_AMOUNT_FIGURES, GAS_DRIFT_BPS, GAS_SIZES_USD, GAS_USD, gasAmountOf, gasCoinFor, gasSizeFor, isGasAmount, isGasSize, ownCoinOf } from "../shared/gas.ts";
 
 const coin = (id: string, chain: string, contract: string | null) => ({ id, chain, contract });
 const SOL = coin("sol", "sol", null);
@@ -76,6 +76,22 @@ describe("the amount of a gas order", () => {
     // Five dollars of a coin at $4,000 with 18 decimals: 0.00125.
     expect(gasAmountOf(5, 18, dollars(4000))).toBe(1_250_000_000_000_000n);
     // Ten dollars of a coin at $3 with two decimals: 3.33, never rounded up.
+    expect(gasAmountOf(10, 2, dollars(3))).toBe(333n);
+  });
+
+  it("keeps six figures and rounds the rest down, so that it can be read and typed", () => {
+    // Three dollars of a coin at $2,495.13 with 18 decimals: 0.001202358… of it.
+    const price = 2_495_130_000_000_000_000_000n;
+    const exact = (3n * USD_SCALE * 10n ** 18n) / price;
+    const amount = gasAmountOf(3, 18, price) ?? 0n;
+    expect(amount).toBe(1_202_340_000_000_000n);
+    expect(amount <= exact && exact - amount < 10n ** 10n).toBe(true);
+    expect(amount.toString().replace(/0+$/, "").length).toBeLessThanOrEqual(GAS_AMOUNT_FIGURES);
+    // Three dollars of a coin at $0.999728 with six decimals: 3.000816… becomes 3.00081.
+    expect(gasAmountOf(3, 6, 999_728_000_000_000_000n)).toBe(3_000_810n);
+    // It is still that size's amount, by a long way inside the room allowed.
+    expect(isGasAmount(3, amount, 18, price)).toBe(true);
+    // An amount of six figures or fewer is left as it is.
     expect(gasAmountOf(10, 2, dollars(3))).toBe(333n);
   });
 

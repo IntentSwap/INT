@@ -23,6 +23,7 @@ import { focusWalk } from "./focus-walk.ts";
 import { pickerWalk } from "./picker-walk.ts";
 import { privateWalk } from "./private-walk.ts";
 import { ghostWalk } from "./ghost-walk.ts";
+import { gasWalk } from "./gas-walk.ts";
 import { rewardsWalk } from "./rewards-walk.ts";
 
 const WIDTHS = [360, 768, 1280] as const;
@@ -739,7 +740,7 @@ if (!baseUrl) {
 }
 const chosen = only.length === 0 ? SCENARIOS : SCENARIOS.filter((scenario) => only.includes(scenario.name));
 // Besides the screenshots, the script walks through behaviour. Each walk has a name and can be run alone:
-// layout, states-in-use, review, paste, quoting, sheet-touch, focus, picker (also run by its older name, picker-keyboard), slippage, reduced-motion, chips, site, order, wallet, focus-marks, private, rewards, ghost.
+// layout, states-in-use, review, paste, quoting, sheet-touch, focus, picker (also run by its older name, picker-keyboard), slippage, reduced-motion, chips, site, order, wallet, focus-marks, private, rewards, ghost, gas.
 const walks = (name: string) => only.length === 0 || only.includes(name);
 
 // The site limits how often one visitor may load it. This script is one visitor, so it keeps a steady pace.
@@ -1948,6 +1949,15 @@ if (walks("ghost") && practiceUrl !== null) {
   complaints.push(...result.complaints);
   shots += result.shots;
 }
+
+// Add gas: the switch, the review, the pair of orders paid each way, from a wallet, in Ghost mode, and when the gas order
+// cannot be made, on the practice server that routes privately (see scripts/gas-walk.ts).
+if (walks("gas") && privateUrl !== null) {
+  const result = await gasWalk(browser, { privateUrl, out, visit });
+  complaints.push(...result.complaints);
+  shots += result.shots;
+}
+if (only.includes("gas") && privateUrl === null) notes.push("the gas walk was left out: it is walked on a practice server that routes privately (--private=<url>)");
 
 // Pretend orders the walks above made and left unpaid are ended, so they do not count against the next run.
 if (practiceUrl !== null) for (const id of leftUnpaid) await settle(practiceUrl, id);

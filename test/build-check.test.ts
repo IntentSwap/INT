@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BUDGETS, checkBuild } from "../scripts/check-build.ts";
+import { BUDGETS, checkBuild, staticImports } from "../scripts/check-build.ts";
 import { firstWords } from "../server/static.ts";
 
 /** The start of every sample page: the first words of the site in the form the server may rewrite them, as the real page holds them. */
@@ -171,6 +171,26 @@ describe("build check", () => {
     expect(problems()).toEqual([]);
     fs.writeFileSync(path.join(dist, "assets", "app-1.js"), 'new WebSocket("wss://relay.walletconnect.org")');
     expect(problems()).toEqual(["assets/app-1.js: wallet code is part of the first page load (it must load only when Connect is pressed)"]);
+  });
+
+  it("fails when a file of the first page load fetches, at once, a file the page does not name: wallet code could reach the first load that way unread", () => {
+    add("wallet-1.js", 'new WebSocket("wss://relay.walletconnect.org")');
+    // Fetched only when asked: no part of the first load.
+    fs.writeFileSync(path.join(dist, "assets", "app-1.js"), 'const open=()=>import("./wallet-1.js");console.log(open)');
+    expect(problems()).toEqual([]);
+    // Fetched at once, by a file the page names, and not itself named by the page.
+    for (const line of ['import{a}from"./wallet-1.js";console.log(a)', 'import"./wallet-1.js";', 'console.log(1);export{a}from"./wallet-1.js";', "import * as w from './wallet-1.js';\nconsole.log(w)"]) {
+      fs.writeFileSync(path.join(dist, "assets", "app-1.js"), line);
+      expect(problems(), line).toEqual(["assets/app-1.js: fetches assets/wallet-1.js at once, which the page does not name (the first page load must be only what the page names)"]);
+    }
+    // Named by the page, it is read like any first file: and it is wallet code.
+    fs.writeFileSync(path.join(dist, "index.html"), FIRST + '<script type="module" src="/assets/app-1.js"></script><link rel="modulepreload" href="/assets/wallet-1.js"><link rel="stylesheet" href="/assets/app-1.css">');
+    expect(problems()).toEqual(["assets/wallet-1.js: wallet code is part of the first page load (it must load only when Connect is pressed)"]);
+  });
+
+  it("tells a file fetched at once from one fetched when asked", () => {
+    expect(staticImports('import{a as b}from"./a-1.js";import"./b-2.js";const c=()=>import("./c-3.js");export*from"./d-4.js";export{e}from"../e-5.js";const f="import x from \\"./not-code.js\\""')).toEqual(["./a-1.js", "./b-2.js", "./d-4.js", "../e-5.js"]);
+    expect(staticImports('console.log("hello")')).toEqual([]);
   });
 
   it("fails on a source map", () => {

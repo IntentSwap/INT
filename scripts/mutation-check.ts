@@ -660,7 +660,7 @@ const M: Mutation[] = [
   { file: "server/poller.ts", find: "for order ${hashId(id)}.`, hashId(id));", replace: "for order ${hashId(id)}.`, id);", label: "Ghost mode: an alert about a status reply for another address is held back by the order's hashed ID, not its ID" },
   { file: "server/poller.ts", find: "three times its estimate.`, hashId(id));", replace: "three times its estimate.`, id);", label: "Ghost mode: an alert about a slow swap is held back by the order's hashed ID, not its ID" },
   { file: "server/store.ts", find: "  return record.ghost === true && record.held !== true && endedEmpty(record.state);", replace: "  return record.ghost === true && endedEmpty(record.state);", label: "Ghost mode: an order the operator was alerted about is kept as any order is" },
-  { file: "server/app.ts", find: "              store.hold(record.id);\n", replace: "", label: "Ghost mode: a sanctions alert marks the order before it is sent" },
+  { file: "server/app.ts", find: "                store.hold(record.id);\n", replace: "", label: "Ghost mode: a sanctions alert marks the order before it is sent" },
   // ---- Add gas: the words (its page, its question, its line, and what the pages say of paying), said only where swaps are routed privately ----
   { file: "shared/pages.ts", find: "export const PRIVATE_ONLY_DOC_SLUGS: readonly DocSlug[] = [PRIVATE_DOC_SLUG, GAS_DOC_SLUG];", replace: "export const PRIVATE_ONLY_DOC_SLUGS: readonly DocSlug[] = [PRIVATE_DOC_SLUG];", label: "Add gas: its page in the Docs is a page only where swaps are routed privately" },
   { file: "server/static.ts", find: "const PRIVATE_ROUTES = [new RegExp(`^/docs/(${PRIVATE_ONLY_DOC_SLUGS.join(\"|\")})$`)];", replace: "const PRIVATE_ROUTES = [new RegExp(\"^/docs/private$\")];", label: "Add gas: the server answers the address of its page where swaps are routed privately" },
@@ -876,7 +876,7 @@ const M: Mutation[] = [
   { file: "web/src/pages/OrderPage.tsx", find: "gasOpen={gasOrder !== null && gasPollDelay(gas) !== null}", replace: "gasOpen={gasPollDelay(gas) !== null}", label: "Add gas: a deleted swap's note points to a gas order only where that order is the swap's own" },
   { file: "web/src/pages/OrderPage.tsx", find: " && gasPollDelay(gas) !== null} /> : null}", replace: "} /> : null}", label: "Add gas: once the gas order has ended too, a deleted swap's note is as it was" },
   // ---- Add gas: what the security look added ----
-  { file: "server/app.ts", find: "              if (record.gasOrder !== true) store.hold(gasIdOf(record.id));\n", replace: "", label: "Add gas: a held swap's gas order is kept with it" },
+  { file: "server/app.ts", find: "                if (record.gasOrder !== true) store.hold(gasIdOf(record.id));\n", replace: "", label: "Add gas: a held swap's gas order is kept with it" },
   { file: "shared/gas.ts", find: "  return worth >= (size * (10_000n - GAS_DRIFT_BPS)) / 10_000n && worth <= (size * (10_000n + GAS_DRIFT_BPS)) / 10_000n;", replace: "  return worth >= (BigInt(GAS_SIZES_USD[0]) * USD_SCALE * (10_000n - GAS_DRIFT_BPS)) / 10_000n && worth <= (10n * USD_SCALE * (10_000n + GAS_DRIFT_BPS)) / 10_000n;", label: "Add gas: a gas amount is held to its own chain's size, not to any size" },
 ];
 

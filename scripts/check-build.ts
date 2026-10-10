@@ -40,6 +40,16 @@ const PATTERNS: Array<[RegExp, string]> = [
 const WALLET_CODE = /walletconnect\.org|web3modal\.org|w3m-modal/;
 
 /**
+ * The files a built script fetches at once, as it is itself fetched: what it imports or passes on
+ * by a plain `import … from "./file.js"` or `export … from "./file.js"`. A file it fetches only when
+ * asked (`import("./file.js")`) is not one of them.
+ */
+export function staticImports(script: string): string[] {
+  const found = [...script.matchAll(/(?:^|[;}\n])\s*(?:import|export)\b(?:[^"'()]*?\bfrom)?\s*["'](\.{1,2}\/[^"']+\.js)["']/g)].map((match) => match[1] ?? "");
+  return [...new Set(found)];
+}
+
+/**
  * Everything the top of the build may hold. Whatever is in web/public is served to anyone who asks
  * for it, so a file dropped there by mistake is published: the build fails on one it does not know.
  */
@@ -153,7 +163,15 @@ export function checkBuild(dist: string, env: Record<string, string | undefined>
     }
     const raw = fs.readFileSync(file);
     sizes.script += zlib.gzipSync(raw, { level: 9 }).length;
-    if (WALLET_CODE.test(raw.toString("utf8"))) problems.push(`${src.slice(1)}: wallet code is part of the first page load (it must load only when Connect is pressed)`);
+    const text = raw.toString("utf8");
+    if (WALLET_CODE.test(text)) problems.push(`${src.slice(1)}: wallet code is part of the first page load (it must load only when Connect is pressed)`);
+    // The first load is what the page names and whatever those files fetch at once themselves. The
+    // build names every such file in the page, and so they are read above; a first file that fetched
+    // another the page does not name would bring code into the first load that nothing here had looked at.
+    for (const dep of staticImports(text)) {
+      const fetched = path.posix.join(path.posix.dirname(src), dep);
+      if (!initial.includes(fetched)) problems.push(`${src.slice(1)}: fetches ${fetched.slice(1)} at once, which the page does not name (the first page load must be only what the page names)`);
+    }
   }
 
   const labels: Array<[string, number, number]> = [
