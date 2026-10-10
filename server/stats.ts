@@ -28,6 +28,13 @@
 // delivered order does, once, and it is given no row, at no time: its deposit's transaction is not
 // read at all.
 //
+// A gas order (the small second order "Add gas" makes beside a swap) is not a swap. Delivered, it
+// adds its dollars wherever dollars are summed: the total, its hour, the coin it sent, the coin it
+// delivered, and the chain it was sent from. It adds nothing that counts swaps: not to the number
+// of swaps, not to its chain's, not to its hour's, and not to the time deliveries take. It is
+// given no row. And a chain that only a gas order was sent from is not yet a chain a swap was sent
+// from: it is listed nowhere until one is.
+//
 // That an order has been counted is not written here either. It is a mark on the order's own
 // record, set by the order store before the totals are touched, so an order is counted at most
 // once, across restarts too, and the mark goes when the order's record goes.
@@ -68,8 +75,12 @@ export interface StatsFile {
   /** Delivery times, in whole seconds: their sum, and how many were added up. */
   deliverySeconds: number;
   deliveriesTimed: number;
-  /** Every chain a delivered swap was sent from, with how many those swaps were and their dollar value. */
-  chains: Record<string, { swaps: number; volumeMicro: string }>;
+  /**
+   * Every chain a delivered order was sent from, with how many swaps those were and their dollar
+   * value. `gasOnly` is there, and true, on a chain that so far only gas orders were sent from: its
+   * dollars are kept, and it is not among the chains used until a swap is sent from it.
+   */
+  chains: Record<string, { swaps: number; volumeMicro: string; gasOnly?: true }>;
   /** Every coin a delivered swap sent, with the dollar value of those swaps. */
   coins: { symbol: string; chain: string; volumeMicro: string }[];
   /** Every coin a delivered swap delivered, with the dollar value of those swaps: a total by coin and nothing by swap. Absent in a file made before it was kept. */
@@ -102,6 +113,8 @@ export interface Delivery {
   to?: StatsCoin;
   /** True for an order made in Ghost mode: it adds to the sums and is given no row. */
   unlisted?: true;
+  /** True for a gas order: it adds its dollars to the sums, is counted as no swap, and is given no row. */
+  gas?: true;
 }
 
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -139,7 +152,8 @@ const LONGEST_DELIVERY_S = 24 * 3600;
  * server itself confirmed pays the order. A hash that was only announced is not taken: it could
  * be anyone's. The time taken runs from the last step this server saw before the end (the order
  * being made, its deposit being confirmed, the swap starting) to the delivery. Of an order made in
- * Ghost mode the deposit's transaction is not read: such an order is for the sums alone.
+ * Ghost mode the deposit's transaction is not read: such an order is for the sums alone. Nor is
+ * it read of a gas order, which is for the dollar sums alone (see `add`).
  */
 function deliveryOf(record: OrderRecord): Delivery | null {
   if (record.state.status !== "delivered") return null;
@@ -150,6 +164,7 @@ function deliveryOf(record: OrderRecord): Delivery | null {
   const sent = record.from;
   const coin = { ...coinOf(sent), decimals: isDecimals(sent.decimals) ? sent.decimals : 0 };
   const sums = { coin, amount: record.amountIn, usdMicro: usdToMicro(record.amountInUsd), seconds, at, began: began > 0 && began <= at ? began : at, to: coinOf(record.to) };
+  if (record.gasOrder === true) return { ...sums, tx: null, gas: true };
   if (record.ghost === true) return { ...sums, tx: null, unlisted: true };
   const paid = record.state.details?.originTxs[0]?.hash ?? (record.state.depositVerified === true ? record.state.depositTxHash : null);
   return { ...sums, tx: isValidTxHash(coin.chain, paid) ? paid : null };
@@ -160,13 +175,25 @@ function deliveryOf(record: OrderRecord): Delivery | null {
  * the sending side and the deposit's hash. The moment of delivery is a fact about the receiving
  * side, so a row does not carry it. A delivery whose amount cannot be read adds no row, and
  * neither does that of an order made in Ghost mode: not as it is delivered, and not when the rows
- * of orders already counted are put back at a start.
+ * of orders already counted are put back at a start. Nor does a gas order's, at either moment: the
+ * list is of swaps.
  */
 function rowFor(delivery: Delivery): StoredRow | null {
+  if (delivery.gas === true) return null;
   if (delivery.unlisted === true) return null;
   if (!isAmount(delivery.amount)) return null;
   return { coin: { symbol: delivery.coin.symbol, chain: delivery.coin.chain, decimals: delivery.coin.decimals }, amount: delivery.amount, at: momentOf(Math.floor(delivery.began / MINUTE_MS) * MINUTE_MS), tx: delivery.tx };
 }
+
+/** What is held for a chain orders were sent from. `gasOnly` is true while only gas orders were: see the file's shape above. */
+interface ChainSum {
+  swaps: number;
+  volume: bigint;
+  gasOnly?: true;
+}
+
+/** A chain a swap has been sent from: every chain that is held, but one that only gas orders were sent from. */
+const used = (chain: ChainSum): boolean => chain.gasOnly !== true;
 
 /** The same sums, as they are held while the server runs. */
 interface Sums {
@@ -174,7 +201,7 @@ interface Sums {
   volume: bigint;
   seconds: number;
   timed: number;
-  chains: Map<string, { swaps: number; volume: bigint }>;
+  chains: Map<string, ChainSum>;
   coins: Map<string, { coin: StatsCoin; volume: bigint }>;
   received: Map<string, { coin: StatsCoin; volume: bigint }>;
   hours: Map<number, { swaps: number; volume: bigint }>;
@@ -191,7 +218,7 @@ function toFile(sums: Sums, v: StatsFile["v"]): StatsFile {
     volumeMicro: sums.volume.toString(),
     deliverySeconds: sums.seconds,
     deliveriesTimed: sums.timed,
-    chains: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, { swaps: held.swaps, volumeMicro: held.volume.toString() }])),
+    chains: Object.fromEntries([...sums.chains].map(([chain, held]) => [chain, { swaps: held.swaps, volumeMicro: held.volume.toString(), ...(used(held) ? {} : { gasOnly: true as const }) }])),
     coins: [...sums.coins.values()].map((held) => ({ symbol: held.coin.symbol, chain: held.coin.chain, volumeMicro: held.volume.toString() })),
     received: [...sums.received.values()].map((held) => ({ symbol: held.coin.symbol, chain: held.coin.chain, volumeMicro: held.volume.toString() })),
     hours: Object.fromEntries([...sums.hours].map(([hour, held]) => [String(hour), { swaps: held.swaps, volumeMicro: held.volume.toString() }])),
@@ -250,8 +277,9 @@ function fromFile(value: unknown): { sums: Sums; v: 1 | 2 | 3 } | null {
   const { chains, coins, rows } = value;
   if (sums === null || !isObject(chains) || !Array.isArray(coins) || !Array.isArray(rows)) return null;
   for (const [chain, held] of Object.entries(chains)) {
-    if (!isChain(chain) || !isObject(held) || !isCount(held.swaps) || !isMicro(held.volumeMicro)) return null;
-    sums.chains.set(chain, { swaps: held.swaps, volume: BigInt(held.volumeMicro) });
+    if (!isChain(chain) || !isObject(held) || !isCount(held.swaps) || !isMicro(held.volumeMicro) || (held.gasOnly !== undefined && held.gasOnly !== true)) return null;
+    // Only a chain no swap is counted for can be one that gas orders alone were sent from.
+    sums.chains.set(chain, { swaps: held.swaps, volume: BigInt(held.volumeMicro), ...(held.gasOnly === true && held.swaps === 0 ? { gasOnly: true as const } : {}) });
   }
   for (const held of coins as unknown[]) {
     if (!isObject(held) || !isCoin(held) || !isMicro(held.volumeMicro)) return null;
@@ -280,19 +308,26 @@ function prune(sums: Sums, now: number): void {
   if (sums.rows.length > ROWS_KEPT) sums.rows = sums.rows.slice(sums.rows.length - ROWS_KEPT);
 }
 
-/** Adds one delivery to the sums. What falls outside the hours or rows that are kept adds to the totals alone. */
+/**
+ * Adds one delivery to the sums. What falls outside the hours or rows that are kept adds to the
+ * totals alone. A gas order adds its dollars to each sum a swap's dollars are added to, and one
+ * swap to none of them.
+ */
 function add(sums: Sums, delivery: Delivery, now: number): void {
   const usd = delivery.usdMicro ?? 0n;
   const coin = { symbol: delivery.coin.symbol, chain: delivery.coin.chain };
-  sums.swaps += 1;
+  // How many swaps this is: one, or none for a gas order.
+  const swaps = delivery.gas === true ? 0 : 1;
+  sums.swaps += swaps;
   sums.volume += usd;
-  if (delivery.seconds !== null) {
+  if (delivery.seconds !== null && swaps === 1) {
     sums.seconds += delivery.seconds;
     sums.timed += 1;
   }
-  // Counted for the chain it was sent from, and for no other.
-  const from = sums.chains.get(coin.chain) ?? { swaps: 0, volume: 0n };
-  sums.chains.set(coin.chain, { swaps: from.swaps + 1, volume: from.volume + usd });
+  // Counted for the chain it was sent from, and for no other. A chain first heard of from a gas
+  // order is marked as one that only gas orders were sent from, and the mark goes with the first swap.
+  const from = sums.chains.get(coin.chain) ?? { swaps: 0, volume: 0n, ...(swaps === 0 ? { gasOnly: true as const } : {}) };
+  sums.chains.set(coin.chain, { swaps: from.swaps + swaps, volume: from.volume + usd, ...(swaps === 0 && !used(from) ? { gasOnly: true as const } : {}) });
   if (delivery.usdMicro !== null) {
     const sent = sums.coins.get(coinKey(coin)) ?? { coin, volume: 0n };
     sums.coins.set(coinKey(coin), { coin, volume: sent.volume + usd });
@@ -305,7 +340,7 @@ function add(sums: Sums, delivery: Delivery, now: number): void {
   const hour = Math.floor(delivery.at / HOUR_MS);
   if (hour > Math.floor(now / HOUR_MS) - HOURS_KEPT) {
     const held = sums.hours.get(hour) ?? { swaps: 0, volume: 0n };
-    sums.hours.set(hour, { swaps: held.swaps + 1, volume: held.volume + usd });
+    sums.hours.set(hour, { swaps: held.swaps + swaps, volume: held.volume + usd });
   }
   const row = rowFor(delivery);
   if (row !== null) list(sums, row);
@@ -350,11 +385,13 @@ function render(sums: Sums, now: number, receivedMin: number): StatsResponse {
   const recent = lastDay(sums, now);
   const byVolume = <T extends { volumeUsd: number; name: string }>(list: T[]): T[] => list.filter((item) => item.volumeUsd > 0).sort((a, b) => b.volumeUsd - a.volumeUsd || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).slice(0, TOP);
   const coins = byVolume([...sums.coins.entries()].map(([name, held]) => ({ name, coin: held.coin, volumeUsd: dollars(held.volume) }))).map(({ coin, volumeUsd }) => ({ coin, volumeUsd }));
-  const chains = byVolume([...sums.chains].map(([chain, held]) => ({ chain, name: chainName(chain), volumeUsd: dollars(held.volume) })));
+  // A chain that only gas orders were sent from is in neither list of chains: no swap was sent from it yet. Its dollars are in the total.
+  const sentFrom = [...sums.chains].filter(([, held]) => used(held));
+  const chains = byVolume(sentFrom.map(([chain, held]) => ({ chain, name: chainName(chain), volumeUsd: dollars(held.volume) })));
   // The coins delivered, as totals only, once the site has delivered enough swaps. Which swap delivered which is in no figure.
   const received = sums.swaps >= receivedMin ? byVolume([...sums.received.entries()].map(([name, held]) => ({ name, coin: held.coin, volumeUsd: dollars(held.volume) }))).map(({ coin, volumeUsd }) => ({ coin, volumeUsd })) : null;
   // Every chain a swap was sent from, in the order of their codes. Its share is worked out from the same sum the list above shows in dollars.
-  const chainsUsed = [...sums.chains].map(([chain, held]) => ({ chain, swaps: held.swaps, share: shareOf(held.volume, sums.volume) })).sort((a, b) => (a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0));
+  const chainsUsed = sentFrom.map(([chain, held]) => ({ chain, swaps: held.swaps, share: shareOf(held.volume, sums.volume) })).sort((a, b) => (a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0));
   // The newest first, and none older than a row is kept for. A row is sent part by part: these four things and no others.
   const oldest = momentOf(now - ROW_AGE_MS);
   const feed = sums.rows.filter((row) => row.at >= oldest).slice(-ROWS_SHOWN).reverse().map((row) => ({ coin: { symbol: row.coin.symbol, chain: row.coin.chain, decimals: row.coin.decimals }, amount: row.amount, at: row.at, tx: row.tx }));
@@ -422,7 +459,9 @@ export function createStats(dataDir: string, options: { now?: () => number; rece
   // they do, it was counted for its chain as it was delivered, and only its row had gone). Nothing
   // is added to the totals or to any dollar sum: those were added when the order was first
   // counted. `mending` is true until that is done; the file then says so (`v: 3`), and it is never
-  // done again. `held` is the rows the file came with, each standing for one order.
+  // done again. `held` is the rows the file came with, each standing for one order. An order that
+  // has no row is no part of this: one made in Ghost mode, and a gas order, which is no swap and
+  // is counted for no chain.
   let mending = false;
   const held = new Map<string, number>();
   // True while the sums in memory hold something the file does not.
@@ -446,6 +485,7 @@ export function createStats(dataDir: string, options: { now?: () => number; rece
     for (const chain of live.chains.values()) counted += chain.swaps;
     if (counted < live.swaps) {
       const from = live.chains.get(delivery.coin.chain) ?? { swaps: 0, volume: 0n };
+      // A swap was sent from this chain: whatever it was marked as before, it is a chain that was used.
       live.chains.set(delivery.coin.chain, { swaps: from.swaps + 1, volume: from.volume });
     }
   };

@@ -105,6 +105,21 @@ export interface OrderRecord {
    * an alert must have something to be looked up against. Absent on every other.
    */
   held?: true;
+  /**
+   * True on a gas order: the small second order "Add gas" makes beside a swap, which delivers a
+   * little of the receiving chain's own coin to the swap's receiving address. Absent on every other.
+   * It is an ordinary order in every way but two: the site's totals take its dollars and do not
+   * count it as a swap (server/stats.ts), and its ID is worked out from its swap's (server/gas.ts).
+   * The record holds nothing that leads back to that swap.
+   */
+  gasOrder?: true;
+  /**
+   * On a swap that gas was asked for with, what came of that: "made" when the gas order was made,
+   * "not_made" when it could not be. Written once, after the attempt, and never changed. Absent on
+   * a swap that no gas was asked for with, and on a gas order itself. It does not say where the gas
+   * order is: that is worked out from this order's own ID.
+   */
+  gas?: "made" | "not_made";
   state: OrderState;
 }
 
@@ -191,6 +206,12 @@ export interface OrderStore {
   markCounted(id: string): boolean;
   /** Marks an order as one the operator was alerted about (see `held` on the record). True when the mark was newly set. */
   hold(id: string): boolean;
+  /**
+   * Writes on a swap's record what came of the gas order asked for with it (see `gas` on the
+   * record): made, or not. True only the first time, and by then the mark is on disk; false for a
+   * record that already says, or is not there. What was written once is never written over.
+   */
+  noteGas(id: string, made: boolean): boolean;
 }
 
 /** How a deposit address is compared: a hex address in any mix of capitals is the same address; every other kind is taken letter for letter. */
@@ -554,6 +575,15 @@ export function createOrderStore(dataDir: string, options: { onState?(record: Or
       const existing = this.get(id);
       if (existing === null || existing.held === true) return false;
       const next: OrderRecord = { ...existing, held: true };
+      writeDurable(fileFor(id), JSON.stringify(next));
+      remember(next);
+      return true;
+    },
+    noteGas(id, made) {
+      const existing = this.get(id);
+      // A gas order has no gas order of its own, and is never marked as if it had.
+      if (existing === null || existing.gasOrder === true || existing.gas !== undefined) return false;
+      const next: OrderRecord = { ...existing, gas: made ? "made" : "not_made" };
       writeDurable(fileFor(id), JSON.stringify(next));
       remember(next);
       return true;

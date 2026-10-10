@@ -5,22 +5,28 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { recoverMessageAddress } from "viem";
 import { isValidTxHash, sameAddress } from "../shared/addresses.ts";
-import { isDigits, USD_SCALE, usdScaled, worseByMoreThan } from "../shared/amounts.ts";
+import { isDigits, parseRaw, USD_SCALE, usdScaled, worseByMoreThan } from "../shared/amounts.ts";
 import {
   isEndState,
   isRouting,
   routingOf,
   TERMS_VERSION,
   type ConfigResponse,
+  type ErrorCode,
+  type GasLine,
+  type GasResponse,
   type OrderView,
+  type Routing,
   type StatusResponse,
   type TokensResponse,
 } from "../shared/api.ts";
 import { DEPOSIT_CLOSE_MS, explorerTxUrl, isWalletChain, WALLET_CHAINS, type WalletChain } from "../shared/chains.ts";
+import { gasSizeFor, isGasAmount } from "../shared/gas.ts";
 import { isChainId, MICRO, RESERVE_ASSET, type PoolView, type RewardsPublic } from "../shared/rewards.ts";
 import type { AccessLog } from "./log.ts";
 import type { Alerts } from "./alerts.ts";
 import type { Config } from "./config.ts";
+import { gasIdOf, gasInputFor, gasPreviewAmount } from "./gas.ts";
 import { isPrivateIp, type Geo } from "./geo.ts";
 import { errorBody, HttpError, isRecord, isSameOrigin, readJson, requestPath, securityHeaders, sendJson } from "./http.ts";
 import { rateKey, resolveClientIp, truncateIp, wideKey } from "./ip.ts";
@@ -141,6 +147,8 @@ export function toOrderView(record: OrderRecord, now: number): OrderView {
   return {
     id: record.id,
     status,
+    // Said only of a gas order, so that its own page can say what it is. (What a swap is told of its gas order is added where the app answers: see `viewOf`.)
+    ...(record.gasOrder === true ? { gasOrder: true as const } : {}),
     // Said only of an order made in Ghost mode, so that its page can say what becomes of its record.
     ...(record.ghost === true ? { ghost: true as const } : {}),
     createdAt: record.createdAt,
@@ -178,6 +186,43 @@ export function toOrderView(record: OrderRecord, now: number): OrderView {
     serverNow: new Date(now).toISOString(),
   };
 }
+
+/** The numbers of a quote as the person reviewed them: what an order is held to when it is made. */
+interface Reviewed {
+  amountOut: bigint;
+  minAmountOut: bigint;
+  totalFeeBps: number;
+  routing: Routing;
+}
+
+/**
+ * Reads the reviewed numbers a request for an order carries: the swap's and, where gas was asked
+ * for, the gas order's, each by this one rule. Null where they are missing or not well formed.
+ */
+function reviewedOf(reviewed: unknown): Reviewed | null {
+  if (
+    !isRecord(reviewed) ||
+    !isDigits(reviewed.amountOut) ||
+    !isDigits(reviewed.minAmountOut) ||
+    typeof reviewed.totalFeeBps !== "number" ||
+    !Number.isInteger(reviewed.totalFeeBps) ||
+    reviewed.totalFeeBps < 0 ||
+    reviewed.totalFeeBps > 500 ||
+    (reviewed.routing !== undefined && !isRouting(reviewed.routing))
+  ) {
+    return null;
+  }
+  // How the quote the person saw was routed, as that quote said it. Left out, it reads as public.
+  return { amountOut: BigInt(reviewed.amountOut), minAmountOut: BigInt(reviewed.minAmountOut), totalFeeBps: reviewed.totalFeeBps, routing: isRouting(reviewed.routing) ? reviewed.routing : routingOf("public") };
+}
+
+/**
+ * What the provider can answer a preview of a gas order with that means only "not now": its
+ * minimum, an amount it finds too low, no route, private routing not to be had, a refusal of the
+ * swap or of an address, or no usable answer at all. Each is answered as "gas is not offered",
+ * and the page then shows no switch. Nothing else is: a limit of this site's own stays an error.
+ */
+const GAS_NOT_OFFERED: ReadonlySet<ErrorCode> = new Set<ErrorCode>(["min_usd", "amount_too_low", "no_route", "private_unavailable", "blocked", "try_later", "invalid_recipient", "invalid_refund"]);
 
 /**
  * The host a sign-in message names, or null when no message may be given. Where SITE_URL itself was
@@ -230,12 +275,58 @@ export function createApp(deps: AppDeps): RequestListener {
    * was kept. Where the word cannot be read, the answer goes without it. That is no guess at an ID,
    * and is not counted as one. For every other ID, as ever: unknown and malformed IDs look
    * identical, and guessing is rate limited hard.
+   *
+   * Such a swap may have had gas added. While its gas order is still known (its record is there, or
+   * the word for how it ended is), the answer says that too, so that the swap's one link leads to
+   * the gas order until that is gone as well. Only then: an ID that was no order's is told nothing.
    */
   function noOrder(ctx: Ctx, id: string | undefined): HttpError {
     const gone = isOrderId(id) ? store.wiped(id) : null;
+    const gas = gone !== null && id !== undefined ? gasLineOf(id, now()) : undefined;
+    if (gone !== null && gas !== undefined) return new HttpError(410, GONE.code, GONE.message, { ...(gone.ended === null ? {} : { detail: { ended: gone.ended } }), gas });
     if (gone !== null) return gone.ended === null ? GONE : new HttpError(410, GONE.code, GONE.message, { detail: { ended: gone.ended } });
     limited("orderMiss", ctx.ipKey);
     return NOT_FOUND;
+  }
+
+  /**
+   * What a swap is told of the gas order made beside it, read from where that order is kept: under
+   * the ID worked out from the swap's own. While the gas order's record is there, the order as it
+   * stands. Once that record is deleted (a gas order made in Ghost mode that has ended), the one
+   * word kept of how it ended. And nothing at all once nothing is known of it.
+   *
+   * Whoever is told of it is looking at the pair, so the gas order's checks are kept as prompt as
+   * its swap's are by a look at the swap.
+   */
+  function gasLineOf(swapId: string, t: number): GasLine | undefined {
+    const gasId = gasIdOf(swapId);
+    const record = store.get(gasId);
+    if (record !== null && record.gasOrder === true) {
+      lookedAt(record);
+      return { made: true, order: toOrderView(record, t) };
+    }
+    const ended = store.wiped(gasId)?.ended ?? null;
+    return ended === null ? undefined : { made: true, order: null, ended };
+  }
+
+  /**
+   * An order as every route answers with it: when it is made, on a retry of the request that made
+   * it, when it is read, and when a deposit is named for it. A gas order is said to be one, and is
+   * told of no gas of its own. A swap that gas was asked for with is told what came of that: that
+   * it could not be added, or the gas order as `gasLineOf` finds it. Any other order is as ever.
+   */
+  function viewOf(record: OrderRecord, t: number): OrderView {
+    const view = toOrderView(record, t);
+    if (record.gasOrder === true || record.gas === undefined) return view;
+    if (record.gas === "not_made") return { ...view, gas: { made: false } };
+    const gas = gasLineOf(record.id, t);
+    return gas === undefined ? view : { ...view, gas };
+  }
+
+  /** Someone is looking at this order: keep its checks prompt, and re-check one we no longer poll. */
+  function lookedAt(record: OrderRecord): void {
+    if (record.state.status === "expired" || record.state.stopped) void poller.recheck(record.id);
+    else if (!isEndState(record.state.status)) poller.watch(record.id);
   }
 
   async function snapshotOrFail(): Promise<TokenSnapshot> {
@@ -535,6 +626,57 @@ export function createApp(deps: AppDeps): RequestListener {
       },
     },
     {
+      // "Add gas": whether gas can be added beside a swap, and what the gas order would come to.
+      // The page names the swap (its two coins, how it is paid, its addresses where they are known)
+      // and nothing of the gas order itself. Its size is the receiving chain's, its amount is worked
+      // out here, it delivers the receiving chain's own coin to the swap's receiving address, and it
+      // is routed privately: none of that is read from the request. Whether it is offered is decided
+      // now, by a preview from the provider that is verified like any quote, and not by a list of
+      // chains. Wherever it is not offered, whatever the reason, the answer is `gas: null`.
+      method: "POST",
+      pattern: /^\/api\/gas$/,
+      name: "gas",
+      limit: "quote",
+      maxBody: 2048,
+      needsOrigin: true,
+      needsSession: true,
+      handler: async (ctx, _match, body) => {
+        requireNotPaused();
+        if (!isRecord(body)) throw new HttpError(400, "bad_request", "The request could not be read.");
+        const snapshot = await snapshotOrFail();
+        const notOffered = (): { status: number; body: GasResponse } => ({ status: 200, body: { gas: null, serverNow: new Date(now()).toISOString() } });
+        const from = typeof body.from === "string" ? snapshot.byId.get(body.from) : undefined;
+        const to = typeof body.to === "string" ? snapshot.byId.get(body.to) : undefined;
+        // How much of the paying coin a gas order to that chain is, at the list's price. Where a
+        // listed coin gives no amount (the size comes to less than one unit of it), nothing is offered.
+        const amount = from === undefined || to === undefined ? null : gasPreviewAmount(from, to.chain);
+        if (from !== undefined && to !== undefined && amount === null) return notOffered();
+        // The swap's coins, its way of paying and its addresses are checked exactly as a quote's are,
+        // and a request that fails a check is refused as a quote is. These six fields are all that is
+        // read: no amount, no slippage limit and no choice about routing is taken from the request.
+        // (A coin that is not on the list has no amount above. It is refused here, in the words a
+        // quote refuses it in, before any amount is looked at: the one unit stands in for nothing.)
+        const swap = parseSwapInput({ from: body.from, to: body.to, pay: body.pay, recipient: body.recipient, refundTo: body.refundTo, sender: body.sender, amount: (amount ?? 1n).toString() }, snapshot.byId, false, config.privacyMode);
+        // Made from the swap's input alone. None where the swap is not privately routed, or where there is no coin to deliver.
+        const gasInput = amount === null ? null : gasInputFor(swap, snapshot.tokens, amount);
+        if (gasInput === null) return notOffered();
+        // A preview of gas is a preview: it counts with every other, so that orders and tracking always have room.
+        limited("quoteGlobal", "all");
+        let verified: VerifiedQuote;
+        try {
+          ({ verified } = await fetchQuote(ctx, gasInput, true));
+        } catch (err) {
+          // The provider will not have it, or did not answer in a way that could be confirmed: gas is not offered now.
+          if (err instanceof HttpError && GAS_NOT_OFFERED.has(err.code)) return notOffered();
+          throw err;
+        }
+        // Privately routed, or not offered. The input was private and verification held the answer to that; it is held here once more.
+        if (verified.confidentiality !== "basic") return notOffered();
+        const answer: GasResponse = { gas: { usd: gasSizeFor(gasInput.to.chain), quote: toQuoteView(gasInput, verified, now()) }, serverNow: new Date(now()).toISOString() };
+        return { status: 200, body: answer };
+      },
+    },
+    {
       method: "POST",
       pattern: /^\/api\/orders$/,
       name: "order_create",
@@ -551,21 +693,20 @@ export function createApp(deps: AppDeps): RequestListener {
         if (body.termsAccepted !== true || body.termsVersion !== TERMS_VERSION) {
           throw new HttpError(409, "terms", "Accept the current Terms to continue.");
         }
-        const reviewed = body.reviewed;
-        if (
-          !isRecord(reviewed) ||
-          !isDigits(reviewed.amountOut) ||
-          !isDigits(reviewed.minAmountOut) ||
-          typeof reviewed.totalFeeBps !== "number" ||
-          !Number.isInteger(reviewed.totalFeeBps) ||
-          reviewed.totalFeeBps < 0 ||
-          reviewed.totalFeeBps > 500 ||
-          (reviewed.routing !== undefined && !isRouting(reviewed.routing))
-        ) {
-          throw new HttpError(400, "bad_request", "The reviewed quote is missing.");
+        const seen = reviewedOf(body.reviewed);
+        if (seen === null) throw new HttpError(400, "bad_request", "The reviewed quote is missing.");
+        // "Add gas": the gas order asked for with this swap, as the person reviewed it. A request says
+        // two things of it and no more: how much it is sent, and the numbers that were reviewed. Where
+        // it delivers, where it refunds, the coin it delivers and how it is routed are set below, by
+        // the server, and nothing here is read for any of them. Left out (or null), no gas is asked for.
+        // Sent in any other shape, the request is refused whole, before anything is made.
+        let gas: { amount: bigint; seen: Reviewed } | null = null;
+        if (body.gas !== undefined && body.gas !== null) {
+          const amount = isRecord(body.gas) ? parseRaw(body.gas.amount) : null;
+          const gasSeen = isRecord(body.gas) ? reviewedOf(body.gas.reviewed) : null;
+          if (amount === null || amount <= 0n || gasSeen === null) throw new HttpError(400, "bad_request", "The reviewed gas quote is missing.");
+          gas = { amount, seen: gasSeen };
         }
-        // How the quote the person saw was routed, as that quote said it. Left out, it reads as public.
-        const seen = { amountOut: BigInt(reviewed.amountOut), minAmountOut: BigInt(reviewed.minAmountOut), totalFeeBps: reviewed.totalFeeBps, routing: isRouting(reviewed.routing) ? reviewed.routing : routingOf("public") };
         // Whether the order is made in Ghost mode. Only the value true says so, and anything else is as
         // if nothing were sent. It decides what is kept of the order, and nothing about making it:
         // every check and every limit below is the same with it and without it.
@@ -585,9 +726,11 @@ export function createApp(deps: AppDeps): RequestListener {
         let requestKey: string | null = null;
         // What this request asks for, so a retry key cannot be reused for something else. The routing
         // level is part of it: the same swap asked for the other way is another request. So is Ghost
-        // mode: a retry never answers with an order made the other way.
+        // mode: a retry never answers with an order made the other way. And so is the gas asked for
+        // with it, by its amount (or that none was): a retry never answers a request for a swap with
+        // gas with a swap that was asked for without, or the other way round.
         const fingerprint = createHash("sha256")
-          .update(JSON.stringify([input.from.id, input.to.id, input.amount.toString(), input.pay, input.recipient, input.refundTo, input.sender, input.slippageBps, rewardsAddress, input.confidentiality, ghost]))
+          .update(JSON.stringify([input.from.id, input.to.id, input.amount.toString(), gas === null ? null : gas.amount.toString(), input.pay, input.recipient, input.refundTo, input.sender, input.slippageBps, rewardsAddress, input.confidentiality, ghost]))
           .digest("base64url");
         if (body.requestId !== undefined) {
           if (typeof body.requestId !== "string" || !/^[A-Za-z0-9_-]{22,64}$/.test(body.requestId)) throw new HttpError(400, "bad_request", "The request could not be read.");
@@ -600,12 +743,24 @@ export function createApp(deps: AppDeps): RequestListener {
           const existing = earlier !== undefined && now() - earlier.at < REQUEST_TTL_MS ? store.get(earlier.orderId) : null;
           if (existing !== null) {
             noteOrder(ctx, existing);
-            return { status: 200, body: toOrderView(existing, now()) };
+            return { status: 200, body: viewOf(existing, now()) };
           }
           if (pending !== undefined) return pending.result;
         }
 
-        const create = async (): Promise<{ status: number; body: unknown }> => {
+        /**
+         * Makes one order from an input, and stores it. This is the one way an order is made: the
+         * swap is made by it, and so, after the swap, is the gas order asked for with it (`gasOf` is
+         * then the swap's ID, and null for the swap itself). Every check and every limit below is
+         * applied to each order that comes through here, on its own, and none is different for a
+         * gas order: the attempt counts, the screening of every address, the quotas, the caps on
+         * unpaid and open orders, the provider's real quote and its verification, and the price,
+         * the fee and the routing held to the numbers that were reviewed for this very order.
+         *
+         * Inside, `ctx`, `input` and `seen` are those of the order being made, and the swap's own
+         * are out of reach: nothing of one order can be used for the other by a slip.
+         */
+        const make = async (ctx: Ctx, input: QuoteInput, seen: Reviewed, gasOf: string | null): Promise<OrderRecord> => {
           // Every attempt that gets this far counts toward a daily ceiling, whether or not it succeeds.
           limited("orderAttemptDaily", ctx.ipKey);
           if (ctx.wideKey !== null) limited("orderAttemptDailyWide", ctx.wideKey);
@@ -668,6 +823,10 @@ export function createApp(deps: AppDeps): RequestListener {
             if (verified.depositAddress === null || verified.deadline === null) {
               throw new HttpError(502, "try_later", "We couldn't confirm that quote. Try again shortly.");
             }
+            // A gas order is routed privately or it is not made. Its input is private by the way it is
+            // made (server/gas.ts), and verification held the provider's answer to that. It is held here
+            // once more, on the verified quote itself, before a record is made of it.
+            if (gasOf !== null && verified.confidentiality !== "basic") throw privateUnavailable();
 
             // Price check against what the person reviewed. A worse price or a higher fee needs a fresh confirmation.
             const feeBps = verified.appBps + verified.providerBps;
@@ -694,7 +853,8 @@ export function createApp(deps: AppDeps): RequestListener {
             const closesAt = Math.min(Date.parse(verified.deadline), Date.parse(sent.deadline));
             const record: OrderRecord = {
               v: 1,
-              id: newOrderId(),
+              // A gas order's ID is worked out from its swap's, and that is all that pairs the two.
+              id: gasOf === null ? newOrderId() : gasIdOf(gasOf),
               createdAt: iso,
               pay: input.pay,
               from: { id: input.from.id, symbol: input.from.symbol, name: input.from.name, chain: input.from.chain, decimals: input.from.decimals, contract: input.from.contract },
@@ -721,6 +881,7 @@ export function createApp(deps: AppDeps): RequestListener {
               termsVersion: TERMS_VERSION,
               screening: screening.record,
               quoteResponse: response,
+              ...(gasOf === null ? {} : { gasOrder: true as const }),
               ...(ghost ? { ghost: true as const } : {}),
               state: {
                 status: "waiting",
@@ -741,18 +902,61 @@ export function createApp(deps: AppDeps): RequestListener {
             created = true;
             poller.track(record);
             madeBy.set(record.id, { key: ctx.ipKey, wide: ctx.wideKey });
-            if (requestKey !== null) {
-              recentRequests.set(requestKey, { orderId: record.id, fingerprint, at: t });
-              if (recentRequests.size > 20_000) {
-                for (const [key, entry] of recentRequests) if (t - entry.at > REQUEST_TTL_MS) recentRequests.delete(key);
-              }
-            }
             noteOrder(ctx, record);
-            return { status: 201, body: toOrderView(record, t) };
+            return record;
           } finally {
             for (const done of settled) done();
             if (!created) for (const release of reserved) release();
           }
+        };
+
+        const create = async (): Promise<{ status: number; body: unknown }> => {
+          const swap = await make(ctx, input, seen, null);
+          // What the answer is built from: the swap as it is stored and, where gas was asked for, what came of that.
+          let answered = swap;
+          if (gas !== null) {
+            // The gas order, by the very same path, after the swap is safely stored. Whatever stops
+            // it stops it alone: the swap is made, and stands. Why it was not made is kept as one
+            // fixed word for the log: never an address, and never the provider's own text.
+            let added = false;
+            let reason = "error";
+            try {
+              // Its input is made from the swap's own input, as that was checked, and from nothing
+              // of the request: where it delivers, where it refunds and how it is routed are the server's.
+              const gasInput = gasInputFor(input, snapshot.tokens, gas.amount);
+              if (gasInput === null) reason = "not_offered";
+              // "Gas" is never a way to make a second order of any size: at the list's price now, the amount is a gas order's or it is refused.
+              else if (!isGasAmount(gas.amount, input.from.decimals, input.from.priceScaled)) reason = "amount";
+              // Reviewed as privately routed, or the provider is not asked for it at all.
+              else if (gas.seen.routing !== routingOf("basic")) reason = "routing";
+              else {
+                // It is given a context of its own: the request's line in the access log stays the swap's.
+                await make({ ...ctx }, gasInput, gas.seen, swap.id);
+                added = true;
+              }
+            } catch (err) {
+              if (err instanceof HttpError) reason = err.code;
+              else log.error("gas_order_failed", { order: hashId(swap.id), kind: errorKind(err) });
+            }
+            if (!added) log.info("gas_not_made", { order: hashId(swap.id), reason });
+            // The swap's record is told, once, what came of it. Its view is built from that from now on.
+            try {
+              store.noteGas(swap.id, added);
+            } catch (err) {
+              log.error("gas_not_noted", { order: hashId(swap.id), kind: errorKind(err) });
+            }
+            answered = { ...(store.get(swap.id) ?? swap), gas: added ? "made" : "not_made" };
+          }
+          const t = now();
+          // The request is remembered once all of it is done, so that a retry is answered with the
+          // swap and what came of its gas order, and never with the swap before that was known.
+          if (requestKey !== null) {
+            recentRequests.set(requestKey, { orderId: swap.id, fingerprint, at: t });
+            if (recentRequests.size > 20_000) {
+              for (const [key, entry] of recentRequests) if (t - entry.at > REQUEST_TTL_MS) recentRequests.delete(key);
+            }
+          }
+          return { status: 201, body: viewOf(answered, t) };
         };
 
         if (requestKey === null) return create();
@@ -773,10 +977,8 @@ export function createApp(deps: AppDeps): RequestListener {
         const record = isOrderId(id) ? store.get(id) : null;
         if (record === null) throw noOrder(ctx, id);
         noteOrder(ctx, record);
-        // Someone is looking: keep this order's checks prompt, and re-check one we no longer poll.
-        if (record.state.status === "expired" || record.state.stopped) void poller.recheck(record.id);
-        else if (!isEndState(record.state.status)) poller.watch(record.id);
-        return { status: 200, body: toOrderView(record, now()) };
+        lookedAt(record);
+        return { status: 200, body: viewOf(record, now()) };
       },
     },
     {
@@ -846,7 +1048,7 @@ export function createApp(deps: AppDeps): RequestListener {
         if (stored !== null) {
           // The same hash again is not an error. There is nothing more to learn about one we already
           // confirmed, or one on a chain we cannot read; a pending one is looked at again below.
-          if (sameHash && (record.state.depositVerified === true || !walletChain)) return { status: 200, body: toOrderView(record, now()) };
+          if (sameHash && (record.state.depositVerified === true || !walletChain)) return { status: 200, body: viewOf(record, now()) };
           // A hash we confirmed on-chain is replaced only when it can no longer be the deposit: the chain
           // has dropped it, or it was mined and failed. A hash we could not confirm may be corrected
           // while the order is still waiting.
@@ -923,7 +1125,7 @@ export function createApp(deps: AppDeps): RequestListener {
         }
         poller.nudge(fresh.id);
         const latest = store.get(fresh.id) ?? fresh;
-        return { status: 200, body: toOrderView(latest, now()) };
+        return { status: 200, body: viewOf(latest, now()) };
       },
     },
     {

@@ -11,6 +11,10 @@
 // entry is written before the order's record is deleted (server/settle.ts). One that names none
 // adds no entry, like any order that names none: nothing is kept of it here.
 //
+// A gas order (the small second order "Add gas" makes beside a swap) is an order like any other
+// here. Its record carries the rewards address its swap named, and when it is delivered it adds an
+// entry of its own, by its own value, under the hash of its own ID: once, as any order does.
+//
 // Points are counted from a swap's value: ten for each US dollar. An entry written while they were
 // counted from a fee (v: 1) holds no value of the swap, and is not read: its file is left where it
 // is, and adds nothing. A week closed then is still read, as it was written.
