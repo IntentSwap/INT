@@ -113,7 +113,7 @@ export async function ghostWalk(browser: Browser, options: { practiceUrl: string
       await sheet.waitFor({ timeout: 10_000 });
       await page.waitForTimeout(400);
       const said = (await sheet.innerText()).replace(/\s+/g, " ");
-      for (const line of ["none of the wallet software is loaded", "asks nothing of any address but this site's own", "Nothing is kept in this browser but the switch itself", "its record is deleted from the server the moment it finishes", "still public on their own chains"]) expectThat(said.includes(line), `the sheet does not say "${line}"`);
+      for (const line of ["none of the wallet software is loaded", "asks nothing of any address but this site's own", "Nothing is kept in this browser but the switch itself", "its record is deleted from the server the moment it is delivered or refunded", "still public on their own chains"]) expectThat(said.includes(line), `the sheet does not say "${line}"`);
       expectThat(!/anonymous|untraceable/i.test(said), "the sheet uses a word it must never use");
       await shoot("sheet");
       // "Not now" changes nothing.
@@ -248,8 +248,12 @@ export async function ghostWalk(browser: Browser, options: { practiceUrl: string
       expectThat(!/0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{40,}|amount|depositAddress|recipient/.test(JSON.stringify(gone.body)), "the answer for a deleted order still holds something of it");
       expectThat((await api("POST", "/api/track", { depositAddress: deposit })).status === 404, "after its end the order is found from its deposit address");
       const statsAfter = await stats();
-      expectThat((statsAfter.totals?.swaps ?? 0) === (statsBefore.totals?.swaps ?? 0) + 1, `the totals count ${String(statsAfter.totals?.swaps)} swaps after the order, from ${String(statsBefore.totals?.swaps)} before`);
-      expectThat(JSON.stringify(statsAfter.feed) === JSON.stringify(statsBefore.feed), "the order made in the mode has a row among the recent swaps");
+      // A practice server adds made-up swaps of its own as time passes, each with a row. Those apart, the totals are one
+      // higher, and no new row is this order's: 0.5 ETH sent on Base.
+      const had = new Set((statsBefore.feed ?? []).map((row) => JSON.stringify(row)));
+      const fresh = (statsAfter.feed ?? []).filter((row) => !had.has(JSON.stringify(row))) as { coin?: { symbol?: string; chain?: string }; amount?: string }[];
+      expectThat((statsAfter.totals?.swaps ?? 0) - (statsBefore.totals?.swaps ?? 0) - fresh.length === 1, `the totals count ${String(statsAfter.totals?.swaps)} swaps after the order, from ${String(statsBefore.totals?.swaps)} before, with ${fresh.length} made-up swap(s) added meanwhile`);
+      expectThat(!fresh.some((row) => row.coin?.symbol === "ETH" && row.coin?.chain === "base" && row.amount === "500000000000000000"), "the order made in the mode has a row among the recent swaps");
       // A fresh load of the link: one notice, and nothing of the order.
       await visit(page, new URL(`/order/${id}`, practiceUrl).toString());
       await page.getByRole("heading", { name: "This order finished." }).waitFor({ timeout: 15_000 }).catch(() => expectThat(false, "a fresh load of a finished order's link does not say that it finished"));

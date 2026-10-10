@@ -11,7 +11,7 @@ export const GHOST_CHANGES = [
   { key: "wallet", Icon: Unplug, text: "No wallet is connected, and none of the wallet software is loaded. You pay by sending to the deposit address." },
   { key: "requests", Icon: GlobeLock, text: "This page asks nothing of any address but this site's own." },
   { key: "browser", Icon: SaveOff, text: "Nothing is kept in this browser but the switch itself, for this tab only, so that loading the page again does not turn it off." },
-  { key: "record", Icon: Trash2, text: "An order you make is not listed among recent swaps, and its record is deleted from the server the moment it finishes." },
+  { key: "record", Icon: Trash2, text: "An order you make is not listed among recent swaps, and its record is deleted from the server the moment it is delivered or refunded." },
 ] as const;
 
 /** What the mode does not change, said as plainly. */

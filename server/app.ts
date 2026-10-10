@@ -873,6 +873,8 @@ export function createApp(deps: AppDeps): RequestListener {
             if (!screening.ok) {
               ctx.logScreening = screening.reason;
               if (screening.reason === "unavailable") throw new HttpError(503, "try_later", "Try again shortly.");
+              // The order is marked first: whatever kind it is, its record is then kept as any order's is, so that the alert has something to be looked up against.
+              store.hold(record.id);
               alerts.send("sanctions_hit", `The wallet that paid order ${hashId(record.id)} is on the sanctions list. The transaction was not recorded or forwarded.`, hashId(record.id));
               throw new HttpError(403, "blocked", "This swap can't be processed.");
             }

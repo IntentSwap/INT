@@ -2,7 +2,7 @@
 // another device. Everything on it comes from the order as the server holds it.
 //
 // An order made in Ghost mode says so near the top, with a Copy link button: its link is the only
-// way back to it, and its record is deleted from the server the moment it finishes. Once that has
+// way back to it, and its record is deleted from the server the moment it is delivered or refunded. Once that has
 // happened the server answers "deleted". A page that was showing the order keeps what it last
 // showed, and says that this is all that is left; a fresh load of the link gets one plain notice
 // and nothing of the order.
@@ -339,7 +339,7 @@ function GhostNote({ link, gone, ended, how }: { link: string; gone: boolean; en
       {mark}
       <div className="order-ghost-text">
         <p className="order-ghost-lead">This is the only way back to this order. It is not saved anywhere.</p>
-        <p className="order-ghost-sub muted">Its record is deleted from this site's server the moment it finishes.</p>
+        <p className="order-ghost-sub muted">Its record is deleted from this site's server the moment it is delivered or refunded.</p>
       </div>
       <CopyButton value={link} label="Copy link" what="to this order" />
     </div>

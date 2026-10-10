@@ -1145,6 +1145,38 @@ describe("no log line and no alert carries an address, a transaction or the ID o
   /** Everything the server wrote or sent about anything: its log, its access log, and its alerts with the keys they were sent under. */
   const written = (h: Harness) => [...h.logs, JSON.stringify(h.access), JSON.stringify(h.alerts), JSON.stringify(h.alertKeys)].join("\n");
 
+  it("an order whose payer raised a sanctions alert is kept as any order is, Ghost or not: the alert has something to be looked up against", async () => {
+    const payer = address("held payer");
+    const h = await start({ limits: { orderCreate: ROOMY, orderPerRecipient: ROOMY }, sanctions: createStaticSanctions([payer], { now: () => NOON }) });
+    // A Ghost order; a transaction is named for it that a listed wallet paid. It is refused, the operator is told, and the order is marked.
+    const flagged = await ghostly(h, {}, "198.51.100.71");
+    expect((await payByWallet(h, flagged, txHash("held listed"), payer)).status).toBe(403);
+    expect(h.alerts.map((alert) => alert.kind)).toContain("sanctions_hit");
+    expect(h.store.get(flagged.id)).toMatchObject({ ghost: true, held: true });
+    // The provider finds a deposit on its own and delivers. The record is NOT deleted: it is there, as an ordinary order's would be.
+    await deliver(h, flagged);
+    const shown = await h.get(`/api/orders/${flagged.id}`);
+    expect(shown.status).toBe(200);
+    expect(shown.body).toMatchObject({ id: flagged.id, status: "delivered", ghost: true });
+    expect(h.store.wiped(flagged.id)).toBeNull();
+    await h.sweep();
+    expect(h.store.get(flagged.id)).not.toBeNull();
+    // It still has no row among the recent swaps, and is still not found from its deposit address: the mark changes only how long it is kept.
+    expect(h.stats.view().feed).toEqual([]);
+    expect((await h.post("/api/track", { depositAddress: flagged.depositAddress }, { session: await h.session("198.51.100.72"), ip: "198.51.100.72" })).status).toBe(404);
+    // A Ghost order beside it that raised nothing is deleted the moment it is delivered, as ever.
+    const clean = await ghostly(h, {}, "198.51.100.73");
+    await deliver(h, clean);
+    expect((await h.get(`/api/orders/${clean.id}`)).status).toBe(410);
+    // After the 30 days an order's record is kept, the marked one goes like any order; its link then says what a finished Ghost order's says.
+    h.clock.t += FINISHED_RETENTION_MS + 3_600_000;
+    await h.sweep();
+    expect(h.store.get(flagged.id)).toBeNull();
+    const after = await h.get(`/api/orders/${flagged.id}`);
+    expect(after.status).toBe(410);
+    expect(after.body).toEqual({ error: { code: "order_deleted", message: "This order finished, and its record was deleted.", detail: { ended: "delivered" } } });
+  });
+
   it("from the quote to delivered, and to refunded, through every fault on the way: an order is named by its hashed ID and by nothing else", async () => {
     const payer = address("listed payer");
     const h = await start({ limits: { orderCreate: ROOMY, orderPerRecipient: ROOMY }, sanctions: createStaticSanctions([payer], { now: () => NOON }) });
@@ -1189,7 +1221,8 @@ describe("no log line and no alert carries an address, a transaction or the ID o
     expect(statusOf(h, first.id)).toBe("swapping");
     h.tap.statusReply = null;
     await step(h, first.id, 5000);
-    expect(statusOf(h, first.id)).toBeNull();
+    // Delivered. Its record is kept, as any order's is, because the operator was alerted about a wallet that paid towards it.
+    expect(statusOf(h, first.id)).toBe("delivered");
     await h.get(`/api/orders/${first.id}`);
 
     // A second, refunded. A third whose confirmed deposit the provider never reports, and a fourth it never finishes: the operator is told of both.

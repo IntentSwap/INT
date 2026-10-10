@@ -73,6 +73,11 @@ export const useRewards = create<RewardsState>((set, get) => ({
       // The only signature this site asks for. The module that asks is loaded here and nowhere else.
       // If that module cannot be fetched (a page left open across a new version of the site), nothing is
       // said of the sign-in, which was never tried: the page loads itself again, or asks to be reloaded.
+      // The mode may have been turned on while the server was being asked: the module is not fetched then either.
+      if (ghostHolds()) {
+        set({ step: "idle", error: null });
+        return;
+      }
       let signPlainMessage: (message: string, address: string, plain: string | null) => Promise<string>;
       try {
         ({ signPlainMessage } = await import("../wallet/sign-in.ts"));

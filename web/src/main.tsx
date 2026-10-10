@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
+import { clearBrowser, ghostHolds } from "./lib/kept.ts";
 import { watchKeys } from "./lib/keys.ts";
 import { watchForNewVersion } from "./lib/stale.ts";
 import "./styles/tokens.css";
@@ -14,6 +15,9 @@ import "./styles/sheet.css";
 import "./styles/ghost.css";
 
 watchKeys();
+// A page loaded in Ghost mode takes out, once more, whatever wallet software may still have left in the browser:
+// a database it held open when the mode was turned on may not have gone before the page was loaded again.
+if (ghostHolds()) void clearBrowser({ ours: false });
 // A page left open across a new version of the site loads itself again, once, when a part of the old version is gone.
 watchForNewVersion();
 

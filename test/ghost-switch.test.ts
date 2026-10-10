@@ -853,7 +853,7 @@ describe("the sheet that explains the mode", () => {
       "No wallet is connected, and none of the wallet software is loaded. You pay by sending to the deposit address.",
       "This page asks nothing of any address but this site's own.",
       "Nothing is kept in this browser but the switch itself, for this tab only, so that loading the page again does not turn it off.",
-      "An order you make is not listed among recent swaps, and its record is deleted from the server the moment it finishes.",
+      "An order you make is not listed among recent swaps, and its record is deleted from the server the moment it is delivered or refunded.",
     ]);
     expect(GHOST_STILL).toBe("Your deposit and your delivery are still public on their own chains, the swap service still carries out the swap, and your internet address is still seen by your network and by this site's host.");
     expect(words(html)).toContain(`${GHOST_STILL} More about Ghost mode`);
@@ -944,7 +944,7 @@ describe("the review in the mode", () => {
 
   it("says that the order is not listed and that its record is deleted, in place of the line about the Stats page, which is not true of it", () => {
     const LISTED = "This swap's deposit transaction will be listed on the Stats page. Which swap was delivered where is not shown.";
-    expect(GHOST_ORDER_LINE).toBe("This order is not listed on the Stats page, and its record is deleted from this site's server when it finishes.");
+    expect(GHOST_ORDER_LINE).toBe("This order is not listed on the Stats page, and its record is deleted from this site's server when it is delivered or refunded.");
     const lines = (html: string) => [...html.matchAll(/<p class="review-plain muted">([\s\S]*?)<\/p>/g)].map((match) => words(match[1]!));
     // In the mode: the new line, whether or not the site has a Stats page, and never the old one.
     for (const config of [{ statsPage: true }, { statsPage: false }, null]) {

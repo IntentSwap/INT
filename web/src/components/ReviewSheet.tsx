@@ -42,7 +42,7 @@ function alignedPair(a: string, b: string): [string, string] {
 /** Under the rewards address in Ghost mode: the field is empty unless the person fills it, and they are told what filling it does. */
 export const GHOST_REWARDS_HINT = "Naming an address ties this swap's points to it. Leave it empty and this swap adds no points.";
 /** Said before an order is made in Ghost mode, where any other order is told that its deposit will be listed: this one is not, and its record does not outlast it. */
-export const GHOST_ORDER_LINE = "This order is not listed on the Stats page, and its record is deleted from this site's server when it finishes.";
+export const GHOST_ORDER_LINE = "This order is not listed on the Stats page, and its record is deleted from this site's server when it is delivered or refunded.";
 
 /** A space that a line never breaks at: a number and its unit stay on one line together. */
 const NBSP = "\u00a0";

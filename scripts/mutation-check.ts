@@ -600,7 +600,7 @@ const M: Mutation[] = [
   { file: "server/app.ts", find: "input.slippageBps, rewardsAddress, input.confidentiality, ghost]))", replace: "input.slippageBps, rewardsAddress, input.confidentiality]))", label: "Ghost mode: a retry key is tied to whether its request was made in it" },
   { file: "server/stats.ts", find: "  if (delivery.unlisted === true) return null;\n", replace: "", label: "Ghost mode: an order made in it has no row among the recent swaps, at its delivery or at a start" },
   { file: "server/stats.ts", find: "  if (record.ghost === true) return { ...sums, tx: null, unlisted: true };\n", replace: "", label: "Ghost mode: the deposit of an order made in it is never read for the Stats page" },
-  { file: "server/store.ts", find: "  return record.ghost === true && endedEmpty(record.state);", replace: "  return endedEmpty(record.state);", label: "Ghost mode: only an order made in it has its record deleted at once" },
+  { file: "server/store.ts", find: "  return record.ghost === true && record.held !== true && endedEmpty(record.state);", replace: "  return record.held !== true && endedEmpty(record.state);", label: "Ghost mode: only an order made in it has its record deleted at once" },
   { file: "server/store.ts", find: "  return state.status === \"delivered\" || state.status === \"refunded\";", replace: "  return state.status === \"delivered\" || state.status === \"refunded\" || state.status === \"failed\";", label: "Ghost mode: a failed order's record is not deleted at once, for its funds may be with the provider" },
   { file: "server/store.ts", find: "  return state.status === \"delivered\" || state.status === \"refunded\";", replace: "  return state.status === \"delivered\" || state.status === \"refunded\" || state.status === \"expired\";", label: "Ghost mode: an order that ran out is not deleted at its deadline: a deposit can still arrive late, and its record is watched as any order's is" },
   { file: "server/store.ts", find: "  return state.status === \"delivered\" || state.status === \"refunded\";", replace: "  return state.status === \"delivered\" || state.status === \"refunded\" || neverFunded(state);", label: "Ghost mode: an order that ran out with no deposit ever reported is not deleted at its deadline either" },
@@ -658,6 +658,8 @@ const M: Mutation[] = [
   { file: "server/poller.ts", find: "Check it with the provider.`, hashId(id));", replace: "Check it with the provider.`, id);", label: "Ghost mode: an alert about an order set aside with funds in it is held back by the order's hashed ID, not its ID" },
   { file: "server/poller.ts", find: "for order ${hashId(id)}.`, hashId(id));", replace: "for order ${hashId(id)}.`, id);", label: "Ghost mode: an alert about a status reply for another address is held back by the order's hashed ID, not its ID" },
   { file: "server/poller.ts", find: "three times its estimate.`, hashId(id));", replace: "three times its estimate.`, id);", label: "Ghost mode: an alert about a slow swap is held back by the order's hashed ID, not its ID" },
+  { file: "server/store.ts", find: "  return record.ghost === true && record.held !== true && endedEmpty(record.state);", replace: "  return record.ghost === true && endedEmpty(record.state);", label: "Ghost mode: an order the operator was alerted about is kept as any order is" },
+  { file: "server/app.ts", find: "              store.hold(record.id);\n", replace: "", label: "Ghost mode: a sanctions alert marks the order before it is sent" },
 ];
 
 const only = process.argv.slice(2);

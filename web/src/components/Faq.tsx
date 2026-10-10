@@ -98,7 +98,7 @@ const FAQ: readonly Question[] = [
     question: "What is Ghost mode?",
     answer: () => (
       <p>
-        A switch in the header. While it is on, this site loads no wallet software and keeps nothing in your browser but the switch itself, and the record of an order you make is deleted from its server the moment the order finishes. It does not make a swap less public: the deposit and the delivery are still public transfers, the swap service still carries out the swap, and your network and this site's host still see your network address. <Link href={docHref(GHOST_DOC_SLUG)}>How Ghost mode works</Link>
+        A switch in the header. While it is on, this site loads no wallet software and keeps nothing in your browser but the switch itself, and the record of an order you make is deleted from its server the moment the order is delivered or refunded. It does not make a swap less public: the deposit and the delivery are still public transfers, the swap service still carries out the swap, and your network and this site's host still see your network address. <Link href={docHref(GHOST_DOC_SLUG)}>How Ghost mode works</Link>
       </p>
     ),
   },

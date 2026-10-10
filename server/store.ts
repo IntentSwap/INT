@@ -99,6 +99,12 @@ export interface OrderRecord {
    * the order and no funds are in it (see `wipeDue`). Nothing else about the order differs.
    */
   ghost?: true;
+  /**
+   * True once the wallet that paid the order was found on the sanctions list and the operator was
+   * told. An order marked so is kept as any order's record is kept, whatever else is true of it:
+   * an alert must have something to be looked up against. Absent on every other.
+   */
+  held?: true;
   state: OrderState;
 }
 
@@ -183,6 +189,8 @@ export interface OrderStore {
    * across restarts too.
    */
   markCounted(id: string): boolean;
+  /** Marks an order as one the operator was alerted about (see `held` on the record). True when the mark was newly set. */
+  hold(id: string): boolean;
 }
 
 /** How a deposit address is compared: a hex address in any mix of capitals is the same address; every other kind is taken letter for letter. */
@@ -271,7 +279,7 @@ export function endedEmpty(state: OrderState): boolean {
  * clean-up pass then deletes it, as it deletes any such record).
  */
 export function wipeDue(record: OrderRecord): boolean {
-  return record.ghost === true && endedEmpty(record.state);
+  return record.ghost === true && record.held !== true && endedEmpty(record.state);
 }
 
 /** The word for how an order ended, or null for one that has not ended in one of the three ways that have a word. */
@@ -538,6 +546,14 @@ export function createOrderStore(dataDir: string, options: { onState?(record: Or
       const existing = this.get(id);
       if (existing === null || existing.statsCounted === true) return false;
       const next: OrderRecord = { ...existing, statsCounted: true };
+      writeDurable(fileFor(id), JSON.stringify(next));
+      remember(next);
+      return true;
+    },
+    hold(id) {
+      const existing = this.get(id);
+      if (existing === null || existing.held === true) return false;
+      const next: OrderRecord = { ...existing, held: true };
       writeDurable(fileFor(id), JSON.stringify(next));
       remember(next);
       return true;

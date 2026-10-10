@@ -582,7 +582,7 @@ function GhostMode() {
             <strong>Lines in the logs.</strong> The server's logs name an order by a one-way fingerprint only, and are kept as for any order. For an order made in Ghost mode they carry no address and no transaction hash.
           </li>
         </ul>
-        <p>Two kinds of order are kept longer, because coins may still be in them. An order that fails is kept for 30 days, as any order is, and deleted then. An order that was sent too small a deposit is kept until that deposit has been refunded.</p>
+        <p>Three kinds of order are kept longer, because coins may still be in them. An order that fails is kept for 30 days, as any order is, and deleted then. So is one that ran out after a transaction was named for it that could not be confirmed. An order that was sent too small a deposit is kept until that deposit has been refunded.</p>
         <Callout tone="warning" title="Pay before the order's deadline.">
           <p>A deposit sent after the deadline may be lost, as for any order. With the record deleted, there is no deposit address and no amount left here to check a late payment against.</p>
         </Callout>

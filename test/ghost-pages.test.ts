@@ -144,15 +144,15 @@ const home = () => createElement(HomeSections);
 // ---- The sentences, word for word ----
 const SIGN_IN_OFF = "Sign-in is off in Ghost mode. Turn it off to see your points.";
 const ONLY_WAY_BACK = "This is the only way back to this order. It is not saved anywhere.";
-const DELETED_WHEN_IT_FINISHES = "Its record is deleted from this site's server the moment it finishes.";
+const DELETED_WHEN_IT_FINISHES = "Its record is deleted from this site's server the moment it is delivered or refunded.";
 const ALL_THAT_IS_LEFT = "This order has finished and its record has been deleted from the server. This page is all that is left of it; it will not load again.";
 const ENDING_NOT_SEEN = "How it ended was not seen here. If you sent the deposit, look for the delivery at your receiving address, or for a refund at your refund address: both are in the order details below.";
 const NOTICE = "This order finished. It was made in Ghost mode, so its record was deleted when it finished. Nothing more is kept of it here.";
 const LIST_NOT_SHOWN = "Orders made in this browser are not shown in Ghost mode.";
 const OWN_LINK_ONLY = "An order made in Ghost mode opens from its own link only.";
 const FAQ_ANSWER =
-  "A switch in the header. While it is on, this site loads no wallet software and keeps nothing in your browser but the switch itself, and the record of an order you make is deleted from its server the moment the order finishes. It does not make a swap less public: the deposit and the delivery are still public transfers, the swap service still carries out the swap, and your network and this site's host still see your network address. How Ghost mode works";
-const HOME_LINE = "One switch in the header. While it is on, the site loads no wallet and keeps nothing in your browser but the switch itself, and your order's record is deleted from the server the moment it finishes. Your deposit and your delivery are still public on-chain.";
+  "A switch in the header. While it is on, this site loads no wallet software and keeps nothing in your browser but the switch itself, and the record of an order you make is deleted from its server the moment the order is delivered or refunded. It does not make a swap less public: the deposit and the delivery are still public transfers, the swap service still carries out the swap, and your network and this site's host still see your network address. How Ghost mode works";
+const HOME_LINE = "One switch in the header. While it is on, the site loads no wallet and keeps nothing in your browser but the switch itself, and deletes your order's record once it is delivered or refunded. Your deposit and your delivery are still public on-chain.";
 
 describe("the Rewards page in Ghost mode", () => {
   const MONDAY = Date.parse("2026-10-05T00:00:00.000Z");
@@ -324,7 +324,7 @@ describe("an order made in Ghost mode, on its own page", () => {
   it("says near the top that its link is the only way back, with a Copy link button, and that its record is deleted the moment it finishes", () => {
     const markup = page(order({ ghost: true }));
     expect(words(note(markup))).toBe(`${ONLY_WAY_BACK} ${DELETED_WHEN_IT_FINISHES} Copy link to this order`);
-    expect(note(markup)).toMatch(/<p class="order-ghost-lead">This is the only way back to this order\. It is not saved anywhere\.<\/p><p class="order-ghost-sub muted">Its record is deleted from this site&#x27;s server the moment it finishes\.<\/p><\/div><button type="button" class="button-chip">/);
+    expect(note(markup)).toMatch(/<p class="order-ghost-lead">This is the only way back to this order\. It is not saved anywhere\.<\/p><p class="order-ghost-sub muted">Its record is deleted from this site&#x27;s server the moment it is delivered or refunded\.<\/p><\/div><button type="button" class="button-chip">/);
     // The one button that copies the link is the note's own: the header has none, and the link is said once on the page.
     expect(buttons(markup).filter((name) => name === "Copy link to this order")).toHaveLength(1);
     expect(markup).not.toContain('class="order-copy"');
@@ -479,6 +479,12 @@ describe("an order made in Ghost mode, on its own page", () => {
 
   describe("how the page comes to say so", () => {
     const code = source("pages/OrderPage.tsx");
+
+    it("never draws the pay-from-a-wallet part in the mode: the page itself leaves it out, whatever that part would do", () => {
+      // Two doors are shut: the part that pays from a wallet draws nothing of a wallet in the mode, and the page does not draw that part at all.
+      expect(code).toContain(" && isWalletChain(order.from.chain) && !ghostTab ? (");
+      expect(code).toMatch(/const ghostTab = useGhost\(\(state\) => state\.on\);/);
+    });
 
     it("takes the server's answer that the record is deleted, stops asking, and stops its clock", () => {
       // The answer is known by its code, as the server's errors are; nothing more is asked after it.
@@ -655,7 +661,7 @@ describe("the Docs' page on Ghost mode", () => {
       "Its place in the totals. The Stats page counts it in its totals: the swaps, the volume, the chains and the coins. It has no row among the recent swaps, and its deposit transaction is never listed.",
       "Its points, if you named a rewards address. They are counted before the record is deleted, and kept as any points are: a one-way fingerprint of the order's ID, the rewards address, the swap's value in US dollars, its two coins and their chains, and the time. Leave the rewards address empty and the swap adds no points, and none of this is kept.",
       "Lines in the logs. The server's logs name an order by a one-way fingerprint only, and are kept as for any order. For an order made in Ghost mode they carry no address and no transaction hash.",
-      "Two kinds of order are kept longer, because coins may still be in them. An order that fails is kept for 30 days, as any order is, and deleted then. An order that was sent too small a deposit is kept until that deposit has been refunded.",
+      "Three kinds of order are kept longer, because coins may still be in them. An order that fails is kept for 30 days, as any order is, and deleted then. So is one that ran out after a transaction was named for it that could not be confirmed. An order that was sent too small a deposit is kept until that deposit has been refunded.",
       // What follows from the deletion for a payment that comes too late.
       "Pay before the order's deadline. A deposit sent after the deadline may be lost, as for any order. With the record deleted, there is no deposit address and no amount left here to check a late payment against.",
     ])
@@ -700,7 +706,7 @@ describe("the Docs' page on Ghost mode", () => {
 
 describe("the Privacy Policy on Ghost mode", () => {
   const GHOST_PARAGRAPH = (rows: string) =>
-    `Ghost mode. An order made in Ghost mode is marked as one. While it runs, the server keeps it as it keeps any order. The moment it is delivered or refunded its record is deleted; one that was never paid is deleted a day after its deadline, once the server has stopped looking for a late deposit; one that fails is kept for 30 days, as any order is, because coins may still be in it. After the deletion the server still holds three things of it: a one-way fingerprint of the order's ID, with one word for how it ended, for 30 days, so that the order's link can say that the order finished and how; its place in the running totals, ${rows}; and, if the order has a rewards address, its points, which are written down before the record is deleted and kept as set out under Points. The logs name it by a one-way fingerprint, as they name any order, and hold neither an address nor a transaction hash of it. It is never found from its deposit address. Ghost mode changes nothing else on this page: the access log and your network address are treated as for any visit, the host keeps its own record of each request, the swap service receives what it does for any swap and keeps its own records, and every transfer is public on its blockchain.`;
+    `Ghost mode. An order made in Ghost mode is marked as one. While it runs, the server keeps it as it keeps any order. The moment it is delivered or refunded its record is deleted; one that was never paid is deleted a day after its deadline, once the server has stopped looking for a late deposit; one that fails, or that ran out after a transaction was named for it that could not be confirmed, is kept for 30 days, as any order is, because coins may still be in it. After the deletion the server still holds three things of it: a one-way fingerprint of the order's ID, with one word for how it ended, for 30 days, so that the order's link can say that the order finished and how; its place in the running totals, ${rows}; and, if the order has a rewards address, its points, which are written down before the record is deleted and kept as set out under Points. The logs name it by a one-way fingerprint, as they name any order, and hold neither an address nor a transaction hash of it. It is never found from its deposit address. Ghost mode changes nothing else on this page: the access log and your network address are treated as for any visit, the host keeps its own record of each request, the swap service receives what it does for any swap and keeps its own records, and every transfer is public on its blockchain.`;
   const section = (markup: string, id: string) => new RegExp(`<h2 id="${id}"[\\s\\S]*?(?=<h2 id="|<nav class="docs-turn")`).exec(markup)?.[0] ?? "";
 
   it("has one paragraph on it, among what is kept on the server, with a link to the page that explains it", () => {
@@ -722,7 +728,7 @@ describe("the Privacy Policy on Ghost mode", () => {
 
   it("makes the page's other sentences true of an order made in the mode: when an order is deleted, and what is listed", () => {
     const text = words(draw(privacy));
-    expect(text).toContain("An order that was never paid is deleted 24 hours after its deadline. Other orders are deleted 30 days after they finish. An order made in Ghost mode is deleted sooner than either: the moment it finishes (see Ghost mode, below). An unfinished order that has coins in it is kept until it has been dealt with.");
+    expect(text).toContain("An order that was never paid is deleted 24 hours after its deadline. Other orders are deleted 30 days after they finish. An order made in Ghost mode is deleted sooner than either: the moment it is delivered or refunded (see Ghost mode, below). An unfinished order that has coins in it is kept until it has been dealt with.");
     expect(text).toContain("Stats. Every delivered swap, except one made in Ghost mode, is listed on the Stats page");
     expect(text).not.toMatch(/Every delivered swap is listed/);
     expect(words(draw(privacy, { config: WITHOUT_STATS }))).toContain("one row for each delivered swap, except one made in Ghost mode: the coin sent");
@@ -891,7 +897,7 @@ describe("what the site says of Ghost mode, taken together", () => {
     for (const item of [...privacyPage.matchAll(/<li>((?:(?!<li>)[\s\S])*?Ghost mode[\s\S]*?)<\/li>/g)].map((match) => words(match[1]!))) expect(MORE.test(item), item.slice(0, 60)).toBe(false);
     // A check that can fail.
     for (const sentence of ["Ghost mode hides you.", "A secret swap.", "No logs are kept.", "Nothing is kept.", "Nothing is stored, anywhere.", "You are safe from prying eyes.", "Ghost orders skip screening.", "More is coming soon.", "It leaves no record.", "Your order vanishes."]) expect(MORE.test(sentence), sentence).toBe(true);
-    for (const sentence of ["Nothing is kept in your browser.", "Its record is deleted from this site's server the moment it finishes.", "Ghost mode switches off no check and adds no fee.", "The server's logs name an order by a one-way fingerprint only."]) expect(MORE.test(sentence), sentence).toBe(false);
+    for (const sentence of ["Nothing is kept in your browser.", "Its record is deleted from this site's server the moment it is delivered or refunded.", "Ghost mode switches off no check and adds no fee.", "The server's logs name an order by a one-way fingerprint only."]) expect(MORE.test(sentence), sentence).toBe(false);
   });
 
   it("always calls it Ghost mode: capital G, small m, and never by another name", () => {
@@ -915,7 +921,7 @@ describe("what the site says of Ghost mode, taken together", () => {
       // When the record is deleted: the moment the order finishes, said by each in its own sentence.
       expect(docs).toContain("The moment it is delivered or refunded its record is deleted from the server. One that was never paid is deleted a day after its deadline, once the server has stopped looking for a late deposit.");
       expect(policy).toContain("The moment it is delivered or refunded its record is deleted; one that was never paid is deleted a day after its deadline, once the server has stopped looking for a late deposit");
-      expect(answer).toContain("the record of an order you make is deleted from its server the moment the order finishes");
+      expect(answer).toContain("the record of an order you make is deleted from its server the moment the order is delivered or refunded");
       // The one thing kept in the browser: the switch itself. Nobody says "nothing" without it.
       for (const text of [docs, policy, answer, HOME_LINE]) {
         const nothing = text.match(/keeps nothing in your browser[^.]*\./g) ?? [];
@@ -930,7 +936,7 @@ describe("what the site says of Ghost mode, taken together", () => {
         expect(text).toMatch(/if (?:you named|the order has) a rewards address/i);
         expect(text).toMatch(/place in the (?:running )?totals/);
         expect(text).toMatch(/its points/i);
-        expect(text).toMatch(/fails is kept for 30 days, as any order is/);
+        expect(text).toMatch(/fails(?:, or that ran out after a transaction was named for it that could not be confirmed,)? is kept for 30 days, as any order is/);
         expect(text).toContain("never found from its deposit address");
         expect(text).not.toMatch(/\b(?:14|7|60|90) days\b[^.]*fingerprint|fingerprint[^.]*\b(?:14|7|60|90) days\b/);
       }
